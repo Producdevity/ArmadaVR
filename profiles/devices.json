@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "qemu-arm64": {
+      "role": "virtual development target",
+      "soc": "QEMU virt; not a Qualcomm headset emulator",
+      "graphics": "Mesa software Vulkan",
+      "xr": "Monado simulated HMD and two simple controllers",
+      "installation": "regular host disk image, snapshot writes only"
+    },
+    "quest3": {
+      "role": "hardware research target",
+      "codename": "eureka",
+      "soc": "Snapdragon XR2 Gen 2; vendor kernel platform anorak",
+      "gpu": "Adreno 740",
+      "storage": "internal UFS; preserve vendor partition layout",
+      "bootloader": "no verified retail unlock path found",
+      "root": "firmware-dependent temporary kernel root; not an unlock",
+      "kernel_source": "facebookincubator/oculus-linux-kernel:oculus-quest3-kernel-master",
+      "hardware_boot_verified": false,
+      "recovery_restore_verified": false,
+      "image_available": false,
+      "kernel_source_profile": "kernel/quest3.json",
+      "vendor_dt_build_verified": true,
+      "mainline_board_support_verified": false,
+      "boot_image_format": "reference OTA 52433670036000520 uses Android v4 boot and vendor_boot; exact unit firmware remains unverified",
+      "rocknix_abl_compatibility_verified": false
+    },
+    "pico-neo3-pro": {
+      "role": "candidate first hardware bring-up target",
+      "soc": "Snapdragon XR2, first generation",
+      "ram_gb": 6,
+      "storage_gb": 256,
+      "bootloader": "community EDL/engineering ABL research; exact SKU and firmware unverified",
+      "hardware_boot_verified": false,
+      "recovery_restore_verified": false,
+      "image_available": false,
+      "kernel_source": "bytedance/neo3-kernel@9cacc1c1356dd32a048f4cb13bc84af402bd3326 (family source; exact SKU unverified)",
+      "kernel_source_profile": "kernel/pico-neo3.json",
+      "vendor_dt_build_verified": false,
+      "mainline_board_support_verified": false,
+      "rocknix_abl_compatibility_verified": false
+    },
+    "pico-neo3-pro-eye": {
+      "role": "later hardware target; preserve eye calibration",
+      "soc": "Snapdragon XR2, first generation",
+      "ram_gb": 8,
+      "storage_gb": 256,
+      "bootloader": "do not inherit unlock or firehose compatibility from consumer Neo3/Pico4",
+      "hardware_boot_verified": false,
+      "recovery_restore_verified": false,
+      "image_available": false,
+      "kernel_source": "bytedance/neo3-kernel@9cacc1c1356dd32a048f4cb13bc84af402bd3326 (family source; exact SKU unverified)",
+      "kernel_source_profile": "kernel/pico-neo3.json",
+      "vendor_dt_build_verified": false,
+      "mainline_board_support_verified": false,
+      "rocknix_abl_compatibility_verified": false
+    }
+  }
+}
