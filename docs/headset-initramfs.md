@@ -74,13 +74,23 @@ September 11 evidence:
   the Linux artifacts returns the exact selected kernel, initramfs and patched
   base DTB. All 13 reference overlays exactly match compiled overlays and retain
   their original order. The generated files contain no copied AVB/GKI signatures.
+- `output/quest3-boot-assembly-v2/`: the maintained [Quest assembler](quest-boot-assembly.md)
+  independently reproduces all three v1 Linux artifacts byte-for-byte.
+- `output/runtime-volatile-v1/`: the complete clean Fedora/Monado/Proton/FEX
+  userspace boots through the new QEMU initramfs and actual vendor CPIO prefix.
+  Native and Windows OpenXR rendering, both-hand action-driven eye captures,
+  Windows CPU execution and normal shutdown pass in 112 seconds. The 8 GiB root
+  image is attached read-only and its full checksum remains unchanged. This is
+  a separate QEMU run with no network; it does not test the SteamVR dashboard.
+  Its console preserves the automated pixel-check results; images created in
+  the RAM overlay were not exported before shutdown or newly reviewed visually.
 
 Earlier failures are retained: the PID-1 timeout launch, a test's incorrect
 assumption that the lower mount remains visible after switch-root, missing
 dracut emergency handling, and a temporary module-path layout rejected by the
 strict archive check. The final builder uses standard `/lib/modules` staging.
 
-The assembly currently exists as a recorded offline experiment, not a maintained
+The maintained assembly command is an offline container builder. It is not an
 installer or updater. It uses reference firmware `52433670036000520`, which
 differs from the recorded headset. Boot acceptance, authenticated recovery,
 physical drivers, firmware/calibration, display, tracking and full VR interaction
