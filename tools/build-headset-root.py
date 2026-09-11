@@ -15,6 +15,9 @@ spec.loader.exec_module(builder)
 spec = importlib.util.spec_from_file_location("root_assembly", ROOT / "tools/assemble-quest-boot.py")
 assembly = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(assembly)
+spec = importlib.util.spec_from_file_location("turnip_artifact", ROOT / "tools/turnip-artifact.py")
+turnip_artifact = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(turnip_artifact)
 
 SCRIPT = r'''
 set -eu
@@ -58,10 +61,24 @@ shutil.copy2('/quest.service',root/unit)
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
 shutil.copy2('/firmware/manifest.json',metadata/'quest-firmware.json')
+turnip=None
+if Path('/output/turnip.json').is_file():
+    turnip=json.loads(Path('/output/turnip.json').read_text())
+    prefix=root/'opt/armada-vr/turnip'
+    if prefix.exists() or prefix.is_symlink():
+        raise SystemExit('Base image already supplies Turnip')
+    for item in turnip['files']:
+        target=root/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copy2(Path('/turnip')/item['source'],target)
+    shutil.copy2('/turnip/build.json',metadata/'turnip-build.json')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest(),'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip},indent=2)+'\n')
 PYROOT
+if test -f /output/turnip.json; then
+    chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
+    chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/armada-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
+fi
 python3 - "$2" <<'PYSIZE'
 import sys
 with open('/output/rootfs.ext4','xb') as f:f.truncate(int(sys.argv[1])*1024**3)
@@ -72,6 +89,11 @@ debugfs -R stats /output/rootfs.ext4 > /output/filesystem.txt 2>&1
 debugfs -R 'dump /usr/lib/systemd/system/armada-quest-boot.service /tmp/verify/quest.service' /output/rootfs.ext4
 debugfs -R 'rdump /usr/lib/modules /tmp/verify/modules' /output/rootfs.ext4
 debugfs -R 'rdump /usr/lib/firmware /tmp/verify/firmware' /output/rootfs.ext4
+if test -f /output/turnip.json; then
+    mkdir /tmp/verify/turnip
+    debugfs -R 'rdump /opt/armada-vr/turnip /tmp/verify/turnip' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/armada-vr/turnip-build.json /tmp/verify/turnip-build.json' /output/rootfs.ext4
+fi
 python3 - <<'PYVERIFY'
 import hashlib,json
 from pathlib import Path
@@ -92,8 +114,17 @@ for item in firmware:
         raise SystemExit('Root image firmware mismatch: '+item['path'])
 if Path('/tmp/verify/quest.service').read_bytes()!=Path('/quest.service').read_bytes():
     raise SystemExit('Root image service mismatch')
+turnip=None
+if Path('/output/turnip.json').is_file():
+    turnip=json.loads(Path('/output/turnip.json').read_text())
+    for item in turnip['files']:
+        path=Path('/tmp/verify/turnip')/item['path'].removeprefix('opt/armada-vr/')
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:
+            raise SystemExit('Root image Turnip mismatch: '+item['path'])
+    if hashlib.sha256(Path('/tmp/verify/turnip-build.json').read_bytes()).hexdigest()!=turnip['build_sha256']:
+        raise SystemExit('Root image Turnip build record mismatch')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,
-    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest()},indent=2)+'\n')
+    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -103,6 +134,10 @@ def run(args):
     kernel, initramfs, firmware, output = (p.absolute() for p in (args.kernel, args.initramfs, args.firmware, args.output))
     if output.exists() or output.is_symlink() or any(c in str(p) for p in (kernel, initramfs, firmware, output, ROOT) for c in (",", ":")):
         raise ValueError("Choose a new output directory and paths without commas or colons")
+    turnip_dir = args.turnip.absolute() if args.turnip else None
+    if turnip_dir and any(c in str(turnip_dir) for c in (",", ":")):
+        raise ValueError("Choose a Turnip path without commas or colons")
+    turnip = turnip_artifact.validate(turnip_dir) if turnip_dir else None
     assembly.root_arguments(args.root_label)
     if not 6 <= args.size_gib <= 32:
         raise ValueError("Root size must be 6–32 GiB")
@@ -120,11 +155,14 @@ def run(args):
     if initrd.get("quest_inputs_sha256") != inputs:
         raise ValueError("Quest startup sources changed since the initramfs build")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
+    inputs["tools/turnip-artifact.py"] = builder.digest(ROOT / "tools/turnip-artifact.py")
     image = json.loads(subprocess.check_output([args.engine, "image", "inspect", args.image], text=True))[0]
     if image["Architecture"] != "arm64" or image["Os"] != "linux":
         raise ValueError("Root userspace must be Linux ARM64")
     output.mkdir(parents=True)
-    report = {"status": "started", "target": "headset-root-offline", "hardware_flash_image": False,
+    if turnip:
+        (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
+    report = {"status": "started", "turnip": turnip, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw, "container_image": image["Id"], "inputs_sha256": inputs,
@@ -141,6 +179,7 @@ def run(args):
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                    "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{kernel}:/kernel:ro",
                    "-v", f"{firmware}:/firmware:ro", "-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro",
+                   *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
         report["commands"].append(command)
@@ -148,10 +187,15 @@ def run(args):
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=320, check=True)
         if builder.inputs(kernel)[1] != hashes or builder.firmware.validate(firmware) != fw:
             raise ValueError("Kernel or firmware changed during root construction")
+        if turnip_dir and turnip_artifact.validate(turnip_dir) != turnip:
+            raise ValueError("Turnip changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
             raise ValueError("Root build sources changed during construction")
+        names = ["rootfs.ext4", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
+        if turnip:
+            names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
         report["artifacts"] = [{"path": n, "bytes": (output / n).stat().st_size, "sha256": builder.digest(output / n)}
-                               for n in ("rootfs.ext4", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt")]
+                               for n in names]
         contents = json.loads((output / "contents.json").read_text())
         report["quest_startup_unit_sha256"] = contents["quest_startup_unit_sha256"]
         report.update(status="built", sha256={a["path"]: a["sha256"] for a in report["artifacts"]})
@@ -172,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--firmware", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default="localhost/armada-vr:runtime")
+    parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--root-label", default="armada-vr-root")
     parser.add_argument("--size-gib", type=int, default=8)

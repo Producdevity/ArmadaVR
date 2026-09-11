@@ -23,6 +23,13 @@ The mapper and startup helper remain in the initramfs; the root does not replace
 that running storage service. Runtime libraries and VR software come from the
 selected userspace image.
 
+Use `--turnip VERIFIED_MESA_BUILD` to add the native AArch64 KGSL driver.
+The builder verifies its source and test identities, library/ICD checksums and
+actual DRM compile/link evidence, loads it inside the assembled userspace, and
+checks the extracted files from the finished ext4 image. See
+[Turnip build and evidence boundaries](turnip.md). This does not select a global
+ICD or enable an automatic headset session.
+
 The builder removes the exported distribution kernel modules and VM boot images,
 known QEMU-specific display/network configuration and guest-agent enablement
 when present, and the
@@ -94,3 +101,11 @@ unsigned physical-kernel containers with the corrected failure policy.
 These are boot-stack and Linux userspace results. The physical-kernel root has
 not executed on a headset. Stock SteamVR dashboard navigation and the remaining
 physical driver, bootloader and recovery gates are not established by this run.
+
+The subsequent `output/headset-root-qemu-v2/` and `output/headset-root-v2/`
+include the corrected `turnip-drm-v7` library and ICD. Both pass loading against
+the assembled userspace and extraction/hash checks on the finished filesystem.
+The new QEMU root passes the normal boot/VR lab case in 112.719 seconds and the
+mapper-failure shutdown case in 5.446 seconds, with the full root hash unchanged.
+Evidence: `output/quest-startup-turnip-v1/`. The physical-kernel root remains
+inspected offline only; the software-rendered QEMU lab does not execute KGSL.
