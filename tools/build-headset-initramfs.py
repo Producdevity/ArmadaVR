@@ -11,6 +11,12 @@ import subprocess
 import time
 
 
+ROOT = Path(__file__).resolve().parents[1]
+QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
+                "system/quest/module-setup.sh", "profiles/qcom-services.json",
+                "patches/qrtr/0001-check-qmi-packet-bounds.patch",
+                "patches/pd-mapper/0001-report-actual-firmware-path.patch"]
+
 spec = importlib.util.spec_from_file_location("quest_firmware", Path(__file__).with_name("prepare-quest-firmware.py"))
 firmware = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(firmware)
@@ -57,16 +63,29 @@ cp -a "/tmp/modules/lib/modules/$1" "/lib/modules/$1"
 if [ "$3" = yes ]; then
     set -- "$@" --include /firmware/files /usr/lib/firmware
 fi
+if [ "$4" = yes ]; then
+    cmp /qcom-profile.json /usr/share/armada-qcom-services/sources.json
+    cmp /qmi-bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
+    cmp /firmware-path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
+    cp -a /quest /usr/lib/dracut/modules.d/95armada-quest
+    python3 - <<'PYFW'
+import json
+from pathlib import Path
+manifest=json.loads(Path('/firmware/manifest.json').read_text())
+Path('/tmp/quest-firmware.sha256').write_text(''.join(item['sha256']+'  /usr/lib/firmware/'+item['path']+'\n' for item in manifest['files']))
+PYFW
+    set -- "$@" --add armada-quest
+fi
 dracut --kver "$1" --kmoddir "/lib/modules/$1" \
     --kernel-image /kernel/Image --no-hostonly --no-hostonly-cmdline \
     --no-hostonly-default-device --no-early-microcode --reproducible \
     --nostrip --gzip --nofscks --nomdadmconf --nolvmconf \
     --conf /dev/null --confdir /tmp/dracut-conf \
     --modules 'systemd systemd-initrd systemd-udevd systemd-modules-load kernel-modules rootfs-block fs-lib base shutdown dracut-systemd initqueue' \
-    --add-drivers "$2" "${@:4}" /output/initramfs.img
+    --add-drivers "$2" "${@:5}" /output/initramfs.img
 cd /tmp/unpacked
 lsinitrd --unpack /output/initramfs.img
-python3 - /kernel/modules.json /output/contents.json "$3" <<'PY'
+python3 - /kernel/modules.json /output/contents.json "$3" "$4" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 expected=json.loads(Path(sys.argv[1]).read_text())
@@ -92,13 +111,29 @@ if actual!={item['path'] for item in firmware_files}:
 required=['init','usr/lib/systemd/systemd','usr/lib/systemd/systemd-volatile-root',
           'usr/lib/systemd/system/systemd-volatile-root.service','usr/bin/mount','usr/bin/kmod',
           'usr/bin/dracut-emergency','usr/lib/systemd/system/dracut-initqueue.service']
+quest_files=[]
+if sys.argv[4]=='yes':
+    pairs=[('/quest/armada-quest-boot','usr/libexec/armada-quest-boot'),
+           ('/quest/armada-quest-boot.service','usr/lib/systemd/system/armada-quest-boot.service'),
+           ('/tmp/quest-firmware.sha256','etc/armada-vr/quest-firmware.sha256'),
+           ('/usr/bin/pd-mapper','usr/bin/pd-mapper'),('/usr/bin/qrtr-lookup','usr/bin/qrtr-lookup')]
+    for source,name in pairs:
+        path=Path(name)
+        sha=hashlib.sha256(Path(source).read_bytes()).hexdigest()
+        if not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=sha:
+            raise SystemExit('Missing or changed Quest startup file: '+name)
+        if name == 'usr/libexec/armada-quest-boot' and not path.stat().st_mode & 0o111:
+            raise SystemExit('Quest startup helper is not executable')
+        quest_files.append({'path':name,'sha256':sha})
+    required += [item['path'] for item in quest_files]
+    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/armada-quest-boot.service']
 for name in required:
     path=Path(name)
     if path.is_symlink() and path.readlink().is_absolute():
         path=Path(str(path.readlink()).lstrip('/'))
     if not path.is_file() or not path.resolve().is_relative_to(Path.cwd()):
         raise SystemExit('Missing initramfs component: '+name)
-Path(sys.argv[2]).write_text(json.dumps({'module_count':len(records),'modules':records,'required_files':required,'firmware':firmware_files},indent=2)+'\n')
+Path(sys.argv[2]).write_text(json.dumps({'module_count':len(records),'modules':records,'required_files':required,'firmware':firmware_files,'quest_services':quest_files},indent=2)+'\n')
 PY
 lsinitrd -m /output/initramfs.img > /output/dracut-modules.txt
 rpm -q dracut systemd kmod > /output/tool-versions.txt
@@ -110,6 +145,9 @@ def run(args):
     report, hashes, version, names = inputs(kernel)
     firmware_dir = args.firmware.absolute() if args.firmware else None
     firmware_manifest = firmware.validate(firmware_dir) if firmware_dir else None
+    if args.quest_services and not firmware_manifest:
+        raise ValueError("Quest startup services require a verified firmware bundle")
+    quest_hashes = {name: digest(ROOT / name) for name in QUEST_INPUTS} if args.quest_services else {}
     if firmware_dir and any(c in str(firmware_dir) for c in (",", ":")):
         raise ValueError("Firmware path must not contain commas or colons")
     if output.exists() or any("," in str(path) or ":" in str(path) for path in (kernel, output)):
@@ -121,15 +159,20 @@ def run(args):
               "kernel_build_sha256": digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "hardware_boot_verified": False, "hardware_flash_image": False,
               "container_image": image, "builder_sha256": digest(Path(__file__)),
-              "firmware": firmware_manifest,
+              "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
               "firmware_validator_sha256": digest(Path(firmware.__file__))}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                "--cpus", "2", "--pids-limit", "256", "-e", "SOURCE_DATE_EPOCH=0", "-e", "PYTHONDONTWRITEBYTECODE=1",
                "-v", f"{kernel}:/kernel:ro", "-v", f"{output}:/output"]
     if firmware_dir:
         command.extend(["-v", f"{firmware_dir}:/firmware:ro"])
+    if args.quest_services:
+        for source, target in [("system/quest", "/quest"), ("profiles/qcom-services.json", "/qcom-profile.json"),
+                               ("patches/qrtr/0001-check-qmi-packet-bounds.patch", "/qmi-bounds.patch"),
+                               ("patches/pd-mapper/0001-report-actual-firmware-path.patch", "/firmware-path.patch")]:
+            command.extend(["-v", f"{ROOT / source}:{target}:ro"])
     command.extend(["--entrypoint", "timeout", image, "--kill-after=5", "240", "bash", "-c", SCRIPT,
-                    "build-initramfs", version, " ".join(names), "yes" if firmware_dir else "no"])
+                    "build-initramfs", version, " ".join(names), "yes" if firmware_dir else "no", "yes" if args.quest_services else "no"])
     result["command"] = command
     started = time.monotonic()
     try:
@@ -142,6 +185,8 @@ def run(args):
             raise ValueError("Kernel inputs changed during initramfs construction")
         if firmware_dir and firmware.validate(firmware_dir) != firmware_manifest:
             raise ValueError("Firmware inputs changed during initramfs construction")
+        if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
+            raise ValueError("Quest startup inputs changed during construction")
         result["artifacts"] = [{"path": name, "bytes": (output / name).stat().st_size,
                                 "sha256": digest(output / name)} for name in
                                ("initramfs.img", "contents.json", "dracut-modules.txt", "tool-versions.txt")]
@@ -160,6 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("kernel", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
+    parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
     parser.add_argument("--image", default="localhost/armada-vr:vm")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     try:

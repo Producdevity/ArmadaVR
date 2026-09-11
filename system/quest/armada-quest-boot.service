@@ -1,0 +1,26 @@
+[Unit]
+Description=Quest ADSP and USB root prerequisites
+DefaultDependencies=no
+ConditionKernelCommandLine=armada.quest=usb-root
+ConditionPathExists=/etc/initrd-release
+After=systemd-udev-trigger.service systemd-modules-load.service
+Wants=systemd-udev-trigger.service systemd-modules-load.service
+Before=dracut-initqueue.service initrd-root-device.target
+IgnoreOnIsolate=yes
+SurviveFinalKillSignal=yes
+RefuseManualStop=yes
+OnFailure=emergency.target
+OnFailureJobMode=replace-irreversibly
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/usr/libexec/armada-quest-boot
+TimeoutStartSec=45
+TimeoutStopSec=5
+KillMode=control-group
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=initrd.target

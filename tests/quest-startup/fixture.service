@@ -1,0 +1,16 @@
+[Unit]
+Description=QEMU-only Quest startup model
+DefaultDependencies=no
+Before=armada-quest-boot.service
+After=systemd-udev-trigger.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/quest-fixture
+TimeoutStartSec=15
+TimeoutStopSec=2
+StandardOutput=journal+console
+StandardError=journal+console

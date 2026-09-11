@@ -95,12 +95,13 @@ def overlay_table(data, compiled):
     return records
 
 
-def root_arguments(label):
+def root_arguments(label, *, quest_services=False):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,16}", label):
         raise ValueError("Root label must be 1–16 ASCII letters, digits, hyphens or underscores")
     return (f"root=LABEL={label} ro rootfstype=ext4 rootflags=noload systemd.volatile=overlay "
             "rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 "
-            "rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30")
+            "rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30"
+            + (" armada.quest=usb-root" if quest_services else ""))
 
 
 def run(args):
@@ -108,7 +109,7 @@ def run(args):
     tool, output = args.mkbootimg.absolute(), args.output.absolute()
     if output.exists() or output.is_symlink():
         raise ValueError("Output exists; choose a new directory")
-    cmdline = root_arguments(args.root_label)
+    root_arguments(args.root_label)
     profile = checked_tools(tool)
     integrity = verify.verify_set(reference, args.reference_build, verify.load_avb(args.avbtool))
     kernel_report, kernel_hashes, _, _ = builder.inputs(kernel)
@@ -121,6 +122,10 @@ def run(args):
     firmware_manifest = initrd_report.get("firmware")
     if firmware_manifest and firmware_manifest.get("reference_build") != args.reference_build:
         raise ValueError("Initramfs firmware does not match the selected reference build")
+    quest_services = initrd_report.get("quest_services", False)
+    if type(quest_services) is not bool or (quest_services and not firmware_manifest):
+        raise ValueError("Quest startup requires a boolean service flag and verified firmware")
+    cmdline = root_arguments(args.root_label, quest_services=quest_services)
     initrd_artifacts = {item["path"]: item for item in initrd_report["artifacts"]}
     if builder.digest(initramfs / "initramfs.img") != initrd_artifacts["initramfs.img"]["sha256"]:
         raise ValueError("Initramfs checksum mismatch")
@@ -154,7 +159,7 @@ def run(args):
               "reference_build": args.reference_build, "reference_integrity": integrity,
               "kernel_build_sha256": builder.digest(kernel / "build.json"),
               "initramfs_build_sha256": builder.digest(initramfs / "build.json"),
-              "firmware": firmware_manifest,
+              "firmware": firmware_manifest, "quest_services": quest_services, "cmdline": cmdline,
               "assembler_sha256": builder.digest(Path(__file__)), "aosp_profile": profile,
               "dtbo_entries": entries, "commands": [], "reference_roundtrip": {}, "artifacts": {}}
 
@@ -211,6 +216,8 @@ def run(args):
                     any(item["name"] == "boot_signature" for item in info["sections"]) or
                     info["size"] + 69632 >= integrity["images"][name]["bytes"]):
                 raise ValueError(f"Unexpected signature, trailing bytes or insufficient partition headroom: {name}")
+            if name == "boot" and info["cmdline"] != cmdline:
+                raise ValueError("Linux command line roundtrip mismatch")
             report["artifacts"][path.name] = info
             call([tool / "unpack_bootimg.py", "--boot_img", path, "--out", output / "linux-parts" / name])
         report["artifacts"]["dtbo-unsigned.img"] = {"bytes": len(dtbo), "sha256": builder.digest(output / "dtbo-unsigned.img")}

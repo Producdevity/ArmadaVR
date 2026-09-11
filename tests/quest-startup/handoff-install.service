@@ -1,0 +1,14 @@
+[Unit]
+Description=Stage Quest test userspace into the QEMU RAM overlay
+DefaultDependencies=no
+After=initrd-root-fs.target
+Before=initrd-cleanup.service initrd-switch-root.target
+Requires=armada-quest-boot.service
+OnFailure=emergency.target
+
+[Service]
+Type=oneshot
+ExecStart=/quest-handoff-install
+RemainAfterExit=yes
+StandardOutput=journal+console
+StandardError=journal+console

@@ -1,0 +1,11 @@
+[Unit]
+Description=Verify Quest service after QEMU root handoff
+After=armada-quest-boot.service
+Wants=armada-quest-boot.service
+Before=armada-vr-lab.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/quest-root-check
+StandardOutput=journal+console
+StandardError=journal+console

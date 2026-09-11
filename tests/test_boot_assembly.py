@@ -51,6 +51,12 @@ class ArgumentTests(unittest.TestCase):
         self.assertIn("systemd.volatile=overlay", args)
         self.assertIn("rd.emergency=poweroff", args)
 
+    def test_quest_startup_is_opt_in_and_preserves_root_protections(self):
+        plain = assembly.root_arguments("armada-vr-root").split()
+        enabled = assembly.root_arguments("armada-vr-root", quest_services=True).split()
+        self.assertNotIn("armada.quest=usb-root", plain)
+        self.assertEqual(enabled, plain + ["armada.quest=usb-root"])
+
 
 class OverlayTests(unittest.TestCase):
     def setUp(self):

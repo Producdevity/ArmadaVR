@@ -1,11 +1,11 @@
 # Quest early storage and ADSP dependencies
 
-The Linux boot containers and volatile-root handoff are verified offline, but
-the current initramfs cannot yet establish a working Quest USB root path.
-[Optional ADSP firmware packaging](quest-firmware.md) is now implemented and
-verified. The [service mapper](qcom-services.md) is built and passes real QRTR/QMI
-tests on the virtual vendor kernel; explicit early startup and service ordering
-remain integration tasks.
+The optional Quest initramfs service now packages the verified ADSP firmware and
+[service mapper](qcom-services.md), requests vendor ADSP startup once, and waits
+for the PMIC channel, UCSI port and USB host role before releasing dracut's root
+search. Its startup and root-handoff lifecycle are tested with real systemd,
+vendor modules and QRTR in QEMU. The ADSP and USB state in those tests is modeled;
+physical USB root operation remains unverified.
 
 ## Dependency traced in the vendor source
 
@@ -28,7 +28,7 @@ mode. These are evidence of the vendor startup contract, not a reason to run
 Android init scripts inside Linux. Normal Android boot startup was not traced
 in this check.
 
-The initial Linux initramfs contains `qcom_q6v5_pas`, `pmic_glink`,
+The firmware-free Linux initramfs contains `qcom_q6v5_pas`, `pmic_glink`,
 `ucsi_glink`, the GLINK transports and `adsp_loader_dlkm`. Its firmware search
 directories contain no ADSP files. An external root filesystem cannot supply
 firmware needed to make that same USB root device appear. Early firmware and
@@ -57,22 +57,91 @@ split-file sizes. The MDT hash is:
 
 The check establishes extraction identity and segment geometry. It does not
 verify Qualcomm/Meta signatures, secure-world acceptance, service startup or
-compatibility with the recorded headset. No firmware was executed or added to
-the boot containers. Extra extracted blobs are retained as reference data;
+compatibility with the recorded headset. No firmware was executed during that extraction. The later maintained bundle
+is now included in the optional startup-bearing boot containers. Extra extracted blobs are retained as reference data;
 the directory is not yet a validated installation manifest.
 
-## Next boot integration
+## Startup and root lifecycle
 
-1. Add a bounded Linux early-startup sequence that waits for the actual vendor
-   ADSP loader, starts it once, and verifies the required PMIC-GLINK/UCSI state
-   before waiting for USB root. Trace service-discovery dependencies as part of
-   this work; the JSON files alone do not establish a running service registry.
-2. Integrate the now-verified service mapper into that startup sequence. Its
-   QMI replies match all four packaged ADSP domains, including `charger_pd`;
-   actual ADSP notifier registration and PMIC-GLINK/UCSI readiness remain open.
-3. Test ordering, missing firmware, missing services and controlled shutdown
-   offline. QEMU cannot validate DSP authentication, USB-C power negotiation or
-   physical storage enumeration.
+Build with `--firmware DIRECTORY --quest-services --image
+localhost/armada-vr:qcom-services`. These options are required together for this
+service; firmware-only and firmware-free builds remain available. The offline
+assembler adds `armada.quest=usb-root` only for a service-bearing initramfs and
+checks that command line after unpacking the generated boot image.
+
+`system/quest/armada-quest-boot` verifies the Eureka/Anorak identity and all 48
+firmware hashes before loading the QRTR, ADSP loader, PMIC and UCSI modules.
+`ucsi_glink` has no module alias in this vendor build, so it is loaded explicitly.
+The helper finds exactly one Anorak ADSP remoteproc and waits for a real QRTR
+service locator (service 64, version 1, instance 1) before requesting boot.
+
+For an offline ADSP, an atomic marker in `/run` prevents a second boot request.
+An already-running ADSP is observed without another request. The vendor loader
+returns after scheduling work, so a successful write is not treated as readiness.
+The service also requires ADSP `running`, the bound `PMIC_RTR_ADSP_APPS` RPMsg
+channel, a bound UCSI type-C port and a DWC3 role of `host`. Each wait is capped
+at 12 seconds and the whole service startup at 45 seconds. It never forces host
+role or requests a DSP reset. Missing prerequisites fail into the configured
+initramfs emergency power-off path.
+
+The first PMIC RPMsg probe populates the UCSI child, whose initial probe starts
+UCSI setup. Later restarts use the PMIC notifier path. This is why a PDR callback
+alone is not a sufficient first-boot readiness signal. The `uses_elf64` field in
+`qcom_q6v5_pas.c` selects the coredump format; it does not require ELF64 MDT
+firmware.
+
+The service follows [systemd's root-storage daemon contract](https://systemd.io/ROOT_STORAGE_DAEMONS/):
+it starts in the initramfs, survives isolation and the root-switch termination
+pass, and refuses manual stop/restart. The main root needs the same unit file.
+The mapper continues executing from initramfs memory; it is not replaced by a
+root-filesystem copy. A complete root-image packaging workflow is still pending.
+
+## Repeatable offline acceptance
+
+```sh
+python3 -B tools/test-quest-startup.py QEMU_KERNEL QEMU_STARTUP_INITRAMFS QCOM_SOURCES \
+  --rootfs QEMU_RUNTIME_ROOT --output NEW_TEST_DIRECTORY
+```
+
+The runner checks all input identities and refuses physical kernel/initramfs
+variants, changed source or firmware-bearing initramfs bytes, and existing
+outputs. It compiles the real QMI probe from pinned sources in the same image
+used to build the initramfs. Every QEMU has no network. Only the root case has a
+disk, attached read-only with ext4 journal replay disabled and a RAM overlay.
+
+The cases cover original-QEMU identity rejection, successful modeled startup,
+missing firmware, a repeated request, unavailable mapper, missing host role and
+actual root switch. The fixtures require the original QEMU identity before
+modeling sysfs; they load all six real vendor modules and exchange real QRTR/QMI
+messages. They do not execute DSP firmware or model USB-C electrical behavior.
+
+Root acceptance requires the same service PID and valid QMI responses before
+and after switch-root, manual restart refusal, the existing full native/Windows
+VR lab checks, controlled shutdown and an unchanged backing-image checksum.
+Only the service unit and test tools are staged into the RAM overlay. This is
+not an installer and does not establish physical driver operation.
+
+The initial handoff test caught systemd terminating the mapper on root switch.
+`IgnoreOnIsolate` alone was insufficient; `SurviveFinalKillSignal` fixed that
+lifecycle. Early fixture checks also exposed stacked `findmnt` records for the
+lower ext4 and overlay mounts; the final fixture verifies the effective
+filesystem with `statfs` instead. The failed runs remain in `output/quest-startup-root-v1`
+through `v4`; the corrected experiment is `v5`.
+
+September 11 acceptance is recorded in `output/quest-startup-maintained-v1/`:
+all seven cases pass; the root case completes in 110.336 seconds, including
+native and Windows rendering/input, and the full 8 GiB backing-image checksum
+is unchanged. `output/headset-initramfs-quest-v1/` and `v2/` reproduce the same
+35,418,486-byte startup initramfs. The unsigned service-bearing container
+roundtrip is `output/quest3-boot-assembly-startup-v1/`. None of these results
+verify physical firmware execution or headset boot acceptance.
+
+Remaining boot integration includes packaging the unit in the actual root
+image and testing failure after root switch. The current service sends an
+unexpected mapper exit to `emergency.target`; the configured initramfs emergency
+path powers off, but the main-root failure policy still needs its own test.
+Physical ADSP authentication, PMIC services, USB-C negotiation and storage
+availability remain outside the QEMU model.
 
 The subsequent maintained firmware preparer includes `battmgr.jsn` from the
 same vendor image. It declares `msm/adsp/charger_pd`, QMI instance 74. Its 48-file

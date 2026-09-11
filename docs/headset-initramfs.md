@@ -25,7 +25,13 @@ filesystem repair helper. Inputs and previous outputs are never overwritten.
 `--firmware DIRECTORY` optionally includes a [prepared Quest ADSP bundle](quest-firmware.md).
 The builder verifies its manifest before and after construction, then checks
 every firmware hash and rejects unexpected firmware in the unpacked image.
-This supplies firmware data; it does not add an ADSP startup service.
+Firmware inclusion alone does not add an ADSP startup service. Add
+`--quest-services --image localhost/armada-vr:qcom-services` to include the
+[bounded Quest startup and mapper lifecycle](quest-early-boot.md). The builder
+checks the pinned mapper source profile and patches, then verifies the installed
+helper, unit, enable link, firmware checksum manifest and mapper binaries.
+Activation also requires `armada.quest=usb-root`, emitted by the offline assembler
+for this variant.
 
 The root handoff currently uses a dedicated ext4 root selected by label, with
 journal loading disabled and writable state held in RAM:

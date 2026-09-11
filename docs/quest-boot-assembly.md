@@ -38,7 +38,9 @@ The Linux outputs are:
 
 - `boot-linux-unsigned.img`: the selected Linux Image and dracut initramfs, with
   Android OS-version fields cleared and the dedicated read-only ext4/RAM-overlay
-  root policy. `--root-label` can change the filesystem label.
+  root policy. `--root-label` can change the filesystem label. A Quest-service
+  initramfs also adds `armada.quest=usb-root`; the firmware bundle must match the
+  reference build. Firmware-only and firmware-free variants omit this flag.
 - `vendor_boot-linux-unsigned.img`: the patched base DTB and an empty platform
   CPIO fragment, retaining the reference vendor metadata. Android vendor-ramdisk
   modules are replaced by the initramfs's matching Linux modules.
@@ -48,7 +50,7 @@ The Linux outputs are:
 
 The assembler inspects the new containers, requires partition-size headroom,
 rejects retained AVB/GKI signatures, and extracts their payloads again to verify
-the exact kernel, ramdisk and DTB hashes. `report.json` records input identities,
+the exact kernel, ramdisk, DTB hashes and Linux command line. `report.json` records input identities,
 tool pins, commands and results; `logs/` retains command output. Failed runs stay
 in their output directory for diagnosis.
 
