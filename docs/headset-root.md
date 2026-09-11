@@ -17,6 +17,13 @@ network-disabled container limited to two CPUs, 2 GiB and five minutes. It never
 mounts or formats a host block device. `rootfs.tar` preserves the exported input;
 previous output directories are refused.
 
+With `--reuse-export PREVIOUS_ROOT_DIRECTORY`, the builder instead reads that
+successful build's retained `rootfs.tar`. The immutable userspace image must
+match, and the export's checksum must match before and after construction.
+The archive is mounted read-only; `manifest.json` records its source path,
+source manifest hash and archive hash. The new output does not duplicate the
+archive. Preserve the source directory alongside the new root.
+
 The root includes the selected vendor module set, the verified 48-file ADSP
 bundle, their build records, and the exact startup service used in the initramfs.
 The mapper and startup helper remain in the initramfs; the root does not replace
@@ -29,6 +36,12 @@ actual DRM compile/link evidence, loads it inside the assembled userspace, and
 checks the extracted files from the finished ext4 image. See
 [Turnip build and evidence boundaries](turnip.md). This does not select a global
 ICD or enable an automatic headset session.
+
+`--gpu-firmware VERIFIED_GPU_BUNDLE` adds the five KGSL firmware files selected
+by the [firmware preparer](quest-firmware.md#gpu-firmware). The GPU and ADSP
+bundles must declare the same reference build and vendor-image hash. GPU files
+are checked again after construction and against copies extracted from ext4.
+They are packaged as data; the builder does not execute them.
 
 The builder removes the exported distribution kernel modules and VM boot images,
 known QEMU-specific display/network configuration and guest-agent enablement
@@ -109,3 +122,12 @@ The new QEMU root passes the normal boot/VR lab case in 112.719 seconds and the
 mapper-failure shutdown case in 5.446 seconds, with the full root hash unchanged.
 Evidence: `output/quest-startup-turnip-v1/`. The physical-kernel root remains
 inspected offline only; the software-rendered QEMU lab does not execute KGSL.
+
+
+`output/headset-root-qemu-v3/` and `output/headset-root-v3/` additionally include
+the verified GPU firmware. Both reuse their v2 userspace exports read-only,
+with archive hashes unchanged. The new QEMU root passes normal boot and the
+VR lab in 112.913 seconds, and mapper-failure poweroff in 5.509 seconds.
+Evidence: `output/quest-startup-gpu-firmware-v1/`. The separate diskless kernel
+firmware test verifies lookup and MDT metadata using files extracted from the
+completed root; it does not run the GPU.

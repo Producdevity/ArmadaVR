@@ -22,7 +22,7 @@ spec.loader.exec_module(turnip_artifact)
 SCRIPT = r'''
 set -eu
 mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
-tar -xpf /output/rootfs.tar -C /tmp/root
+tar -xpf /rootfs.tar -C /tmp/root
 tar -xzf /kernel/modules.tar.gz -C /tmp/modules --no-same-owner
 python3 - "$1" <<'PYROOT'
 import hashlib,json,shutil,sys
@@ -51,16 +51,19 @@ modules=root/'usr/lib/modules';modules.mkdir()
 shutil.copytree(Path('/tmp/modules/lib/modules')/version,modules/version,symlinks=True)
 fw=root/'usr/lib/firmware';fw.mkdir(exist_ok=True)
 manifest=json.loads(Path('/firmware/manifest.json').read_text())
-for item in manifest['files']:
+gpu=json.loads(Path('/gpu-firmware/manifest.json').read_text()) if Path('/gpu-firmware').exists() else None
+for item in manifest['files']+(gpu['files'] if gpu else []):
     path=fw/item['path']
     if path.is_symlink() or path.exists():
-        raise SystemExit('Base image already supplies selected ADSP firmware: '+str(path))
-    shutil.copy2(Path('/firmware/files')/item['path'],path)
+        raise SystemExit('Base image already supplies selected Quest firmware: '+str(path))
+    source='/gpu-firmware/files' if gpu and item in gpu['files'] else '/firmware/files'
+    shutil.copy2(Path(source)/item['path'],path)
 unit='usr/lib/systemd/system/armada-quest-boot.service'
 shutil.copy2('/quest.service',root/unit)
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
 shutil.copy2('/firmware/manifest.json',metadata/'quest-firmware.json')
+if gpu:shutil.copy2('/gpu-firmware/manifest.json',metadata/'quest-gpu-firmware.json')
 turnip=None
 if Path('/output/turnip.json').is_file():
     turnip=json.loads(Path('/output/turnip.json').read_text())
@@ -73,7 +76,7 @@ if Path('/output/turnip.json').is_file():
     shutil.copy2('/turnip/build.json',metadata/'turnip-build.json')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest(),'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'gpu_firmware':gpu},indent=2)+'\n')
 PYROOT
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
@@ -108,7 +111,8 @@ for item in expected:
 actual={str(p.relative_to(module_root)) for p in module_root.rglob('*.ko')}
 if actual!={i['path'] for i in modules}:raise SystemExit('Unexpected root kernel modules')
 firmware=json.loads(Path('/firmware/manifest.json').read_text())['files']
-for item in firmware:
+gpu=json.loads(Path('/gpu-firmware/manifest.json').read_text())['files'] if Path('/gpu-firmware').exists() else []
+for item in firmware+gpu:
     p=Path('/tmp/verify/firmware/firmware')/item['path']
     if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=item['sha256']:
         raise SystemExit('Root image firmware mismatch: '+item['path'])
@@ -123,7 +127,7 @@ if Path('/output/turnip.json').is_file():
             raise SystemExit('Root image Turnip mismatch: '+item['path'])
     if hashlib.sha256(Path('/tmp/verify/turnip-build.json').read_bytes()).hexdigest()!=turnip['build_sha256']:
         raise SystemExit('Root image Turnip build record mismatch')
-Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,
+Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,
     'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
@@ -138,11 +142,18 @@ def run(args):
     if turnip_dir and any(c in str(turnip_dir) for c in (",", ":")):
         raise ValueError("Choose a Turnip path without commas or colons")
     turnip = turnip_artifact.validate(turnip_dir) if turnip_dir else None
+    gpu_dir = args.gpu_firmware.absolute() if args.gpu_firmware else None
+    export_dir = args.reuse_export.absolute() if args.reuse_export else None
+    if any(c in str(p) for p in (gpu_dir, export_dir) if p for c in (",", ":")):
+        raise ValueError("Choose GPU firmware and export paths without commas or colons")
+    gpu = builder.firmware.validate(gpu_dir, "gpu") if gpu_dir else None
     assembly.root_arguments(args.root_label)
     if not 6 <= args.size_gib <= 32:
         raise ValueError("Root size must be 6–32 GiB")
     build, hashes, version, _ = builder.inputs(kernel)
     fw = builder.firmware.validate(firmware)
+    if gpu and (gpu["reference_build"] != fw["reference_build"] or gpu["source_image_sha256"] != fw["source_image_sha256"]):
+        raise ValueError("GPU and ADSP firmware must come from the same declared reference image")
     initrd = json.loads((initramfs / "build.json").read_text())
     if (initrd.get("status") != "built" or initrd.get("quest_services") is not True or initrd.get("firmware") != fw or
             initrd.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
@@ -156,29 +167,47 @@ def run(args):
         raise ValueError("Quest startup sources changed since the initramfs build")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
     inputs["tools/turnip-artifact.py"] = builder.digest(ROOT / "tools/turnip-artifact.py")
+    inputs["tools/prepare-quest-firmware.py"] = builder.digest(ROOT / "tools/prepare-quest-firmware.py")
     image = json.loads(subprocess.check_output([args.engine, "image", "inspect", args.image], text=True))[0]
     if image["Architecture"] != "arm64" or image["Os"] != "linux":
         raise ValueError("Root userspace must be Linux ARM64")
+    export_source = None
+    if export_dir:
+        export_manifest = json.loads((export_dir / "manifest.json").read_text())
+        archive = export_dir / "rootfs.tar"
+        if (export_manifest.get("target") != "headset-root-offline" or export_manifest.get("status") != "built" or
+                export_manifest.get("container_image") != image["Id"]):
+            raise ValueError("Reused export must come from a successful root build with the same immutable userspace image")
+        if archive.is_symlink() or not archive.is_file() or builder.digest(archive) != export_manifest.get("export_sha256"):
+            raise ValueError("Reused userspace export checksum mismatch")
+        export_source = {"path": str(archive), "manifest_sha256": builder.digest(export_dir / "manifest.json"),
+                         "sha256": export_manifest["export_sha256"]}
     output.mkdir(parents=True)
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
-    report = {"status": "started", "turnip": turnip, "target": "headset-root-offline", "hardware_flash_image": False,
+    report = {"status": "started", "turnip": turnip, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw, "container_image": image["Id"], "inputs_sha256": inputs,
               "root_label": args.root_label, "size_gib": args.size_gib, "commands": []}
     container = None; started = time.monotonic()
     try:
-        command = [args.engine, "create", image["Id"]]
-        report["commands"].append(command)
-        container = subprocess.check_output(command, text=True, timeout=30).strip()
-        command = [args.engine, "export", container]; report["commands"].append(command)
-        with (output / "rootfs.tar").open("xb") as stream:
-            subprocess.run(command, stdout=stream, timeout=180, check=True)
-        report["export_sha256"] = builder.digest(output / "rootfs.tar")
+        if export_source:
+            archive = Path(export_source["path"])
+            report["export_sha256"] = export_source["sha256"]
+        else:
+            command = [args.engine, "create", image["Id"]]
+            report["commands"].append(command)
+            container = subprocess.check_output(command, text=True, timeout=30).strip()
+            command = [args.engine, "export", container]; report["commands"].append(command)
+            archive = output / "rootfs.tar"
+            with archive.open("xb") as stream:
+                subprocess.run(command, stdout=stream, timeout=180, check=True)
+            report["export_sha256"] = builder.digest(archive)
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
-                   "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{kernel}:/kernel:ro",
+                   "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{archive}:/rootfs.tar:ro", "-v", f"{kernel}:/kernel:ro",
                    "-v", f"{firmware}:/firmware:ro", "-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro",
+                   *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
@@ -187,6 +216,12 @@ def run(args):
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=320, check=True)
         if builder.inputs(kernel)[1] != hashes or builder.firmware.validate(firmware) != fw:
             raise ValueError("Kernel or firmware changed during root construction")
+        if builder.digest(archive) != report["export_sha256"]:
+            raise ValueError("Userspace export changed during construction")
+        if export_source and builder.digest(export_dir / "manifest.json") != export_source["manifest_sha256"]:
+            raise ValueError("Source export manifest changed during construction")
+        if gpu_dir and builder.firmware.validate(gpu_dir, "gpu") != gpu:
+            raise ValueError("GPU firmware changed during root construction")
         if turnip_dir and turnip_artifact.validate(turnip_dir) != turnip:
             raise ValueError("Turnip changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
@@ -217,6 +252,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default="localhost/armada-vr:runtime")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
+    parser.add_argument("--gpu-firmware", type=Path, help="Verified GPU bundle from the same Quest reference image")
+    parser.add_argument("--reuse-export", type=Path, help="Reuse rootfs.tar from a successful root build with the same userspace image")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--root-label", default="armada-vr-root")
     parser.add_argument("--size-gib", type=int, default=8)
