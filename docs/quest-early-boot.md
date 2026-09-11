@@ -1,9 +1,9 @@
 # Quest early storage and ADSP dependencies
 
 The Linux boot containers and volatile-root handoff are verified offline, but
-the current initramfs cannot yet establish a working Quest USB root path. It
-includes the compiled USB and remote-processor drivers without the ADSP firmware
-or an explicit ADSP startup step. This is a remaining boot integration task.
+the current initramfs cannot yet establish a working Quest USB root path.
+[Optional ADSP firmware packaging](quest-firmware.md) is now implemented and
+verified; explicit early startup and service discovery remain integration tasks.
 
 ## Dependency traced in the vendor source
 
@@ -26,7 +26,7 @@ mode. These are evidence of the vendor startup contract, not a reason to run
 Android init scripts inside Linux. Normal Android boot startup was not traced
 in this check.
 
-The inspected Linux initramfs contains `qcom_q6v5_pas`, `pmic_glink`,
+The initial Linux initramfs contains `qcom_q6v5_pas`, `pmic_glink`,
 `ucsi_glink`, the GLINK transports and `adsp_loader_dlkm`. Its firmware search
 directories contain no ADSP files. An external root filesystem cannot supply
 firmware needed to make that same USB root device appear. Early firmware and
@@ -61,16 +61,20 @@ the directory is not yet a validated installation manifest.
 
 ## Next boot integration
 
-1. Define the exact MDT, required split segments and service-discovery data for
-   the selected firmware, retaining their source-image identity. Validate the
-   manifest before adding firmware to an initramfs.
-2. Add a bounded Linux early-startup sequence that waits for the actual vendor
+1. Add a bounded Linux early-startup sequence that waits for the actual vendor
    ADSP loader, starts it once, and verifies the required PMIC-GLINK/UCSI state
    before waiting for USB root. Trace service-discovery dependencies as part of
    this work; the JSON files alone do not establish a running service registry.
+2. Integrate the service mapper for this 5.10 kernel and verify its actual QMI
+   responses against the packaged `charger_pd` declaration.
 3. Test ordering, missing firmware, missing services and controlled shutdown
    offline. QEMU cannot validate DSP authentication, USB-C power negotiation or
    physical storage enumeration.
+
+The subsequent maintained firmware preparer includes `battmgr.jsn` from the
+same vendor image. It declares `msm/adsp/charger_pd`, QMI instance 74. Its 48-file
+bundle includes only the MDT's required split data and metadata, plus four
+service declarations. The earlier 51-file extraction remains preserved.
 
 The UFS controller, Qualcomm PHY, SCM and crypto dependencies are also present
 in the kernel/module inventory, but physical UFS operation remains unverified.

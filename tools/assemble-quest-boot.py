@@ -118,6 +118,9 @@ def run(args):
     if (initrd_report.get("status") != "built" or initrd_report.get("qemu_transports") is not False or
             initrd_report.get("kernel_build_sha256") != builder.digest(kernel / "build.json")):
         raise ValueError("Initramfs does not match the selected headset kernel build")
+    firmware_manifest = initrd_report.get("firmware")
+    if firmware_manifest and firmware_manifest.get("reference_build") != args.reference_build:
+        raise ValueError("Initramfs firmware does not match the selected reference build")
     initrd_artifacts = {item["path"]: item for item in initrd_report["artifacts"]}
     if builder.digest(initramfs / "initramfs.img") != initrd_artifacts["initramfs.img"]["sha256"]:
         raise ValueError("Initramfs checksum mismatch")
@@ -151,6 +154,7 @@ def run(args):
               "reference_build": args.reference_build, "reference_integrity": integrity,
               "kernel_build_sha256": builder.digest(kernel / "build.json"),
               "initramfs_build_sha256": builder.digest(initramfs / "build.json"),
+              "firmware": firmware_manifest,
               "assembler_sha256": builder.digest(Path(__file__)), "aosp_profile": profile,
               "dtbo_entries": entries, "commands": [], "reference_roundtrip": {}, "artifacts": {}}
 

@@ -22,6 +22,11 @@ emergency handling as well as systemd's volatile-root service. It does not embed
 the builder host's root device, fstab or disk configuration, and includes no
 filesystem repair helper. Inputs and previous outputs are never overwritten.
 
+`--firmware DIRECTORY` optionally includes a [prepared Quest ADSP bundle](quest-firmware.md).
+The builder verifies its manifest before and after construction, then checks
+every firmware hash and rejects unexpected firmware in the unpacked image.
+This supplies firmware data; it does not add an ADSP startup service.
+
 The root handoff currently uses a dedicated ext4 root selected by label, with
 journal loading disabled and writable state held in RAM:
 
