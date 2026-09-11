@@ -3,7 +3,9 @@
 The Linux boot containers and volatile-root handoff are verified offline, but
 the current initramfs cannot yet establish a working Quest USB root path.
 [Optional ADSP firmware packaging](quest-firmware.md) is now implemented and
-verified; explicit early startup and service discovery remain integration tasks.
+verified. The [service mapper](qcom-services.md) is built and passes real QRTR/QMI
+tests on the virtual vendor kernel; explicit early startup and service ordering
+remain integration tasks.
 
 ## Dependency traced in the vendor source
 
@@ -65,8 +67,9 @@ the directory is not yet a validated installation manifest.
    ADSP loader, starts it once, and verifies the required PMIC-GLINK/UCSI state
    before waiting for USB root. Trace service-discovery dependencies as part of
    this work; the JSON files alone do not establish a running service registry.
-2. Integrate the service mapper for this 5.10 kernel and verify its actual QMI
-   responses against the packaged `charger_pd` declaration.
+2. Integrate the now-verified service mapper into that startup sequence. Its
+   QMI replies match all four packaged ADSP domains, including `charger_pd`;
+   actual ADSP notifier registration and PMIC-GLINK/UCSI readiness remain open.
 3. Test ordering, missing firmware, missing services and controlled shutdown
    offline. QEMU cannot validate DSP authentication, USB-C power negotiation or
    physical storage enumeration.

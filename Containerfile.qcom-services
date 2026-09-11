@@ -1,0 +1,38 @@
+ARG BASE_IMAGE=localhost/armada-vr:vm
+FROM ${BASE_IMAGE}
+RUN timeout -k 5 180 dnf -y --setopt=install_weak_deps=False install meson xz-devel patch \
+    && dnf clean all
+COPY patches/qrtr /tmp/qrtr-patches
+COPY patches/pd-mapper /tmp/pd-mapper-patches
+COPY tests/qcom-services/qmi-bounds.c /tmp/qmi-bounds.c
+COPY profiles/qcom-services.json /usr/share/armada-qcom-services/sources.json
+COPY --from=qcom-sources /pd-mapper.tar.gz /tmp/pd-mapper.tar.gz
+COPY --from=qcom-sources /qrtr.tar.gz /tmp/qrtr.tar.gz
+RUN printf '%s\n' \
+      '08972b8813d08da5e20d27e57c5989398a0b750be92cd4398b5b21190c6ccdd0  /tmp/pd-mapper.tar.gz' \
+      '315641ec00b010100b1e5d91eac1c76105e8978fb8a72c2428d779193e5c6290  /tmp/qrtr.tar.gz' \
+      | sha256sum -c - \
+    && mkdir -p /tmp/qcom/qrtr /tmp/qcom/pd-mapper \
+    && tar -xzf /tmp/qrtr.tar.gz -C /tmp/qcom/qrtr --strip-components=1 \
+    && tar -xzf /tmp/pd-mapper.tar.gz -C /tmp/qcom/pd-mapper --strip-components=1 \
+    && patch -d /tmp/qcom/qrtr -p1 < /tmp/qrtr-patches/0001-check-qmi-packet-bounds.patch \
+    && gcc -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+       -I/tmp/qcom/qrtr/include /tmp/qmi-bounds.c /tmp/qcom/qrtr/lib/qmi.c \
+       /tmp/qcom/qrtr/lib/logging.c -o /tmp/qmi-bounds \
+    && ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 \
+       timeout -k 5 30 /tmp/qmi-bounds > /usr/share/armada-qcom-services/sanitizers.log 2>&1 \
+    && timeout -k 5 120 meson setup /tmp/qcom/qrtr-build /tmp/qcom/qrtr \
+       --prefix=/usr --libdir=lib64 --buildtype=release \
+    && timeout -k 5 120 meson compile -C /tmp/qcom/qrtr-build -j2 \
+    && meson install -C /tmp/qcom/qrtr-build \
+    && patch -d /tmp/qcom/pd-mapper -p1 < /tmp/pd-mapper-patches/0001-report-actual-firmware-path.patch \
+    && timeout -k 5 120 make -C /tmp/qcom/pd-mapper -j2 prefix=/usr \
+    && install -m755 /tmp/qcom/pd-mapper/pd-mapper /usr/bin/pd-mapper \
+    && mkdir -p /usr/share/licenses/armada-qcom-services \
+    && cp /tmp/qcom/pd-mapper/LICENSE /usr/share/licenses/armada-qcom-services/pd-mapper \
+    && cp /tmp/qcom/qrtr/LICENSE /usr/share/licenses/armada-qcom-services/qrtr \
+    && cp /tmp/qrtr-patches/0001-check-qmi-packet-bounds.patch /usr/share/armada-qcom-services/ \
+    && cp /tmp/pd-mapper-patches/0001-report-actual-firmware-path.patch /usr/share/armada-qcom-services/ \
+    && ldconfig \
+    && rpm -q gcc meson xz-libs xz-devel patch > /usr/share/licenses/armada-qcom-services/build-packages.txt \
+    && rm -rf /tmp/qcom /tmp/qrtr.tar.gz /tmp/pd-mapper.tar.gz /tmp/qrtr-patches /tmp/qmi-bounds /tmp/qmi-bounds.c /tmp/pd-mapper-patches

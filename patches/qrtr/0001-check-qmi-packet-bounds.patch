@@ -1,0 +1,79 @@
+--- a/lib/qmi.c
++++ b/lib/qmi.c
+@@ -570,16 +570,18 @@
+ 	} else {
+ 		string_len_sz = temp_ei->elem_len <= 256 ?
+ 				sizeof(uint8_t) : sizeof(uint16_t);
++		if (string_len_sz > tlv_len)
++			return -EINVAL;
+ 		rc = qmi_decode_basic_elem(&string_len, buf_src,
+ 					   1, string_len_sz);
+ 		decoded_bytes += rc;
+ 	}
+ 
+-	if (string_len > temp_ei->elem_len) {
++	if (string_len >= temp_ei->elem_len) {
+ 		LOGW("%s: String len %u > Max Len %u\n",
+ 		     __func__, string_len, temp_ei->elem_len);
+ 		return -EINVAL;
+-	} else if (string_len > tlv_len) {
++	} else if (string_len > tlv_len - string_len_sz) {
+ 		LOGW("%s: String len %u > Input Buffer Len %u\n",
+ 		     __func__, string_len, tlv_len);
+ 		return -EFAULT;
+@@ -651,11 +653,15 @@
+ 			return decoded_bytes;
+ 
+ 		if (dec_level == 1) {
++			if (in_buf_len - decoded_bytes < TLV_TYPE_SIZE + TLV_LEN_SIZE)
++				return -EINVAL;
+ 			tlv_pointer = buf_src;
+ 			QMI_ENCDEC_DECODE_TLV(&tlv_type,
+ 					      &tlv_len, tlv_pointer);
+ 			buf_src = (void*)((char*)buf_src + (TLV_TYPE_SIZE + TLV_LEN_SIZE));
+ 			decoded_bytes += (TLV_TYPE_SIZE + TLV_LEN_SIZE);
++			if (tlv_len > in_buf_len - decoded_bytes)
++				return -EINVAL;
+ 			temp_ei = find_ei(ei_array, tlv_type);
+ 			if (!temp_ei && tlv_type < OPTIONAL_TLV_TYPE_START) {
+ 				LOGW("%s: Inval element info\n", __func__);
+@@ -683,6 +689,8 @@
+ 		if (temp_ei->data_type == QMI_DATA_LEN) {
+ 			data_len_sz = temp_ei->elem_size == sizeof(uint8_t) ?
+ 					sizeof(uint8_t) : sizeof(uint16_t);
++			if (data_len_sz > tlv_len)
++				return -EINVAL;
+ 			rc = qmi_decode_basic_elem(&data_len_value, buf_src,
+ 						   1, data_len_sz);
+ 			memcpy(buf_dst, &data_len_value, sizeof(uint32_t));
+@@ -710,6 +718,8 @@
+ 		case QMI_SIGNED_1_BYTE_ENUM:
+ 		case QMI_SIGNED_2_BYTE_ENUM:
+ 		case QMI_SIGNED_4_BYTE_ENUM:
++			if (!temp_ei->elem_size || data_len_value > tlv_len / temp_ei->elem_size)
++				return -EINVAL;
+ 			rc = qmi_decode_basic_elem(buf_dst, buf_src,
+ 						   data_len_value,
+ 						   temp_ei->elem_size);
+@@ -798,6 +808,9 @@
+ {
+ 	const struct qmi_header *qmi = pkt->data;
+ 
++	if (!pkt->data || pkt->data_len < sizeof(*qmi))
++		return -EINVAL;
++
+ 	if (qmi->msg_len != pkt->data_len - sizeof(*qmi)) {
+ 		LOGW("[RMTFS] Invalid length of incoming qmi request\n");
+ 		return -EINVAL;
+@@ -827,7 +840,10 @@
+ 	if (!ei)
+ 		return -EINVAL;
+ 
+-	if (!c_struct || !pkt->data || !pkt->data_len)
++	if (!c_struct || !pkt->data || pkt->data_len < sizeof(*hdr))
++		return -EINVAL;
++
++	if (hdr->msg_len != pkt->data_len - sizeof(*hdr))
+ 		return -EINVAL;
+ 
+ 	if (hdr->type != type)

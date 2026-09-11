@@ -1,0 +1,11 @@
+--- a/pd-mapper.c
++++ b/pd-mapper.c
+@@ -253,7 +253,7 @@
+ 
+ 	fw_dir = opendir(out_path_opened);
+ 	if (!fw_dir)
+-		warn("Cannot open firmware path: %s", fw_sysfs_path);
++		warn("Cannot open firmware path: %s", out_path_opened);
+ 
+ 	return fw_dir;
+ }

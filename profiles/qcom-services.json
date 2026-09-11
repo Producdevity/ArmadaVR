@@ -1,0 +1,18 @@
+{
+  "sources": [
+    {
+      "name": "pd-mapper",
+      "commit": "5ecd2fe926aca7abfe40724177f63b942cff3947",
+      "url": "https://codeload.github.com/linux-msm/pd-mapper/tar.gz/5ecd2fe926aca7abfe40724177f63b942cff3947",
+      "bytes": 11347,
+      "sha256": "08972b8813d08da5e20d27e57c5989398a0b750be92cd4398b5b21190c6ccdd0"
+    },
+    {
+      "name": "qrtr",
+      "commit": "27d2c9dfb4e8653ac314ebe2b7980fed2f4bac2e",
+      "url": "https://codeload.github.com/linux-msm/qrtr/tar.gz/27d2c9dfb4e8653ac314ebe2b7980fed2f4bac2e",
+      "bytes": 18245,
+      "sha256": "315641ec00b010100b1e5d91eac1c76105e8978fb8a72c2428d779193e5c6290"
+    }
+  ]
+}
