@@ -1,0 +1,151 @@
+--- a/src/vulkan/wsi/wsi_common_x11.c
++++ b/src/vulkan/wsi/wsi_common_x11.c
+@@ -1120,6 +1120,7 @@
+ 
+    bool                                         has_dri3_modifiers;
+    bool                                         has_mit_shm;
++   bool                                         sw_present;
+    bool                                         has_async_may_tear;
+ 
+    xcb_connection_t *                           conn;
+@@ -1433,7 +1434,8 @@
+        !wsi_device->x11.ignore_suboptimal)
+       options |= XCB_PRESENT_OPTION_SUBOPTIMAL;
+ 
+-   xshmfence_reset(image->shm_fence);
++   if (image->shm_fence)
++      xshmfence_reset(image->shm_fence);
+ 
+    if (!chain->base.image_info.explicit_sync) {
+       ++chain->sent_image_count;
+@@ -1501,7 +1503,8 @@
+  * Send image to X server unaccelerated (software drivers).
+  */
+ static VkResult
+-x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index)
++x11_present_to_x11_sw(struct x11_swapchain *chain, uint32_t image_index,
++                     uint64_t target_msc, VkPresentModeKHR present_mode)
+ {
+    assert(!chain->base.image_info.explicit_sync);
+    struct x11_image *image = &chain->images[image_index];
+@@ -1512,6 +1515,7 @@
+ 
+    xcb_void_cookie_t cookie;
+    void *myptr = image->base.cpu_map;
++   xcb_drawable_t target = chain->sw_present ? image->pixmap : chain->window;
+    size_t hdr_len = sizeof(xcb_put_image_request_t);
+    int stride_b = image->base.row_pitches[0];
+    size_t size = (hdr_len + stride_b * chain->extent.height) >> 2;
+@@ -1523,7 +1527,7 @@
+          const uint8_t *data = (const uint8_t*)myptr + (rect.y * stride_b) + (rect.x * 4);
+          for (int j = 0; j < rect.height; j++) {
+             cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                                   chain->window, chain->gc,
++                                   target, chain->gc,
+                                    rect.width,
+                                    1,
+                                    rect.x, rect.y + j,
+@@ -1536,7 +1540,7 @@
+       }
+    } else if (size < max_req_len) {
+       cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                             chain->window,
++                             target,
+                              chain->gc,
+                              image->base.row_pitches[0] / 4,
+                              chain->extent.height,
+@@ -1551,7 +1555,7 @@
+       while (y_todo) {
+          int this_lines = MIN2(num_lines, y_todo);
+          cookie = xcb_put_image(chain->conn, XCB_IMAGE_FORMAT_Z_PIXMAP,
+-                                chain->window,
++                                target,
+                                 chain->gc,
+                                 image->base.row_pitches[0] / 4,
+                                 this_lines,
+@@ -1583,6 +1587,10 @@
+    free(err);
+    free(geom);
+ 
++#ifdef HAVE_X11_DRM
++   if (chain->sw_present && result == VK_SUCCESS)
++      return x11_present_to_x11_dri3(chain, image_index, target_msc, present_mode);
++#endif
+    wsi_queue_push(&chain->acquire_queue, image_index);
+    return result;
+ }
+@@ -1720,7 +1728,7 @@
+ 
+    VkResult result;
+    if (chain->base.wsi->sw && !chain->has_mit_shm)
+-      result = x11_present_to_x11_sw(chain, image_index);
++      result = x11_present_to_x11_sw(chain, image_index, target_msc, present_mode);
+    else
+ #ifdef HAVE_X11_DRM
+       result = x11_present_to_x11_dri3(chain, image_index, target_msc, present_mode);
+@@ -2107,8 +2115,32 @@
+       return result;
+ 
+    image->update_region = None;
+-   if (chain->base.wsi->sw && !chain->has_mit_shm)
++   if (chain->base.wsi->sw && !chain->has_mit_shm) {
++#ifdef HAVE_X11_DRM
++      if (chain->sw_present) {
++         image->pixmap = xcb_generate_id(chain->conn);
++         xcb_void_cookie_t cookie = xcb_create_pixmap_checked(
++            chain->conn, chain->depth, image->pixmap, chain->window,
++            image->base.row_pitches[0] / 4, pCreateInfo->imageExtent.height);
++         xcb_generic_error_t *error = xcb_request_check(chain->conn, cookie);
++         if (error) {
++            free(error);
++            wsi_destroy_image(&chain->base, &image->base);
++            return VK_ERROR_OUT_OF_DEVICE_MEMORY;
++         }
++         image->update_region = xcb_generate_id(chain->conn);
++         cookie = xcb_xfixes_create_region_checked(chain->conn, image->update_region, 0, NULL);
++         error = xcb_request_check(chain->conn, cookie);
++         if (error) {
++            free(error);
++            xcb_free_pixmap(chain->conn, image->pixmap);
++            wsi_destroy_image(&chain->base, &image->base);
++            return VK_ERROR_OUT_OF_HOST_MEMORY;
++         }
++      }
++#endif
+       return VK_SUCCESS;
++   }
+ 
+ #ifdef HAVE_X11_DRM
+    xcb_void_cookie_t cookie;
+@@ -2260,11 +2292,14 @@
+                  struct x11_image *image)
+ {
+    xcb_void_cookie_t cookie;
+-   if (!chain->base.wsi->sw || chain->has_mit_shm) {
++   if (!chain->base.wsi->sw || chain->has_mit_shm || chain->sw_present) {
+ #ifdef HAVE_X11_DRM
+-      cookie = xcb_sync_destroy_fence(chain->conn, image->sync_fence);
+-      xcb_discard_reply(chain->conn, cookie.sequence);
+-      xshmfence_unmap_shm(image->shm_fence);
++      if (image->sync_fence) {
++         cookie = xcb_sync_destroy_fence(chain->conn, image->sync_fence);
++         xcb_discard_reply(chain->conn, cookie.sequence);
++      }
++      if (image->shm_fence)
++         xshmfence_unmap_shm(image->shm_fence);
+ #endif
+ 
+       cookie = xcb_free_pixmap(chain->conn, image->pixmap);
+@@ -2746,6 +2781,12 @@
+    chain->status = VK_SUCCESS;
+    chain->has_dri3_modifiers = wsi_conn->has_dri3_modifiers;
+    chain->has_mit_shm = wsi_conn->has_mit_shm;
++#ifdef HAVE_X11_DRM
++   /* Software XPutImage bypasses Present completion events required by SteamVR. */
++   chain->sw_present = wsi_device->sw && !chain->has_mit_shm &&
++                       wsi_conn->has_present && wsi_conn->has_xfixes &&
++                       debug_get_bool_option("MESA_VK_WSI_SW_PRESENT", false);
++#endif
+    chain->has_async_may_tear = present_caps & XCB_PRESENT_CAPABILITY_ASYNC_MAY_TEAR;
+ 
+    /* When images in the swapchain don't fit the window, X can still present them, but it won't

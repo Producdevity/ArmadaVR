@@ -1,0 +1,27 @@
+{
+  "version": "26.1.8",
+  "checksum_source": "https://docs.mesa3d.org/relnotes/26.1.8.html",
+  "full_source": {
+    "url": "https://archive.mesa3d.org/mesa-26.1.8.tar.xz",
+    "size": 77827888,
+    "sha256": "b320f65874fd9653ac6c0bd1616605387344e1247411a50c797b5f3fb9dc0b55",
+    "archive_root": "mesa-26.1.8"
+  },
+  "meson_options": [
+    "--prefix=/opt/armada-vr/mesa", "--libdir=lib64", "--buildtype=release",
+    "--wrap-mode=nodownload", "-Db_lto=false", "-Dgallium-drivers=llvmpipe",
+    "-Dvulkan-drivers=swrast", "-Dplatforms=x11,wayland", "-Dglx=disabled",
+    "-Degl=disabled", "-Dgles1=disabled", "-Dgles2=disabled", "-Dopengl=false",
+    "-Dvideo-codecs=", "-Dgallium-va=disabled", "-Dgallium-rusticl=false",
+    "-Dllvm=enabled", "-Dshared-llvm=enabled", "-Dbuild-tests=false",
+    "-Ddraw-use-llvm=true", "-Dtools="
+  ],
+  "turnip_meson_options": [
+    "--prefix=/opt/armada-vr/turnip", "--libdir=lib64", "--buildtype=release",
+    "--wrap-mode=nodownload", "-Db_lto=false", "-Dgallium-drivers=",
+    "-Dvulkan-drivers=freedreno", "-Dfreedreno-kmds=kgsl", "-Dfreedreno-kgsl-drm-sync=true", "-Dplatforms=x11,wayland",
+    "-Dglx=disabled", "-Degl=disabled", "-Dgles1=disabled", "-Dgles2=disabled",
+    "-Dopengl=false", "-Dvideo-codecs=", "-Dgallium-va=disabled",
+    "-Dgallium-rusticl=false", "-Dllvm=disabled", "-Dbuild-tests=false", "-Dtools="
+  ]
+}

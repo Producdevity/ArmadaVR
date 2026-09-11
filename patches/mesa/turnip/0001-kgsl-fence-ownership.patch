@@ -1,0 +1,264 @@
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -702,15 +702,18 @@
+    kgsl_syncobj_reset(s);
+ }
+ 
+-static struct kgsl_syncobj
+-kgsl_syncobj_dup(struct kgsl_syncobj *s)
+-{
+-   struct kgsl_syncobj dups = *s;
+-   if (s->state == KGSL_SYNCOBJ_STATE_FD && s->fd >= 0) {
+-      dups.fd = dup(s->fd);
+-      assert(dups.fd >= 0);
+-   }
+-   return dups;
++static VkResult
++kgsl_syncobj_dup(const struct kgsl_syncobj *s, struct kgsl_syncobj *out)
++{
++   *out = *s;
++   if (s->state == KGSL_SYNCOBJ_STATE_FD) {
++      out->fd = os_dupfd_cloexec(s->fd);
++      if (out->fd < 0) {
++         kgsl_syncobj_init(out, false);
++         return VK_ERROR_OUT_OF_HOST_MEMORY;
++      }
++   }
++   return VK_SUCCESS;
+ }
+ 
+ static int
+@@ -1006,7 +1009,7 @@
+ }
+ 
+ static VkResult
+-kgsl_syncobj_export(struct kgsl_syncobj *s, int *pFd)
++kgsl_syncobj_export(const struct kgsl_syncobj *s, int *pFd)
+ {
+    if (!pFd)
+       return VK_SUCCESS;
+@@ -1019,15 +1022,12 @@
+       return VK_SUCCESS;
+ 
+    case KGSL_SYNCOBJ_STATE_FD:
+-      if (s->fd < 0)
+-         *pFd = -1;
+-      else
+-         *pFd = os_dupfd_cloexec(s->fd);
+-      return VK_SUCCESS;
++      *pFd = os_dupfd_cloexec(s->fd);
++      return *pFd < 0 ? VK_ERROR_OUT_OF_HOST_MEMORY : VK_SUCCESS;
+ 
+    case KGSL_SYNCOBJ_STATE_TS:
+       *pFd = kgsl_syncobj_ts_to_fd(s);
+-      return VK_SUCCESS;
++      return *pFd < 0 ? VK_ERROR_UNKNOWN : VK_SUCCESS;
+ 
+    default:
+       UNREACHABLE("Invalid syncobj state");
+@@ -1048,84 +1048,59 @@
+    return VK_SUCCESS;
+ }
+ 
+-static int
+-sync_merge_close(const char *name, int fd1, int fd2, bool close_fd2)
+-{
+-   int fd = sync_merge(name, fd1, fd2);
+-   if (fd < 0)
+-      return -1;
+-
+-   close(fd1);
+-   if (close_fd2)
+-      close(fd2);
+-
+-   return fd;
+-}
+-
+-/* Merges multiple kgsl_syncobjs into a single one which is only signalled
+- * after all submitted syncobjs are signalled
+- */
+-static struct kgsl_syncobj
+-kgsl_syncobj_merge(const struct kgsl_syncobj **syncobjs, uint32_t count)
+-{
+-   struct kgsl_syncobj ret;
+-   kgsl_syncobj_init(&ret, true);
+-
+-   if (count == 0)
+-      return ret;
++/* Preserve every queue dependency before converting timestamps to sync files. */
++static VkResult
++kgsl_syncobj_merge(const struct kgsl_syncobj **syncobjs, uint32_t count,
++                   struct kgsl_syncobj *out)
++{
++   kgsl_syncobj_init(out, true);
++   VkResult result = VK_SUCCESS;
+ 
+    for (uint32_t i = 0; i < count; ++i) {
+       const struct kgsl_syncobj *sync = syncobjs[i];
+-
+-      switch (sync->state) {
+-      case KGSL_SYNCOBJ_STATE_SIGNALED:
+-         break;
+-
+-      case KGSL_SYNCOBJ_STATE_UNSIGNALED:
+-         kgsl_syncobj_reset(&ret);
+-         return ret;
+-
+-      case KGSL_SYNCOBJ_STATE_TS:
+-         if (ret.state == KGSL_SYNCOBJ_STATE_TS) {
+-            if (ret.queue == sync->queue) {
+-               ret.timestamp = max_ts(ret.timestamp, sync->timestamp);
+-            } else {
+-               ret.state = KGSL_SYNCOBJ_STATE_FD;
+-               int sync_fd = kgsl_syncobj_ts_to_fd(sync);
+-               ret.fd = sync_merge_close("tu_sync", ret.fd, sync_fd, true);
+-               assert(ret.fd >= 0);
+-            }
+-         } else if (ret.state == KGSL_SYNCOBJ_STATE_FD) {
+-            int sync_fd = kgsl_syncobj_ts_to_fd(sync);
+-            ret.fd = sync_merge_close("tu_sync", ret.fd, sync_fd, true);
+-            assert(ret.fd >= 0);
+-         } else {
+-            ret = *sync;
+-         }
+-         break;
+-
+-      case KGSL_SYNCOBJ_STATE_FD:
+-         if (ret.state == KGSL_SYNCOBJ_STATE_FD) {
+-            ret.fd = sync_merge_close("tu_sync", ret.fd, sync->fd, false);
+-            assert(ret.fd >= 0);
+-         } else if (ret.state == KGSL_SYNCOBJ_STATE_TS) {
+-            ret.state = KGSL_SYNCOBJ_STATE_FD;
+-            int sync_fd = kgsl_syncobj_ts_to_fd(sync);
+-            ret.fd = sync_merge_close("tu_sync", ret.fd, sync_fd, true);
+-            assert(ret.fd >= 0);
+-         } else {
+-            ret = *sync;
+-            ret.fd = os_dupfd_cloexec(ret.fd);
+-            assert(ret.fd >= 0);
+-         }
+-         break;
+-
+-      default:
+-         UNREACHABLE("invalid syncobj state");
+-      }
+-   }
+-
+-   return ret;
++      if (sync->state == KGSL_SYNCOBJ_STATE_SIGNALED)
++         continue;
++      if (sync->state == KGSL_SYNCOBJ_STATE_UNSIGNALED) {
++         result = VK_ERROR_UNKNOWN;
++         goto fail;
++      }
++      if (out->state == KGSL_SYNCOBJ_STATE_SIGNALED) {
++         result = kgsl_syncobj_dup(sync, out);
++         if (result != VK_SUCCESS)
++            goto fail;
++         continue;
++      }
++      if (out->state == KGSL_SYNCOBJ_STATE_TS &&
++          sync->state == KGSL_SYNCOBJ_STATE_TS && out->queue == sync->queue) {
++         out->timestamp = max_ts(out->timestamp, sync->timestamp);
++         continue;
++      }
++
++      int left_fd = -1, right_fd = -1;
++      result = kgsl_syncobj_export(out, &left_fd);
++      if (result != VK_SUCCESS)
++         goto fail;
++      result = kgsl_syncobj_export(sync, &right_fd);
++      if (result != VK_SUCCESS) {
++         close(left_fd);
++         goto fail;
++      }
++      int merged_fd = sync_merge("tu_sync", left_fd, right_fd);
++      close(left_fd);
++      close(right_fd);
++      if (merged_fd < 0) {
++         result = VK_ERROR_UNKNOWN;
++         goto fail;
++      }
++      kgsl_syncobj_reset(out);
++      out->state = KGSL_SYNCOBJ_STATE_FD;
++      out->fd = merged_fd;
++   }
++   return VK_SUCCESS;
++
++fail:
++   kgsl_syncobj_reset(out);
++   return result;
+ }
+ 
+ struct vk_kgsl_syncobj
+@@ -1427,10 +1402,11 @@
+ 
+       wait_semaphores[wait_count] = &last_submit_sync;
+ 
+-      struct kgsl_syncobj wait_sync =
+-         kgsl_syncobj_merge(wait_semaphores, wait_count + 1);
+-      assert(wait_sync.state !=
+-             KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
++      struct kgsl_syncobj wait_sync;
++      VkResult result = kgsl_syncobj_merge(wait_semaphores, wait_count + 1,
++                                           &wait_sync);
++      if (result != VK_SUCCESS)
++         return result;
+ 
+       if (signal_count == 1) {
+          /* Move instead of duplicating the syncobj, as we don't need to
+@@ -1449,7 +1425,12 @@
+                    ->syncobj;
+ 
+             kgsl_syncobj_reset(signal_sync);
+-            *signal_sync = kgsl_syncobj_dup(&wait_sync);
++            result = kgsl_syncobj_dup(&wait_sync, signal_sync);
++            if (result != VK_SUCCESS) {
++               kgsl_syncobj_destroy(&wait_sync);
++               kgsl_syncobj_destroy(&last_submit_sync);
++               return result;
++            }
+          }
+ 
+          kgsl_syncobj_destroy(&wait_sync);
+@@ -1505,10 +1486,18 @@
+              ->syncobj;
+    }
+ 
+-   struct kgsl_syncobj wait_sync =
+-      kgsl_syncobj_merge(wait_semaphores, wait_count);
+-   assert(wait_sync.state !=
+-          KGSL_SYNCOBJ_STATE_UNSIGNALED); // Would wait forever
++   struct kgsl_syncobj wait_sync;
++   result = kgsl_syncobj_merge(wait_semaphores, wait_count, &wait_sync);
++   if (result != VK_SUCCESS) {
++      if (u_trace_submission_data) {
++         mtx_lock(&queue->device->kgsl_profiling_mutex);
++         tu_suballoc_bo_free(&queue->device->kgsl_profiling_suballoc,
++                             &u_trace_submission_data->kgsl_timestamp_bo);
++         mtx_unlock(&queue->device->kgsl_profiling_mutex);
++      }
++      vk_free(&queue->device->vk.alloc, objs);
++      return result;
++   }
+ 
+    struct kgsl_cmd_syncpoint_timestamp ts;
+    struct kgsl_cmd_syncpoint_fence fn;
+@@ -1650,8 +1639,6 @@
+    }
+ #endif
+ 
+-   kgsl_syncobj_destroy(&wait_sync);
+-
+    if (ret) {
+       result = vk_device_set_lost(&queue->device->vk, "submit failed: %s\n",
+                                   strerror(errno));
+@@ -1678,6 +1665,8 @@
+    }
+ 
+ fail_submit:
++   kgsl_syncobj_destroy(&wait_sync);
++   vk_free(&queue->device->vk.alloc, objs);
+    if (result != VK_SUCCESS && u_trace_submission_data) {
+       mtx_lock(&queue->device->kgsl_profiling_mutex);
+       tu_suballoc_bo_free(&queue->device->kgsl_profiling_suballoc,

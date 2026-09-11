@@ -1,0 +1,188 @@
+--- a/src/gallium/frontends/lavapipe/lvp_private.h
++++ b/src/gallium/frontends/lavapipe/lvp_private.h
+@@ -159,6 +159,10 @@
+    uint32_t max_images;
+    bool snorm_blend;
+ 
++#ifdef HAVE_LIBDRM
++   int sync_drm_fd;
++   struct vk_sync_type drm_sync_type;
++#endif
+    struct vk_sync_timeline_type sync_timeline_type;
+    const struct vk_sync_type *sync_types[3];
+ 
+--- a/src/gallium/frontends/lavapipe/lvp_device.c
++++ b/src/gallium/frontends/lavapipe/lvp_device.c
+@@ -28,8 +28,14 @@
+ #include "pipe-loader/pipe_loader.h"
+ #include "git_sha1.h"
+ #include "vk_cmd_enqueue_entrypoints.h"
++#include "vk_common_entrypoints.h"
+ #include "vk_sampler.h"
+ #include "vk_util.h"
++#ifdef HAVE_LIBDRM
++#include "vk_drm_syncobj.h"
++#include <fcntl.h>
++#include <unistd.h>
++#endif
+ #include "util/detect.h"
+ #include "pipe/p_defines.h"
+ #include "pipe/p_state.h"
+@@ -1418,6 +1424,43 @@
+ 
+ }
+ 
++#ifdef HAVE_LIBDRM
++static VkResult
++lvp_init_drm_sync(struct lvp_physical_device *device)
++{
++   device->sync_drm_fd = -1;
++   const char *path = os_get_option("LVP_DRM_SYNC");
++   if (!path || !path[0])
++      return VK_SUCCESS;
++
++   int fd = open(path, O_RDWR | O_CLOEXEC);
++   if (fd < 0)
++      return vk_errorf(device, VK_ERROR_INITIALIZATION_FAILED,
++                       "Cannot open LVP_DRM_SYNC device %s", path);
++
++   struct util_sync_provider *provider = util_sync_provider_drm(fd);
++   if (!provider) {
++      close(fd);
++      return vk_error(device, VK_ERROR_OUT_OF_HOST_MEMORY);
++   }
++   device->drm_sync_type = vk_drm_syncobj_get_type_from_provider(provider);
++   provider->finalize(provider);
++   enum vk_sync_features required = VK_SYNC_FEATURE_CPU_WAIT |
++                                    VK_SYNC_FEATURE_CPU_SIGNAL |
++                                    VK_SYNC_FEATURE_TIMELINE;
++   if ((device->drm_sync_type.features & required) != required) {
++      close(fd);
++      return vk_errorf(device, VK_ERROR_INITIALIZATION_FAILED,
++                       "LVP_DRM_SYNC device lacks CPU timeline synchronization");
++   }
++
++   device->sync_drm_fd = fd;
++   /* The runtime permits only one timeline type per physical device. */
++   device->sync_types[1] = &device->drm_sync_type;
++   return VK_SUCCESS;
++}
++#endif
++
+ static VkResult VKAPI_CALL
+ lvp_physical_device_init(struct lvp_physical_device *device,
+                          struct lvp_instance *instance,
+@@ -1449,6 +1492,14 @@
+    device->sync_types[1] = &device->sync_timeline_type.sync;
+    device->sync_types[2] = NULL;
+    device->vk.supported_sync_types = device->sync_types;
++#ifdef HAVE_LIBDRM
++   result = lvp_init_drm_sync(device);
++   if (result != VK_SUCCESS) {
++      device->pscreen->destroy(device->pscreen);
++      vk_physical_device_finish(&device->vk);
++      return result;
++   }
++#endif
+ 
+    device->max_images = device->pscreen->shader_caps[MESA_SHADER_FRAGMENT].max_shader_images;
+    device->vk.supported_extensions = lvp_device_extensions_supported;
+@@ -1481,6 +1532,11 @@
+ #ifdef LVP_USE_WSI_PLATFORM
+    result = lvp_init_wsi(device);
+    if (result != VK_SUCCESS) {
++#ifdef HAVE_LIBDRM
++      if (device->sync_drm_fd >= 0)
++         close(device->sync_drm_fd);
++#endif
++      device->pscreen->destroy(device->pscreen);
+       vk_physical_device_finish(&device->vk);
+       vk_error(instance, result);
+       goto fail;
+@@ -1497,6 +1553,10 @@
+ {
+ #ifdef LVP_USE_WSI_PLATFORM
+    lvp_finish_wsi(device);
++#endif
++#ifdef HAVE_LIBDRM
++   if (device->sync_drm_fd >= 0)
++      close(device->sync_drm_fd);
+ #endif
+    device->pscreen->destroy(device->pscreen);
+    vk_physical_device_finish(&device->vk);
+@@ -1816,10 +1876,25 @@
+    if (submit->command_buffer_count > 0)
+       queue->ctx->flush(queue->ctx, &queue->last_fence, 0);
+ 
++   bool render_complete = queue->last_fence == NULL;
+    for (uint32_t i = 0; i < submit->signal_count; i++) {
+-      struct lvp_pipe_sync *sync =
+-         vk_sync_as_lvp_pipe_sync(submit->signals[i].sync);
+-      lvp_pipe_sync_signal_with_fence(device, sync, queue->last_fence);
++      struct vk_sync *sync = submit->signals[i].sync;
++      if (sync->type == &lvp_pipe_sync_type) {
++         lvp_pipe_sync_signal_with_fence(device,
++            vk_sync_as_lvp_pipe_sync(sync), queue->last_fence);
++         continue;
++      }
++
++      /* DRM signals must follow completion of the llvmpipe worker threads. */
++      if (!render_complete) {
++         render_complete = device->pscreen->fence_finish(device->pscreen, NULL,
++                              queue->last_fence, OS_TIMEOUT_INFINITE);
++         if (!render_complete)
++            return vk_error(device, VK_ERROR_DEVICE_LOST);
++      }
++      result = vk_sync_signal(&device->vk, sync, submit->signals[i].signal_value);
++      if (result != VK_SUCCESS)
++         return result;
+    }
+    destroy_pipelines(queue);
+ 
+@@ -1907,6 +1982,16 @@
+       return result;
+    }
+ 
++#ifdef HAVE_LIBDRM
++   if (physical_device->sync_drm_fd >= 0) {
++      vk_device_set_drm_fd(&device->vk, physical_device->sync_drm_fd);
++      if (!device->vk.sync) {
++         vk_device_finish(&device->vk);
++         vk_free(&device->vk.alloc, device);
++         return vk_error(instance, VK_ERROR_OUT_OF_HOST_MEMORY);
++      }
++   }
++#endif
+    vk_device_enable_threaded_submit(&device->vk);
+    device->vk.command_buffer_ops = &lvp_cmd_buffer_ops;
+ 
+@@ -2770,6 +2855,14 @@
+    const VkPhysicalDeviceExternalFenceInfo    *pExternalFenceInfo,
+    VkExternalFenceProperties                  *pExternalFenceProperties)
+ {
++#ifdef HAVE_LIBDRM
++   VK_FROM_HANDLE(lvp_physical_device, device, physicalDevice);
++   if (device->sync_drm_fd >= 0) {
++      vk_common_GetPhysicalDeviceExternalFenceProperties(physicalDevice,
++         pExternalFenceInfo, pExternalFenceProperties);
++      return;
++   }
++#endif
+    const VkExternalFenceHandleTypeFlagBits handle_type = pExternalFenceInfo->handleType;
+ 
+    if (handle_type == VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT) {
+@@ -2792,6 +2885,14 @@
+    const VkPhysicalDeviceExternalSemaphoreInfo *pExternalSemaphoreInfo,
+    VkExternalSemaphoreProperties               *pExternalSemaphoreProperties)
+ {
++#ifdef HAVE_LIBDRM
++   VK_FROM_HANDLE(lvp_physical_device, device, physicalDevice);
++   if (device->sync_drm_fd >= 0) {
++      vk_common_GetPhysicalDeviceExternalSemaphoreProperties(physicalDevice,
++         pExternalSemaphoreInfo, pExternalSemaphoreProperties);
++      return;
++   }
++#endif
+    const VkSemaphoreTypeCreateInfo *type_info =
+       vk_find_struct_const(pExternalSemaphoreInfo->pNext, SEMAPHORE_TYPE_CREATE_INFO);
+    const VkSemaphoreType type = !type_info ? VK_SEMAPHORE_TYPE_BINARY : type_info->semaphoreType;

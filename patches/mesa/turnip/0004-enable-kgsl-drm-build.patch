@@ -1,0 +1,40 @@
+--- a/meson.build
++++ b/meson.build
+@@ -318,7 +318,11 @@
+ with_gallium_or_lvp = with_gallium or with_swrast_vk
+ 
+ freedreno_kmds = get_option('freedreno-kmds')
+-if freedreno_kmds.length() != 0 and freedreno_kmds != [ 'msm' ] and with_freedreno_vk
++with_freedreno_kgsl_drm_sync = get_option('freedreno-kgsl-drm-sync')
++if with_freedreno_kgsl_drm_sync and (not with_freedreno_vk or not freedreno_kmds.contains('kgsl') or not system_has_kms_drm)
++  error('freedreno-kgsl-drm-sync requires Turnip KGSL on a DRM platform')
++endif
++if freedreno_kmds.length() != 0 and freedreno_kmds != [ 'msm' ] and with_freedreno_vk and not with_freedreno_kgsl_drm_sync
+   if freedreno_kmds.contains('msm')
+       warning('Turnip with the DRM KMD will require libdrm to always be present at runtime which may not always be the case on platforms such as Android.')
+   elif with_gallium_drm
+@@ -1846,7 +1850,7 @@
+ if system_has_kms_drm
+   dep_libdrm = dependency(
+     'libdrm', version : '>=' + _drm_ver,
+-    required : with_dri2 or with_dri or with_gbm,
++    required : with_dri2 or with_dri or with_gbm or with_freedreno_kgsl_drm_sync,
+     allow_fallback: allow_fallback_for_libdrm,
+   )
+ else
+--- a/meson.options
++++ b/meson.options
+@@ -220,6 +220,13 @@
+ # On those systems, zink with Turnip should be used instead.
+ # WSL is only supported for the replay tool.
+ option(
++  'freedreno-kgsl-drm-sync',
++  type : 'boolean',
++  value : false,
++  description : 'Build DRM sync object support for the KGSL Vulkan backend',
++)
++
++option(
+   'freedreno-kmds',
+   type : 'array',
+   value : ['msm'],

@@ -1,0 +1,304 @@
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -22,6 +22,11 @@
+ #include "util/u_debug.h"
+ #include "util/u_vector.h"
+ #include "vk_util.h"
++#ifdef HAVE_LIBDRM
++#include "vk_drm_syncobj.h"
++#include "util/u_sync_provider.h"
++#include "tu_kgsl_drm_sync.h"
++#endif
+ 
+ #include "tu_cmd_buffer.h"
+ #include "tu_cs.h"
+@@ -1328,7 +1333,7 @@
+ }
+ 
+ static VkResult
+-kgsl_queue_submit(struct tu_queue *queue, void *_submit,
++kgsl_queue_submit_native(struct tu_queue *queue, void *_submit,
+                   struct vk_sync_wait *waits, uint32_t wait_count,
+                   struct vk_sync_signal *signals, uint32_t signal_count,
+                   struct tu_u_trace_submission_data *u_trace_submission_data)
+@@ -1643,10 +1648,157 @@
+    return result;
+ }
+ 
++#ifdef HAVE_LIBDRM
++static VkResult
++kgsl_queue_submit_drm(struct tu_queue *queue, void *submit,
++                      struct vk_sync_wait *waits, uint32_t wait_count,
++                      struct vk_sync_signal *signals, uint32_t signal_count,
++                      struct tu_u_trace_submission_data *trace)
++{
++   struct tu_device *device = queue->device;
++   struct vk_device *vk = &device->vk;
++   const int drm_fd = device->physical_device->kgsl_sync_fd;
++   struct vk_kgsl_syncobj *objects = (struct vk_kgsl_syncobj *)
++      calloc(wait_count, sizeof(*objects));
++   struct vk_sync_wait *native_waits = (struct vk_sync_wait *)
++      calloc(wait_count, sizeof(*native_waits));
++   struct vk_kgsl_syncobj completion;
++   struct vk_sync_signal native_signal = { .sync = &completion.vk, .signal_value = 0 };
++   uint32_t initialized = 0;
++   int completion_fd = -1;
++   bool completion_initialized = false;
++   VkResult result = VK_ERROR_OUT_OF_HOST_MEMORY;
++   if (wait_count && (!objects || !native_waits))
++      goto finish;
++
++   for (uint32_t i = 0; i < signal_count; ++i) {
++      if (!vk_sync_as_drm_syncobj(signals[i].sync)) {
++         result = VK_ERROR_UNKNOWN;
++         goto finish;
++      }
++   }
++   for (uint32_t i = 0; i < wait_count; ++i) {
++      struct vk_drm_syncobj *sobj = vk_sync_as_drm_syncobj(waits[i].sync);
++      if (!sobj) {
++         result = VK_ERROR_UNKNOWN;
++         goto finish;
++      }
++      result = vk_sync_init(vk, &objects[i].vk, &vk_kgsl_sync_type,
++                            (enum vk_sync_flags)0, 0);
++      if (result != VK_SUCCESS)
++         goto finish;
++      initialized++;
++      int fd;
++      if (tu_kgsl_drm_export_wait(drm_fd, sobj->syncobj, waits[i].wait_value, &fd)) {
++         result = VK_ERROR_UNKNOWN;
++         goto finish;
++      }
++      result = kgsl_syncobj_import(&objects[i].syncobj, fd);
++      if (result != VK_SUCCESS) {
++         close(fd);
++         goto finish;
++      }
++      native_waits[i] = { .sync = &objects[i].vk, .stage_mask = waits[i].stage_mask,
++                          .wait_value = 0 };
++   }
++   if (signal_count) {
++      result = vk_sync_init(vk, &completion.vk, &vk_kgsl_sync_type,
++                            (enum vk_sync_flags)0, 0);
++      if (result != VK_SUCCESS)
++         goto finish;
++      completion_initialized = true;
++   }
++   result = kgsl_queue_submit_native(queue, submit, native_waits, wait_count,
++                                     signal_count ? &native_signal : NULL,
++                                     signal_count ? 1 : 0, trace);
++   if (result != VK_SUCCESS || !signal_count)
++      goto finish;
++
++   result = kgsl_syncobj_export(&completion.syncobj, &completion_fd);
++   if (result != VK_SUCCESS) {
++      result = vk_device_set_lost(vk, "Failed to export submitted KGSL fence");
++      goto finish;
++   }
++   for (uint32_t i = 0; i < signal_count; ++i) {
++      struct vk_drm_syncobj *sobj = vk_sync_as_drm_syncobj(signals[i].sync);
++      if (tu_kgsl_drm_import_signal(drm_fd, sobj->syncobj,
++                                    signals[i].signal_value, completion_fd)) {
++         result = vk_device_set_lost(vk, "Failed to publish submitted KGSL fence");
++         goto finish;
++      }
++   }
++
++finish:
++   if (completion_fd >= 0)
++      close(completion_fd);
++   if (completion_initialized)
++      vk_sync_finish(vk, &completion.vk);
++   for (uint32_t i = 0; i < initialized; ++i)
++      vk_sync_finish(vk, &objects[i].vk);
++   free(native_waits);
++   free(objects);
++   return result;
++}
++
++static VkResult
++kgsl_init_drm_sync(struct tu_physical_device *device)
++{
++   const char *path = os_get_option("TU_KGSL_DRM_SYNC");
++   if (!path || !path[0])
++      return VK_SUCCESS;
++   int fd = open(path, O_RDWR | O_CLOEXEC);
++   if (fd < 0)
++      return vk_errorf(device->instance, VK_ERROR_INITIALIZATION_FAILED,
++                       "Cannot open TU_KGSL_DRM_SYNC device %s", path);
++   struct util_sync_provider *provider = util_sync_provider_drm(fd);
++   if (!provider) {
++      close(fd);
++      return VK_ERROR_OUT_OF_HOST_MEMORY;
++   }
++   device->syncobj_type = vk_drm_syncobj_get_type_from_provider(provider);
++   provider->finalize(provider);
++   const unsigned required = VK_SYNC_FEATURE_BINARY | VK_SYNC_FEATURE_TIMELINE |
++                             VK_SYNC_FEATURE_CPU_WAIT | VK_SYNC_FEATURE_CPU_SIGNAL |
++                             VK_SYNC_FEATURE_WAIT_PENDING;
++   if ((device->syncobj_type.features & required) != required) {
++      close(fd);
++      return vk_errorf(device->instance, VK_ERROR_INITIALIZATION_FAILED,
++                       "TU_KGSL_DRM_SYNC requires DRM timeline sync objects");
++   }
++   device->kgsl_sync_fd = fd;
++   device->has_kgsl_drm_sync = true;
++   device->sync_types[0] = &device->syncobj_type;
++   device->sync_types[1] = NULL;
++   return VK_SUCCESS;
++}
++#endif
++
++static VkResult
++kgsl_queue_submit(struct tu_queue *queue, void *submit,
++                  struct vk_sync_wait *waits, uint32_t wait_count,
++                  struct vk_sync_signal *signals, uint32_t signal_count,
++                  struct tu_u_trace_submission_data *trace)
++{
++#ifdef HAVE_LIBDRM
++   if (queue->device->physical_device->has_kgsl_drm_sync)
++      return kgsl_queue_submit_drm(queue, submit, waits, wait_count,
++                                   signals, signal_count, trace);
++#endif
++   return kgsl_queue_submit_native(queue, submit, waits, wait_count,
++                                   signals, signal_count, trace);
++}
++
+ static VkResult
+ kgsl_device_init(struct tu_device *dev)
+ {
+    dev->fd = dev->physical_device->local_fd;
++#ifdef HAVE_LIBDRM
++   if (dev->physical_device->has_kgsl_drm_sync) {
++      dev->vk.sync = util_sync_provider_drm(dev->physical_device->kgsl_sync_fd);
++      if (!dev->vk.sync)
++         return VK_ERROR_OUT_OF_HOST_MEMORY;
++   }
++#endif
+    return VK_SUCCESS;
+ }
+ 
+@@ -1823,6 +1975,11 @@
+    device->sync_types[0] = &vk_kgsl_sync_type;
+    device->sync_types[1] = &device->timeline_type.sync;
+    device->sync_types[2] = NULL;
++#ifdef HAVE_LIBDRM
++   result = kgsl_init_drm_sync(device);
++   if (result != VK_SUCCESS)
++      goto fail;
++#endif
+ 
+    device->heap.size = tu_get_system_heap_size(device);
+    device->heap.used = 0u;
+@@ -1879,8 +2036,9 @@
+       device->ubwc_config.macrotile_mode = FDL_MACROTILE_8_CHANNEL;
+       break;
+    default:
+-      return vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
+-                       "unknown UBWC version 0x%x", ubwc_version);
++      result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
++                          "unknown UBWC version 0x%x", ubwc_version);
++      goto fail;
+    }
+ 
+    /* kgsl unfortunately hardcodes some settings for certain GPUs and doesn't
+@@ -1905,6 +2063,8 @@
+    return VK_SUCCESS;
+ 
+ fail:
++   if (device->has_kgsl_drm_sync)
++      close(device->kgsl_sync_fd);
+    vk_free(&instance->vk.alloc, device);
+    close(fd);
+    if (dma_fd >= 0)
+--- a/src/freedreno/vulkan/tu_device.h
++++ b/src/freedreno/vulkan/tu_device.h
+@@ -104,6 +104,8 @@
+    int64_t master_major;
+    int64_t master_minor;
+ 
++   bool has_kgsl_drm_sync;
++   int kgsl_sync_fd;
+    int kgsl_dma_fd;
+    enum tu_kgsl_dma_type kgsl_dma_type;
+ 
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -1803,6 +1803,8 @@
+ 
+    if (device->kgsl_dma_fd != -1)
+       close(device->kgsl_dma_fd);
++   if (device->has_kgsl_drm_sync)
++      close(device->kgsl_sync_fd);
+ 
+    disk_cache_destroy(device->vk.disk_cache);
+    vk_free(&device->instance->vk.alloc, (void *)device->name);
+--- a/src/freedreno/vulkan/meson.build
++++ b/src/freedreno/vulkan/meson.build
+@@ -119,6 +119,7 @@
+ if freedreno_kmds.contains('kgsl')
+   tu_flags += '-DTU_HAS_KGSL'
+   libtu_files += files('tu_knl_kgsl.cc')
++  tu_deps += dep_libdrm
+ endif
+ 
+ if freedreno_kmds.contains('msm')
+--- a/src/util/u_sync_provider.c
++++ b/src/util/u_sync_provider.c
+@@ -120,6 +120,8 @@
+ util_sync_provider_drm(int drm_fd)
+ {
+    struct util_sync_provider_drm *d = CALLOC_STRUCT(util_sync_provider_drm);
++   if (!d)
++      return NULL;
+ 
+    d->drm_fd = drm_fd;
+    d->base = (struct util_sync_provider) {
+--- /dev/null
++++ b/src/freedreno/vulkan/tu_kgsl_drm_sync.h
+@@ -0,0 +1,44 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef TU_KGSL_DRM_SYNC_H
++#define TU_KGSL_DRM_SYNC_H
++
++#include <errno.h>
++#include <stdint.h>
++#include <xf86drm.h>
++
++static inline int
++tu_kgsl_drm_export_wait(int drm_fd, uint32_t handle, uint64_t point, int *fd)
++{
++   uint32_t temporary = 0;
++   *fd = -1;
++   int ret = drmSyncobjCreate(drm_fd, 0, &temporary);
++   if (ret)
++      return ret;
++   ret = drmSyncobjTransfer(drm_fd, temporary, 0, handle, point, 0);
++   if (!ret)
++      ret = drmSyncobjExportSyncFile(drm_fd, temporary, fd);
++   int saved_errno = errno;
++   drmSyncobjDestroy(drm_fd, temporary);
++   errno = saved_errno;
++   return ret;
++}
++
++static inline int
++tu_kgsl_drm_import_signal(int drm_fd, uint32_t handle, uint64_t point, int fd)
++{
++   uint32_t temporary = 0;
++   int ret = drmSyncobjCreate(drm_fd, fd == -1 ? DRM_SYNCOBJ_CREATE_SIGNALED : 0,
++                              &temporary);
++   if (ret)
++      return ret;
++   if (fd != -1)
++      ret = drmSyncobjImportSyncFile(drm_fd, temporary, fd);
++   if (!ret)
++      ret = drmSyncobjTransfer(drm_fd, handle, point, temporary, 0, 0);
++   int saved_errno = errno;
++   drmSyncobjDestroy(drm_fd, temporary);
++   errno = saved_errno;
++   return ret;
++}
++
++#endif

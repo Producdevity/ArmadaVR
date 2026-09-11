@@ -1,0 +1,12 @@
+FROM registry.fedoraproject.org/fedora:44@sha256:083414712cefa4ea7c219bb850b8d8027d0c7b8978bc743780269ebbdb700eb7
+RUN dnf -y --setopt=install_weak_deps=False install \
+    gcc-c++ clang lld llvm-devel meson ninja-build cmake bison flex glslang \
+    python3-mako python3-yaml python3-ply python3-packaging pkgconf-pkg-config \
+    libdrm-devel libX11-devel libxcb-devel libXrandr-devel libxshmfence-devel \
+    libXfixes-devel wayland-devel wayland-protocols-devel \
+    zlib-devel libzstd-devel expat-devel elfutils-libelf-devel \
+    vulkan-loader-devel vulkan-tools patch tar xz \
+    && dnf clean all
+RUN dnf -y --setopt=install_weak_deps=False install compiler-rt && dnf clean all
+WORKDIR /work
+ENTRYPOINT ["bash"]
