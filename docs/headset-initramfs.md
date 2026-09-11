@@ -45,7 +45,8 @@ rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30
 
 These arguments are supplied by the boot container, not silently injected into
 an existing root filesystem. This first handoff does not use or decrypt Android
-userdata. External storage still needs its actual Quest USB/UFS hardware path
+userdata. The [offline root builder](headset-root.md) packages the matching modules,
+firmware and service unit. External storage still needs its actual Quest USB/UFS hardware path
 tested. The module inventory includes UFS, USB and their dependencies; inclusion
 does not prove driver operation or availability of the required firmware.
 

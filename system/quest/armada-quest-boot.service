@@ -9,8 +9,7 @@ Before=dracut-initqueue.service initrd-root-device.target
 IgnoreOnIsolate=yes
 SurviveFinalKillSignal=yes
 RefuseManualStop=yes
-OnFailure=emergency.target
-OnFailureJobMode=replace-irreversibly
+FailureAction=poweroff
 
 [Service]
 Type=notify

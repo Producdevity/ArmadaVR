@@ -18,3 +18,13 @@ fi
 systemctl is-active --quiet armada-quest-boot.service
 /usr/bin/quest-qmi-probe
 echo ARMADA_QUEST_ROOT_RESTART_REFUSED
+
+if [[ ${ARMADA_QUEST_CASE:-root} == root-fault ]]; then
+    mapper=$(pgrep -P "$before" -x pd-mapper)
+    [[ $mapper =~ ^[0-9]+$ ]]
+    echo "ARMADA_QUEST_MAPPER_FAULT_INJECTED pid=$mapper"
+    kill -TERM "$mapper"
+    sleep 30
+    echo ARMADA_QUEST_MAPPER_FAULT_NOT_HANDLED
+    exit 1
+fi

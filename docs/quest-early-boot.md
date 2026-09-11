@@ -81,8 +81,8 @@ returns after scheduling work, so a successful write is not treated as readiness
 The service also requires ADSP `running`, the bound `PMIC_RTR_ADSP_APPS` RPMsg
 channel, a bound UCSI type-C port and a DWC3 role of `host`. Each wait is capped
 at 12 seconds and the whole service startup at 45 seconds. It never forces host
-role or requests a DSP reset. Missing prerequisites fail into the configured
-initramfs emergency power-off path.
+role or requests a DSP reset. Missing prerequisites or an unexpected mapper exit request an orderly
+systemd power-off, both before and after root switch.
 
 The first PMIC RPMsg probe populates the UCSI child, whose initial probe starts
 UCSI setup. Later restarts use the PMIC notifier path. This is why a PDR callback
@@ -93,8 +93,9 @@ firmware.
 The service follows [systemd's root-storage daemon contract](https://systemd.io/ROOT_STORAGE_DAEMONS/):
 it starts in the initramfs, survives isolation and the root-switch termination
 pass, and refuses manual stop/restart. The main root needs the same unit file.
-The mapper continues executing from initramfs memory; it is not replaced by a
-root-filesystem copy. A complete root-image packaging workflow is still pending.
+The [offline root builder](headset-root.md) now packages it alongside matching
+kernel modules and firmware. The mapper continues executing from initramfs
+memory; it is not replaced by a root-filesystem copy.
 
 ## Repeatable offline acceptance
 
@@ -110,8 +111,8 @@ used to build the initramfs. Every QEMU has no network. Only the root case has a
 disk, attached read-only with ext4 journal replay disabled and a RAM overlay.
 
 The cases cover original-QEMU identity rejection, successful modeled startup,
-missing firmware, a repeated request, unavailable mapper, missing host role and
-actual root switch. The fixtures require the original QEMU identity before
+missing firmware, a repeated request, unavailable mapper, missing host role,
+actual root switch and mapper failure after root switch. The fixtures require the original QEMU identity before
 modeling sysfs; they load all six real vendor modules and exchange real QRTR/QMI
 messages. They do not execute DSP firmware or model USB-C electrical behavior.
 
@@ -136,10 +137,15 @@ is unchanged. `output/headset-initramfs-quest-v1/` and `v2/` reproduce the same
 roundtrip is `output/quest3-boot-assembly-startup-v1/`. None of these results
 verify physical firmware execution or headset boot acceptance.
 
-Remaining boot integration includes packaging the unit in the actual root
-image and testing failure after root switch. The current service sends an
-unexpected mapper exit to `emergency.target`; the configured initramfs emergency
-path powers off, but the main-root failure policy still needs its own test.
+The later `root-fault` test exposed that the original `OnFailure=emergency.target`
+policy waited at an unusable main-root emergency prompt. `FailureAction=poweroff`
+now requests orderly shutdown in either boot phase. The failed baseline is
+preserved in `output/quest-mapper-fault-v2/`; the corrected standalone fault test
+passes in `output/quest-mapper-fault-v3/` with the original backing image unchanged.
+The earlier v1 fault fixture failed before injection because this vendor kernel
+does not expose the optional `/proc/PID/task/PID/children` interface; the fixture
+now locates the actual mapper with `pgrep` and verifies its parent.
+
 Physical ADSP authentication, PMIC services, USB-C negotiation and storage
 availability remain outside the QEMU model.
 

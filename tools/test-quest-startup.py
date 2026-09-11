@@ -80,8 +80,14 @@ def run(args):
     if initrd.get("quest_inputs_sha256") != current:
         raise ValueError("Initramfs Quest sources differ from the current tree")
     manifest = json.loads((rootfs / "manifest.json").read_text())
-    if manifest.get("target") != "qemu-arm64" or manifest.get("hardware_flash_image") is not False:
+    if manifest.get("target") not in ("qemu-arm64", "headset-root-offline") or manifest.get("hardware_flash_image") is not False:
         raise ValueError("Requires a QEMU-only lab root manifest")
+    packaged = manifest["target"] == "headset-root-offline"
+    if packaged and (manifest.get("status") != "built" or manifest.get("qemu_transports") is not True or
+                     manifest.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
+                     manifest.get("initramfs_sha256") != expected or
+                     manifest.get("quest_startup_unit_sha256") != current["system/quest/armada-quest-boot.service"]):
+        raise ValueError("Packaged root does not match the QEMU kernel and startup initramfs")
     root_hash = builder.digest(rootfs / "rootfs.ext4")
     if root_hash != manifest["sha256"]["rootfs.ext4"]:
         raise ValueError("Root filesystem checksum mismatch")
@@ -96,7 +102,7 @@ def run(args):
     report = {"status": "started", "scope": "real systemd, vendor modules, QRTR and root handoff; modeled Quest hardware state",
               "firmware_executed": False, "hardware_boot_verified": False, "container_image": image,
               "kernel_sha256": hashes["Image"], "rootfs_sha256": root_hash, "base_initramfs_sha256": expected,
-              "sources": profile, "inputs_sha256": {n: builder.digest(ROOT / n) for n in files}, "cases": []}
+              "sources": profile, "packaged_root": packaged, "inputs_sha256": {n: builder.digest(ROOT / n) for n in files}, "cases": []}
     output.mkdir(parents=True)
 
     def container(script, logfile):
@@ -118,27 +124,39 @@ def run(args):
         for name, required in [("identity", "requires Quest Eureka device tree"), ("ready", "ARMADA_QUEST_MODEL_QMI_PASS"),
                                ("missing-firmware", "firmware checksum mismatch"), ("repeated-request", "ADSP boot was already requested"),
                                ("missing-mapper", "startup failed: mapper: timed out"), ("missing-host-role", "startup failed: usb-role: timed out"),
-                               ("root", "ARMADA_QUEST_ROOT_RESTART_REFUSED")]:
+                               ("root", "ARMADA_QUEST_ROOT_RESTART_REFUSED"),
+                               ("root-fault", "ARMADA_QUEST_MAPPER_FAULT_INJECTED")]:
+            if args.case and name not in args.case:
+                continue
+            root_case = name in ("root", "root-fault")
             case = {"name": name, "status": "started"}; report["cases"].append(case)
             directory = output / name; directory.mkdir()
             if name != "identity":
                 (output / "extra/etc/systemd/system/armada-quest-fixture.service").write_text(
                     (fixtures / "fixture.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name + "\n")
-                if name == "root":
+                if root_case:
                     wants = output / "extra/etc/systemd/system/initrd.target.wants"
-                    wants.mkdir()
-                    (wants / "quest-handoff-install.service").symlink_to("/etc/systemd/system/quest-handoff-install.service")
+                    wants.mkdir(exist_ok=True)
+                    link = wants / "quest-handoff-install.service"
+                    if not link.is_symlink():
+                        link.symlink_to("/etc/systemd/system/quest-handoff-install.service")
+                    (output / "extra/quest-root-check.service").write_text(
+                        (fixtures / "root-check.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name + "\n")
+                    (output / "extra/etc/systemd/system/quest-handoff-install.service").write_text(
+                        (fixtures / "handoff-install.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name +
+                        "\nEnvironment=ARMADA_QUEST_PACKAGED_ROOT=" + str(int(packaged)) + "\n")
                 container("cd /output/extra && find . -print0 | sort -z | cpio --null -o --format=newc --reproducible | gzip -n > /output/" + name + "/extra.cpio.gz", directory / "archive.log")
             boot = directory / "initramfs.img"
             boot.write_bytes(assembly.empty_ramdisk() + (initramfs / "initramfs.img").read_bytes() +
                              ((directory / "extra.cpio.gz").read_bytes() if name != "identity" else b""))
             command = [args.qemu, "-machine", "virt", "-accel", args.accel, "-cpu", "max" if args.accel == "tcg" else "host",
-                       "-smp", "2", "-m", "4096" if name == "root" else "1024", "-nodefaults", "-nographic", "-monitor", "none",
+                       "-smp", "2", "-m", "4096" if root_case else "1024", "-nodefaults", "-nographic", "-monitor", "none",
                        "-serial", "stdio", "-no-reboot", "-nic", "none", "-kernel", str(kernel / "Image"), "-initrd", str(boot)]
-            cmdline = assembly.root_arguments("armada-vr-root", quest_services=True)
-            if name == "root":
+            cmdline = assembly.root_arguments(manifest.get("root_label", "armada-vr-root"), quest_services=True)
+            if root_case:
                 command += ["-drive", f"file={rootfs / 'rootfs.ext4'},if=virtio,format=raw,readonly=on"]
-                cmdline = cmdline.replace("root=LABEL=armada-vr-root", "root=/dev/vda")
+                if not packaged:
+                    cmdline = cmdline.replace("root=LABEL=armada-vr-root", "root=/dev/vda")
             command += ["-append", "console=ttyAMA0 earlycon selinux=0 audit=0 " + cmdline]
             case.update(command=command, initramfs_sha256=builder.digest(boot))
             started = time.monotonic()
@@ -158,16 +176,19 @@ def run(args):
             markers = [required, "reboot: Power down"]
             if name != "identity" and log.count("ARMADA_QUEST_MODULE_PASS=") != 6:
                 raise RuntimeError("Vendor module load failed: " + name)
-            if name in ("ready", "root"):
+            if name in ("ready", "root", "root-fault"):
                 markers += ["ARMADA_QUEST_MODEL_QMI_PASS", "ARMADA_QMI_PASS requests=96"]
                 if log.count("ARMADA_QUEST_MODEL_BOOT_REQUEST") != 1:
                     raise RuntimeError("Expected exactly one modeled boot request: " + name)
             elif "startup ready:" in log:
                 raise RuntimeError("Unexpected readiness in failed case: " + name)
-            if name == "root":
-                markers += ["ARMADA_QUEST_ROOT_HANDOFF_PASS", "ARMADA_VR_VM_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
+            if root_case:
+                markers += ["ARMADA_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
+                if packaged:
+                    markers += ["ARMADA_QUEST_PACKAGED_ROOT_PASS"]
+                markers += ["ARMADA_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]
             if (case["returncode"] or not all(m in log for m in markers) or
-                    any(m in log for m in ("ARMADA_QUEST_UNEXPECTED", "QEMU_HANDOFF_FIXTURE_FAIL", "ARMADA_QMI_FAIL", "ARMADA_VR_VM_FAIL"))):
+                    any(m in log for m in ("ARMADA_QUEST_UNEXPECTED", "ARMADA_QUEST_MAPPER_FAULT_NOT_HANDLED", "QEMU_HANDOFF_FIXTURE_FAIL", "ARMADA_QMI_FAIL", "ARMADA_VR_VM_FAIL"))):
                 raise RuntimeError("Quest startup acceptance failed: " + name)
             case["status"] = "passed"
             print(name, case["elapsed_seconds"], flush=True)
@@ -177,7 +198,7 @@ def run(args):
             raise ValueError("Test sources changed during execution")
         report.update(status="passed", rootfs_unchanged=True)
     except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
-        report.update(status="failed", error=str(error))
+        report.update(status="failed", error=str(error), rootfs_unchanged=builder.digest(rootfs / "rootfs.ext4") == root_hash)
         raise
     finally:
         (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -190,6 +211,8 @@ if __name__ == "__main__":
     parser.add_argument("initramfs", type=Path)
     parser.add_argument("sources", type=Path)
     parser.add_argument("--rootfs", type=Path, required=True)
+    parser.add_argument("--case", action="append", choices=("identity", "ready", "missing-firmware", "repeated-request",
+                                                          "missing-mapper", "missing-host-role", "root", "root-fault"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default="localhost/armada-vr:qcom-services")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))

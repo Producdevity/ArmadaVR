@@ -60,7 +60,7 @@ until systemctl is-active --quiet armada-quest-boot.service; do sleep 0.1; done
 echo ARMADA_QUEST_MODEL_READY_PASS
 /qmi-probe
 echo ARMADA_QUEST_MODEL_QMI_PASS
-if [[ $ARMADA_QUEST_CASE == root ]]; then
+if [[ $ARMADA_QUEST_CASE == root || $ARMADA_QUEST_CASE == root-fault ]]; then
     sleep 300
     exit 1
 fi
