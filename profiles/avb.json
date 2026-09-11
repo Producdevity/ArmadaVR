@@ -1,0 +1,7 @@
+{
+  "repository": "https://android.googlesource.com/platform/external/avb",
+  "commit": "ba2dec4b035b0a3b61c5f8f8a74d86bcd450b1ee",
+  "url": "https://android.googlesource.com/platform/external/avb/+/ba2dec4b035b0a3b61c5f8f8a74d86bcd450b1ee/avbtool.py?format=TEXT",
+  "sha256": "1aa6f2b462aa67aa3fdf488bee83ab517de8ad9d8228c7b45c35267ab2cf6781",
+  "bytes": 241912
+}
