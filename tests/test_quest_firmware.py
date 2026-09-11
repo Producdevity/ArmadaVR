@@ -123,3 +123,60 @@ class FirmwareBundleTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "manifest"):
                 firmware.validate(self.root)
             self.manifest[key] = original
+
+
+class GpuFirmwareTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.files = self.root / "files"
+        self.files.mkdir()
+        (self.files / "a740v3_zap.mdt").write_bytes(mdt())
+        (self.files / "a740v3_zap.b01").write_bytes(bytes(16))
+        (self.files / "a740v3_zap.b02").write_bytes(b"data")
+        (self.files / "a740v3_sqe.fw").write_bytes(struct.pack("<4I", 0, 0x1234, 0, 0))
+        self.gmu = struct.pack("<4I", 0x4000, 0, 1, 4) + struct.pack("<4I", 0x4000, 4, 0, 0) + b"data"
+        (self.files / "gmu_gen70200.bin").write_bytes(self.gmu)
+        records, details = firmware.inspect_files(self.files, "gpu")
+        self.manifest = {"schema_version": 1, "component": "quest3-gpu", "status": "prepared",
+                         "reference_build": "52433670036000520", "source_image_sha256": "a" * 64,
+                         "files": records, "gpu": details}
+        (self.root / "manifest.json").write_text(json.dumps(self.manifest))
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_gpu_component_cannot_replace_early_adsp_bundle(self):
+        self.assertEqual(firmware.validate(self.root, "gpu"), self.manifest)
+        with self.assertRaisesRegex(ValueError, "manifest"):
+            firmware.validate(self.root)
+
+    def test_only_mdt_referenced_zap_segments_are_packaged(self):
+        self.assertEqual(firmware.required_segments(mdt(), "a740v3_zap"),
+                         {"a740v3_zap.b01": 16, "a740v3_zap.b02": 4})
+        (self.files / "a740v3_zap.mbn").write_bytes(b"alternate")
+        with self.assertRaisesRegex(ValueError, "unexpected files"):
+            firmware.validate(self.root, "gpu")
+
+    def test_same_size_gpu_payload_changes_invalidate_bundle(self):
+        (self.files / "a740v3_zap.b02").write_bytes(b"nope")
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            firmware.validate(self.root, "gpu")
+
+    def test_gmu_truncation_and_payload_without_backing_are_rejected(self):
+        for blob, message in [(self.gmu[:15], "header"), (self.gmu[:-1], "payload"),
+                              (self.gmu[16:], "preallocation")]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                firmware.gmu_blocks(blob)
+
+    def test_gmu_memory_overflow_and_metadata_order_are_rejected(self):
+        overflow = struct.pack("<4I", 0xfffffffc, 0, 1, 8) + self.gmu[16:]
+        late = self.gmu + self.gmu[:16]
+        for blob, message in [(overflow, "address ranges"), (late, "precede")]:
+            with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
+                firmware.gmu_blocks(blob)
+
+    def test_sqe_short_header_is_rejected_before_word_reads(self):
+        (self.files / "a740v3_sqe.fw").write_bytes(bytes(4))
+        with self.assertRaisesRegex(ValueError, "SQE"):
+            firmware.validate(self.root, "gpu")

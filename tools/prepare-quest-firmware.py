@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract and validate Quest ADSP firmware as data from a local vendor image."""
+"""Extract and validate Quest ADSP or GPU firmware as data from a local vendor image."""
 import argparse
 import hashlib
 import json
@@ -21,7 +21,7 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def required_segments(data):
+def required_segments(data, prefix="adsp"):
     if len(data) < 52 or data[:7] != b"\x7fELF\x01\x01\x01":
         raise ValueError("Requires a little-endian ELF32 MDT")
     header = struct.unpack_from("<16sHHIIIIIHHHHHH", data)
@@ -47,13 +47,13 @@ def required_segments(data):
         if (loadable and filesz) or i == hash_indices[0]:
             if not 0 < filesz <= 32 * 1024**2:
                 raise ValueError("MDT segment size exceeds limit")
-            required[f"adsp.b{i:02d}"] = filesz
+            required[f"{prefix}.b{i:02d}"] = filesz
     if len(required) < 2 or sum(required.values()) > 128 * 1024**2:
         raise ValueError("Invalid MDT payload size")
     return required
 
 
-def inspect_files(directory):
+def inspect_adsp_files(directory):
     mdt = directory / "adsp.mdt"
     digest(mdt)
     if mdt.stat().st_size > 1024**2:
@@ -89,12 +89,85 @@ def inspect_files(directory):
     return records, services
 
 
-def validate(directory):
+def gmu_blocks(data):
+    if not 0 < len(data) <= 32 * 1024**2:
+        raise ValueError("GMU firmware exceeds size limit")
+    ranges = ((0, 0x4000), (0x4000, 0x1000000), (0x10004000, 0x10008000),
+              (0x60000000, 0x80000000), (0xc0000000, 0xe0000000))
+    blocks, allocated = [], []
+    offset, payloads = 0, 0
+    while offset < len(data):
+        if len(data) - offset < 16:
+            raise ValueError("Truncated GMU block header")
+        address, size, kind, value = struct.unpack_from("<4I", data, offset)
+        if size > len(data) - offset - 16 or size % 4:
+            raise ValueError("Truncated or unaligned GMU block payload")
+        extent = size if size else value if kind in (1, 7) else 0
+        region = next((i for i, (start, end) in enumerate(ranges)
+                       if start <= address and address + extent <= end), None)
+        if extent and (address % 4 or region is None):
+            raise ValueError("GMU block is outside the Gen7 virtual address ranges")
+        if not size:
+            if payloads:
+                raise ValueError("GMU metadata must precede payload blocks")
+            if kind in (1, 7):
+                if not value:
+                    raise ValueError("Empty GMU preallocation")
+                allocated.append((address, address + value))
+        else:
+            payloads += 1
+            if region not in (0, 2) and not any(a <= address and address + size <= b for a, b in allocated):
+                raise ValueError("GMU payload has no matching preallocation")
+        blocks.append({"offset": offset, "address": address, "bytes": size, "type": kind, "value": value})
+        offset += 16 + size
+    if not payloads:
+        raise ValueError("GMU firmware has no payload")
+    return blocks
+
+
+def inspect_gpu_files(directory):
+    mdt = directory / "a740v3_zap.mdt"
+    digest(mdt)
+    if mdt.stat().st_size > 1024**2:
+        raise ValueError("MDT exceeds size limit")
+    required = required_segments(mdt.read_bytes(), "a740v3_zap")
+    names = ["a740v3_zap.mdt", *required, "a740v3_sqe.fw", "gmu_gen70200.bin"]
+    records = []
+    for name in sorted(names):
+        path = directory / name
+        sha = digest(path)
+        size = path.stat().st_size
+        if not 0 < size <= 32 * 1024**2:
+            raise ValueError("GPU firmware exceeds size limit: " + name)
+        if name in required and size != required[name]:
+            raise ValueError("Truncated or oversized MDT segment: " + name)
+        records.append({"path": name, "bytes": size, "sha256": sha})
+    sqe = (directory / "a740v3_sqe.fw").read_bytes()
+    if len(sqe) < 16 or len(sqe) % 4:
+        raise ValueError("SQE firmware must contain aligned header and instruction words")
+    words = struct.unpack_from("<4I", sqe)
+    version = words[1] if words[1] & 15 != 10 else (words[1] & ~4095) | ((words[3] & 0xfff000) >> 12)
+    blocks = gmu_blocks((directory / "gmu_gen70200.bin").read_bytes())
+    if {p.name for p in directory.iterdir()} != set(names):
+        raise ValueError("Firmware directory has unexpected files")
+    return records, {"compatible": "qcom,adreno-gpu-gen7-6-0", "sqe_version": version,
+                     "sqe_words": (len(sqe) - 4) // 4, "gmu_blocks": blocks}
+
+
+def inspect_files(directory, component="adsp"):
+    if component == "adsp":
+        return inspect_adsp_files(directory)
+    if component == "gpu":
+        return inspect_gpu_files(directory)
+    raise ValueError("Unknown Quest firmware component")
+
+
+def validate(directory, component="adsp"):
     if directory.is_symlink():
         raise ValueError("Firmware directory must not be a symlink")
     digest(directory / "manifest.json")
     manifest = json.loads((directory / "manifest.json").read_text())
-    if (manifest.get("schema_version") != 1 or manifest.get("component") != "quest3-adsp" or
+    if (manifest.get("schema_version") != 1 or manifest.get("component") != "quest3-" + component or
             manifest.get("status") != "prepared" or
             not re.fullmatch(r"[0-9]{10,20}", manifest.get("reference_build", "")) or
             not re.fullmatch(r"[0-9a-f]{64}", manifest.get("source_image_sha256", ""))):
@@ -102,13 +175,13 @@ def validate(directory):
     files = directory / "files"
     if files.is_symlink():
         raise ValueError("Firmware files directory must not be a symlink")
-    records, services = inspect_files(files)
-    if records != manifest["files"] or services != manifest["service_domains"]:
+    records, details = inspect_files(files, component)
+    if records != manifest["files"] or details != manifest["service_domains" if component == "adsp" else "gpu"]:
         raise ValueError("Firmware manifest does not match its files")
     return manifest
 
 
-def extract(source, output, expected, build):
+def extract(source, output, expected, build, component="adsp"):
     if digest(source) != expected:
         raise ValueError("Vendor image checksum mismatch")
     files = output / "files"
@@ -123,18 +196,21 @@ def extract(source, output, expected, build):
         if result.returncode or not path.is_file():
             raise ValueError(f"Unable to extract firmware file: {name}")
 
-    dump("adsp.mdt")
-    for name in sorted([*required_segments((files / "adsp.mdt").read_bytes()), *SERVICE_FILES]):
+    prefix = "adsp" if component == "adsp" else "a740v3_zap"
+    dump(prefix + ".mdt")
+    extra = SERVICE_FILES if component == "adsp" else ("a740v3_sqe.fw", "gmu_gen70200.bin")
+    for name in sorted([*required_segments((files / (prefix + ".mdt")).read_bytes(), prefix), *extra]):
         dump(name)
-    records, services = inspect_files(files)
+    records, details = inspect_files(files, component)
     if digest(source) != expected:
         raise ValueError("Vendor image changed during extraction")
-    manifest = {"schema_version": 1, "component": "quest3-adsp", "status": "prepared",
+    manifest = {"schema_version": 1, "component": "quest3-" + component, "status": "prepared",
                 "reference_build": build, "source_image_sha256": expected,
                 "manufacturer_signature_verified": False, "device_compatibility_verified": False,
-                "firmware_executed": False, "files": records, "service_domains": services}
+                "firmware_executed": False, "files": records,
+                "service_domains" if component == "adsp" else "gpu": details}
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
-    validate(output)
+    validate(output, component)
 
 
 def run(args):
@@ -142,7 +218,7 @@ def run(args):
         raise ValueError("Requires a SHA-256 and numeric reference build")
     source, output = args.vendor_image.absolute(), args.output.absolute()
     if args.inside_container:
-        extract(source, output, args.sha256, args.reference_build)
+        extract(source, output, args.sha256, args.reference_build, args.component)
         return
     if any("," in str(p) or ":" in str(p) for p in (source, output)):
         raise ValueError("Container paths must not contain commas or colons")
@@ -158,7 +234,7 @@ def run(args):
                "-v", f"{output}:/output", "-v", f"{Path(__file__).resolve()}:/prepare.py:ro",
                "--entrypoint", "timeout", image, "--kill-after=5", "120", "python3", "-B", "/prepare.py",
                "/vendor.img", "--output", "/output", "--sha256", args.sha256,
-               "--reference-build", args.reference_build, "--inside-container"]
+               "--reference-build", args.reference_build, "--component", args.component, "--inside-container"]
     report = {"status": "started", "command": command, "container_image": image,
               "preparer_sha256": digest(Path(__file__)), "source_image_sha256": args.sha256}
     try:
@@ -166,7 +242,7 @@ def run(args):
             result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=140)
         if result.returncode:
             raise RuntimeError(f"Firmware preparation failed; inspect {output / 'prepare.log'}")
-        validate(output)
+        validate(output, args.component)
         if digest(source) != args.sha256:
             raise ValueError("Vendor image changed during preparation")
         report.update(status="prepared", manifest_sha256=digest(output / "manifest.json"))
@@ -181,6 +257,7 @@ def run(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("vendor_image", type=Path)
+    parser.add_argument("--component", choices=("adsp", "gpu"), default="adsp")
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--reference-build", required=True)
     parser.add_argument("--output", type=Path, required=True)
