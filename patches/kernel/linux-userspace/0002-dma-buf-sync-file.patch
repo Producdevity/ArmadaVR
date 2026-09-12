@@ -1,0 +1,363 @@
+--- a/drivers/dma-buf/dma-buf.c
++++ b/drivers/dma-buf/dma-buf.c
+@@ -15,6 +15,8 @@
+ #include <linux/slab.h>
+ #include <linux/dma-buf.h>
+ #include <linux/dma-fence.h>
++#include <linux/dma-fence-unwrap.h>
++#include <linux/sync_file.h>
+ #include <linux/anon_inodes.h>
+ #include <linux/export.h>
+ #include <linux/debugfs.h>
+@@ -266,12 +268,9 @@
+ 		goto retry;
+ 	}
+ 
+-	if (fence_excl && (!(events & EPOLLOUT) || shared_count == 0)) {
++	if (fence_excl) {
+ 		struct dma_buf_poll_cb_t *dcb = &dmabuf->cb_excl;
+-		__poll_t pevents = EPOLLIN;
+-
+-		if (shared_count == 0)
+-			pevents |= EPOLLOUT;
++		__poll_t pevents = EPOLLIN | EPOLLOUT;
+ 
+ 		spin_lock_irq(&dmabuf->poll.lock);
+ 		if (dcb->active) {
+@@ -403,6 +402,146 @@
+ 	return ret;
+ }
+ 
++#if IS_ENABLED(CONFIG_SYNC_FILE)
++static int dma_buf_get_sync_fence(struct dma_buf *dmabuf, bool write,
++				  struct dma_fence **result)
++{
++	struct dma_fence **fences, **heads;
++	struct dma_fence_unwrap *cursors;
++	unsigned int count, i;
++	int ret;
++
++	if (!write) {
++		*result = dma_resv_get_excl_rcu(dmabuf->resv);
++		return 0;
++	}
++
++	ret = dma_resv_get_fences_rcu(dmabuf->resv, NULL, &count, &fences);
++	if (ret)
++		return ret;
++	if (!count) {
++		*result = NULL;
++		return 0;
++	}
++	if (count == 1) {
++		*result = fences[0];
++		kfree(fences);
++		return 0;
++	}
++
++	/* The unwrap helper consumes its cursor array, not our owned references. */
++	heads = kmalloc_array(count, sizeof(*heads), GFP_KERNEL);
++	cursors = kcalloc(count, sizeof(*cursors), GFP_KERNEL);
++	if (!heads || !cursors) {
++		ret = -ENOMEM;
++		goto out;
++	}
++	memcpy(heads, fences, count * sizeof(*heads));
++	*result = __dma_fence_unwrap_merge(count, heads, cursors);
++	if (!*result)
++		ret = -ENOMEM;
++out:
++	kfree(cursors);
++	kfree(heads);
++	for (i = 0; i < count; i++)
++		dma_fence_put(fences[i]);
++	kfree(fences);
++	return ret;
++}
++
++static long dma_buf_export_sync_file(struct dma_buf *dmabuf,
++				     void __user *user_data)
++{
++	struct dma_buf_export_sync_file arg;
++	struct dma_fence *fence = NULL;
++	struct sync_file *sync_file;
++	int fd, ret;
++
++	if (copy_from_user(&arg, user_data, sizeof(arg)))
++		return -EFAULT;
++
++	if (arg.flags & ~DMA_BUF_SYNC_RW)
++		return -EINVAL;
++
++	if ((arg.flags & DMA_BUF_SYNC_RW) == 0)
++		return -EINVAL;
++
++	fd = get_unused_fd_flags(O_CLOEXEC);
++	if (fd < 0)
++		return fd;
++
++	ret = dma_buf_get_sync_fence(dmabuf, arg.flags & DMA_BUF_SYNC_WRITE,
++				     &fence);
++	if (ret)
++		goto err_put_fd;
++
++	if (!fence)
++		fence = dma_fence_get_stub();
++
++	sync_file = sync_file_create(fence);
++
++	dma_fence_put(fence);
++
++	if (!sync_file) {
++		ret = -ENOMEM;
++		goto err_put_fd;
++	}
++
++	arg.fd = fd;
++	if (copy_to_user(user_data, &arg, sizeof(arg))) {
++		ret = -EFAULT;
++		goto err_put_file;
++	}
++
++	fd_install(fd, sync_file->file);
++
++	return 0;
++
++err_put_file:
++	fput(sync_file->file);
++err_put_fd:
++	put_unused_fd(fd);
++	return ret;
++}
++
++static long dma_buf_import_sync_file(struct dma_buf *dmabuf,
++				     const void __user *user_data)
++{
++	struct dma_buf_import_sync_file arg;
++	struct dma_fence *fence;
++	int ret = 0;
++
++	if (copy_from_user(&arg, user_data, sizeof(arg)))
++		return -EFAULT;
++
++	if (arg.flags & ~DMA_BUF_SYNC_RW)
++		return -EINVAL;
++
++	if ((arg.flags & DMA_BUF_SYNC_RW) == 0)
++		return -EINVAL;
++
++	fence = sync_file_get_fence(arg.fd);
++	if (!fence)
++		return -EINVAL;
++
++	dma_resv_lock(dmabuf->resv, NULL);
++
++	if (arg.flags & DMA_BUF_SYNC_WRITE) {
++		ret = dma_resv_add_excl_fence_preserve(dmabuf->resv, fence);
++	} else {
++		ret = dma_resv_reserve_shared(dmabuf->resv, 1);
++		if (!ret)
++			dma_resv_add_shared_fence(dmabuf->resv, fence);
++	}
++
++	dma_resv_unlock(dmabuf->resv);
++
++	dma_fence_put(fence);
++
++	return ret;
++}
++#endif
++
+ static long dma_buf_ioctl(struct file *file,
+ 			  unsigned int cmd, unsigned long arg)
+ {
+@@ -445,6 +584,12 @@
+ 	case DMA_BUF_SET_NAME_A:
+ 	case DMA_BUF_SET_NAME_B:
+ 		return dma_buf_set_name_user(dmabuf, (const char __user *)arg);
++#if IS_ENABLED(CONFIG_SYNC_FILE)
++	case DMA_BUF_IOCTL_EXPORT_SYNC_FILE:
++		return dma_buf_export_sync_file(dmabuf, (void __user *)arg);
++	case DMA_BUF_IOCTL_IMPORT_SYNC_FILE:
++		return dma_buf_import_sync_file(dmabuf, (const void __user *)arg);
++#endif
+ 
+ 	default:
+ 		return -ENOTTY;
+--- a/include/uapi/linux/dma-buf.h
++++ b/include/uapi/linux/dma-buf.h
+@@ -37,6 +37,88 @@
+ 
+ #define DMA_BUF_NAME_LEN	32
+ 
++/**
++ * struct dma_buf_export_sync_file - Get a sync_file from a dma-buf
++ *
++ * Userspace can perform a DMA_BUF_IOCTL_EXPORT_SYNC_FILE to retrieve the
++ * current set of fences on a dma-buf file descriptor as a sync_file.  CPU
++ * waits via poll() or other driver-specific mechanisms typically wait on
++ * whatever fences are on the dma-buf at the time the wait begins.  This
++ * is similar except that it takes a snapshot of the current fences on the
++ * dma-buf for waiting later instead of waiting immediately.  This is
++ * useful for modern graphics APIs such as Vulkan which assume an explicit
++ * synchronization model but still need to inter-operate with dma-buf.
++ *
++ * The intended usage pattern is the following:
++ *
++ *  1. Export a sync_file with flags corresponding to the expected GPU usage
++ *     via DMA_BUF_IOCTL_EXPORT_SYNC_FILE.
++ *
++ *  2. Submit rendering work which uses the dma-buf.  The work should wait on
++ *     the exported sync file before rendering and produce another sync_file
++ *     when complete.
++ *
++ *  3. Import the rendering-complete sync_file into the dma-buf with flags
++ *     corresponding to the GPU usage via DMA_BUF_IOCTL_IMPORT_SYNC_FILE.
++ *
++ * Unlike doing implicit synchronization via a GPU kernel driver's exec ioctl,
++ * the above is not a single atomic operation.  If userspace wants to ensure
++ * ordering via these fences, it is the respnosibility of userspace to use
++ * locks or other mechanisms to ensure that no other context adds fences or
++ * submits work between steps 1 and 3 above.
++ */
++struct dma_buf_export_sync_file {
++	/**
++	 * @flags: Read/write flags
++	 *
++	 * Must be DMA_BUF_SYNC_READ, DMA_BUF_SYNC_WRITE, or both.
++	 *
++	 * If DMA_BUF_SYNC_READ is set and DMA_BUF_SYNC_WRITE is not set,
++	 * the returned sync file waits on any writers of the dma-buf to
++	 * complete.  Waiting on the returned sync file is equivalent to
++	 * poll() with POLLIN.
++	 *
++	 * If DMA_BUF_SYNC_WRITE is set, the returned sync file waits on
++	 * any users of the dma-buf (read or write) to complete.  Waiting
++	 * on the returned sync file is equivalent to poll() with POLLOUT.
++	 * If both DMA_BUF_SYNC_WRITE and DMA_BUF_SYNC_READ are set, this
++	 * is equivalent to just DMA_BUF_SYNC_WRITE.
++	 */
++	__u32 flags;
++	/** @fd: Returned sync file descriptor */
++	__s32 fd;
++};
++
++/**
++ * struct dma_buf_import_sync_file - Insert a sync_file into a dma-buf
++ *
++ * Userspace can perform a DMA_BUF_IOCTL_IMPORT_SYNC_FILE to insert a
++ * sync_file into a dma-buf for the purposes of implicit synchronization
++ * with other dma-buf consumers.  This allows clients using explicitly
++ * synchronized APIs such as Vulkan to inter-op with dma-buf consumers
++ * which expect implicit synchronization such as OpenGL or most media
++ * drivers/video.
++ */
++struct dma_buf_import_sync_file {
++	/**
++	 * @flags: Read/write flags
++	 *
++	 * Must be DMA_BUF_SYNC_READ, DMA_BUF_SYNC_WRITE, or both.
++	 *
++	 * If DMA_BUF_SYNC_READ is set and DMA_BUF_SYNC_WRITE is not set,
++	 * this inserts the sync_file as a read-only fence.  Any subsequent
++	 * implicitly synchronized writes to this dma-buf will wait on this
++	 * fence but reads will not.
++	 *
++	 * If DMA_BUF_SYNC_WRITE is set, this inserts the sync_file as a
++	 * write fence.  All subsequent implicitly synchronized access to
++	 * this dma-buf will wait on this fence.
++	 */
++	__u32 flags;
++	/** @fd: Sync file descriptor */
++	__s32 fd;
++};
++
+ #define DMA_BUF_BASE		'b'
+ #define DMA_BUF_IOCTL_SYNC	_IOW(DMA_BUF_BASE, 0, struct dma_buf_sync)
+ 
+@@ -47,4 +129,7 @@
+ #define DMA_BUF_SET_NAME_A	_IOW(DMA_BUF_BASE, 1, __u32)
+ #define DMA_BUF_SET_NAME_B	_IOW(DMA_BUF_BASE, 1, __u64)
+ 
++#define DMA_BUF_IOCTL_EXPORT_SYNC_FILE	_IOWR(DMA_BUF_BASE, 2, struct dma_buf_export_sync_file)
++#define DMA_BUF_IOCTL_IMPORT_SYNC_FILE	_IOW(DMA_BUF_BASE, 3, struct dma_buf_import_sync_file)
++
+ #endif
+--- a/drivers/dma-buf/dma-resv.c
++++ b/drivers/dma-buf/dma-resv.c
+@@ -33,6 +33,7 @@
+  */
+ 
+ #include <linux/dma-resv.h>
++#include <linux/dma-fence-unwrap.h>
+ #include <linux/export.h>
+ #include <linux/mm.h>
+ #include <linux/sched/mm.h>
+@@ -338,6 +339,36 @@
+ EXPORT_SYMBOL(dma_resv_add_excl_fence);
+ 
+ /**
++ * dma_resv_add_excl_fence_preserve - Import an independent write dependency.
++ * @obj: reservation object, with its lock held
++ * @fence: imported write fence
++ *
++ * Unlike a driver's ordered submission, an imported fence does not imply
++ * completion of earlier writers or readers. Preserve both; readers remain
++ * shared so read-only exports do not wait on other readers.
++ *
++ * Returns 0 on success, or -ENOMEM without changing the reservation.
++ */
++int dma_resv_add_excl_fence_preserve(struct dma_resv *obj,
++				   struct dma_fence *fence)
++{
++	struct dma_fence *old, *merged;
++
++	dma_resv_assert_held(obj);
++	old = dma_resv_get_excl(obj);
++	merged = dma_fence_unwrap_merge(old, fence);
++	if (!merged)
++		return -ENOMEM;
++
++	write_seqcount_begin(&obj->seq);
++	RCU_INIT_POINTER(obj->fence_excl, merged);
++	write_seqcount_end(&obj->seq);
++	dma_fence_put(old);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(dma_resv_add_excl_fence_preserve);
++
++/**
+ * dma_resv_copy_fences - Copy all fences from src to dst.
+ * @dst: the destination reservation object
+ * @src: the source reservation object
+@@ -565,8 +596,8 @@
+ 		if (fobj)
+ 			shared_count = fobj->shared_count;
+ 
+-		for (i = 0; !fence && i < shared_count; ++i) {
+-			struct dma_fence *lfence = rcu_dereference(fobj->shared[i]);
++		for (; !fence && i + 1 < shared_count;) {
++			struct dma_fence *lfence = rcu_dereference(fobj->shared[++i]);
+ 
+ 			if (test_bit(DMA_FENCE_FLAG_SIGNALED_BIT,
+ 				     &lfence->flags))
+@@ -665,7 +696,7 @@
+ 			goto retry;
+ 	}
+ 
+-	if (!shared_count) {
++	if (ret) {
+ 		struct dma_fence *fence_excl = rcu_dereference(obj->fence_excl);
+ 
+ 		if (fence_excl) {
+--- a/include/linux/dma-resv.h
++++ b/include/linux/dma-resv.h
+@@ -277,6 +277,8 @@
+ void dma_resv_add_shared_fence(struct dma_resv *obj, struct dma_fence *fence);
+ 
+ void dma_resv_add_excl_fence(struct dma_resv *obj, struct dma_fence *fence);
++int dma_resv_add_excl_fence_preserve(struct dma_resv *obj,
++				   struct dma_fence *fence);
+ 
+ int dma_resv_get_fences_rcu(struct dma_resv *obj,
+ 			    struct dma_fence **pfence_excl,

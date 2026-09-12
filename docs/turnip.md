@@ -66,3 +66,18 @@ Packaging does not select Turnip globally or start a physical VR session.
 The existing QEMU software-rendering lab remains available. Headset session
 selection, display scanout, GPU execution, tracking/calibration, thermal
 operation, exact-device boot acceptance and recovery still require completion.
+
+## Direct headset display remains incomplete
+
+The corrected v7 compile command already enables `VK_USE_PLATFORM_DISPLAY_KHR`
+and includes common DRM display WSI. However, `tu_knl_kgsl_load()` still rejects
+instances that enable `VK_KHR_display`, sets `master_fd` to `-1`, and uses its
+KGSL descriptor as `local_fd`. Turnip's presentation-device check compares the
+candidate DRM device with that local descriptor. A separate, correctly selected
+SDE display descriptor and its ownership/lifetime handling are still required.
+
+The [DMA-buffer sync-file backport](dma-buf-sync.md) supplies the kernel API
+Mesa uses to attach completion fences before presentation. It does not remove
+that KGSL display rejection or prove panel presentation. Device access for KGSL
+and the system DMA heap, buffer formats/modifiers, display selection and the
+physical compositor session remain integration work.
