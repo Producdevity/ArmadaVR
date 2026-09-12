@@ -1,0 +1,384 @@
+--- a/src/xrt/compositor/main/comp_window_vk_display.c
++++ b/src/xrt/compositor/main/comp_window_vk_display.c
+@@ -89,6 +89,9 @@
+ comp_window_vk_display_create(struct comp_compositor *c)
+ {
+ 	struct comp_window_vk_display *w = U_TYPED_CALLOC(struct comp_window_vk_display);
++	if (w == NULL) {
++		return NULL;
++	}
+ 
+ 	// The display timing code hasn't been tested on vk display and may be broken.
+ 	comp_target_swapchain_init_and_set_fnptrs(&w->base, COMP_TARGET_FORCE_FAKE_DISPLAY_TIMING);
+@@ -194,10 +197,11 @@
+ 
+ 	if (display_count == 0) {
+ 		COMP_ERROR(ct->c, "No Vulkan displays found.");
+-		return false;
+-	}
+-
+-	if (ct->c->settings.vk_display > (int)display_count) {
++		free(display_props);
++		return false;
++	}
++
++	if (ct->c->settings.vk_display < 0 || (uint32_t)ct->c->settings.vk_display >= display_count) {
+ 		COMP_ERROR(ct->c, "Requested display %d, but only %d found.", ct->c->settings.vk_display,
+ 		           display_count);
+ 		print_found_displays(ct->c, display_props, display_count);
+@@ -205,7 +209,10 @@
+ 		return false;
+ 	}
+ 
+-	append_vk_display_entry(w_direct, &display_props[ct->c->settings.vk_display]);
++	if (!append_vk_display_entry(w_direct, &display_props[ct->c->settings.vk_display])) {
++		free(display_props);
++		return false;
++	}
+ 
+ 	struct vk_display *d = comp_window_vk_display_current_display(w_direct);
+ 	if (!d) {
+--- a/src/xrt/compositor/main/comp_window_direct.c
++++ b/src/xrt/compositor/main/comp_window_direct.c
+@@ -44,8 +44,8 @@
+ 
+ 		VkDisplayModeParametersKHR best = mode_properties[best_index].parameters;
+ 
+-		int best_pixels = best.visibleRegion.width * best.visibleRegion.height;
+-		int pixels = current->visibleRegion.width * current->visibleRegion.height;
++		uint64_t best_pixels = (uint64_t)best.visibleRegion.width * best.visibleRegion.height;
++		uint64_t pixels = (uint64_t)current->visibleRegion.width * current->visibleRegion.height;
+ 		if (pixels > best_pixels) {
+ 			best_index = i;
+ 		} else if (pixels == best_pixels && current->refreshRate > best.refreshRate) {
+@@ -118,13 +118,11 @@
+ 	int chosen_mode = 0;
+ 
+ 	int desired_mode = ct->c->settings.desired_mode;
+-	if (desired_mode + 1 > (int)mode_count) {
+-		COMP_ERROR(ct->c,
+-		           "Requested mode index %d, but max is %d. Falling "
+-		           "back to automatic mode selection",
+-		           desired_mode, mode_count);
+-		chosen_mode = choose_best_vk_mode_auto(ct, mode_properties, mode_count);
+-	} else if (desired_mode < 0) {
++	if (desired_mode < -1 || (desired_mode >= 0 && (uint32_t)desired_mode >= mode_count)) {
++		COMP_ERROR(ct->c, "Requested mode index %d, but only %u modes found", desired_mode, mode_count);
++		free(mode_properties);
++		return VK_NULL_HANDLE;
++	} else if (desired_mode == -1) {
+ 		chosen_mode = choose_best_vk_mode_auto(ct, mode_properties, mode_count);
+ 	} else {
+ 		COMP_DEBUG(ct->c, "Using manually chosen mode %d", desired_mode);
+@@ -132,11 +130,17 @@
+ 	}
+ 
+ 	VkDisplayModePropertiesKHR props = mode_properties[chosen_mode];
++	if (props.displayMode == VK_NULL_HANDLE || props.parameters.visibleRegion.width == 0 ||
++	    props.parameters.visibleRegion.height == 0 || props.parameters.refreshRate == 0) {
++		COMP_ERROR(ct->c, "Selected display mode has invalid dimensions or refresh rate");
++		free(mode_properties);
++		return VK_NULL_HANDLE;
++	}
+ 
+ 	COMP_DEBUG(ct->c, "found display mode %dx%d@%.2f", props.parameters.visibleRegion.width,
+ 	           props.parameters.visibleRegion.height, (float)props.parameters.refreshRate / 1000.);
+ 
+-	int64_t new_frame_interval = (int64_t)(1000. * 1000. * 1000. * 1000. / props.parameters.refreshRate);
++	int64_t new_frame_interval = INT64_C(1000000000000) / props.parameters.refreshRate;
+ 
+ 	COMP_DEBUG(ct->c, "Updating compositor frame interval from %" PRIu64 " (%f Hz) to %" PRIu64 " (%f Hz)",
+ 	           ct->c->frame_interval_ns, 1000. * 1000. * 1000. / (float)ct->c->frame_interval_ns,
+@@ -155,15 +159,108 @@
+ static VkDisplayPlaneAlphaFlagBitsKHR
+ choose_alpha_mode(VkDisplayPlaneAlphaFlagsKHR flags)
+ {
++	if (flags & VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR) {
++		return VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR;
++	}
+ 	if (flags & VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_PREMULTIPLIED_BIT_KHR) {
+ 		return VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_PREMULTIPLIED_BIT_KHR;
+ 	}
+ 	if (flags & VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR) {
+ 		return VK_DISPLAY_PLANE_ALPHA_PER_PIXEL_BIT_KHR;
+ 	}
+-	return VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR;
+-}
+-
++	if (flags & VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR) {
++		return VK_DISPLAY_PLANE_ALPHA_GLOBAL_BIT_KHR;
++	}
++	return 0;
++}
++
++
++static VkResult
++choose_display_plane(struct comp_target_swapchain *cts,
++                     VkDisplayKHR display,
++                     VkDisplayModeKHR mode,
++                     VkExtent2D extent,
++                     uint32_t *out_plane,
++                     uint32_t *out_stack,
++                     VkDisplayPlaneAlphaFlagBitsKHR *out_alpha)
++{
++	struct vk_bundle *vk = get_vk(cts);
++	VkDisplayPropertiesKHR *displays = NULL;
++	uint32_t display_count = 0;
++	VkResult ret = vk_enumerate_physical_device_display_properties(
++	    vk, vk->physical_device, &display_count, &displays);
++	if (ret != VK_SUCCESS) {
++		return ret;
++	}
++	bool identity_supported = false;
++	for (uint32_t i = 0; i < display_count; i++) {
++		if (displays[i].display == display) {
++			identity_supported = (displays[i].supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) != 0;
++			break;
++		}
++	}
++	free(displays);
++	if (!identity_supported) {
++		COMP_ERROR(cts->base.c, "Selected display does not support identity scanout");
++		return VK_ERROR_INITIALIZATION_FAILED;
++	}
++
++	VkDisplayPlanePropertiesKHR *planes = NULL;
++	uint32_t plane_count = 0;
++	ret = vk_enumerate_physical_display_plane_properties(vk, vk->physical_device, &plane_count, &planes);
++	if (ret != VK_SUCCESS) {
++		return ret;
++	}
++	ret = VK_ERROR_INITIALIZATION_FAILED;
++	for (uint32_t i = 0; i < plane_count; i++) {
++		if (planes[i].currentDisplay != VK_NULL_HANDLE && planes[i].currentDisplay != display) {
++			continue;
++		}
++		VkDisplayKHR *supported = NULL;
++		uint32_t count = 0;
++		ret = vk_enumerate_display_plane_supported_displays(vk, vk->physical_device, i, &count, &supported);
++		if (ret != VK_SUCCESS) {
++			break;
++		}
++		bool compatible = false;
++		for (uint32_t j = 0; j < count; j++) {
++			compatible |= supported[j] == display;
++		}
++		free(supported);
++		ret = VK_ERROR_INITIALIZATION_FAILED;
++		if (!compatible) {
++			continue;
++		}
++
++		VkDisplayPlaneCapabilitiesKHR caps;
++		ret = vk->vkGetDisplayPlaneCapabilitiesKHR(vk->physical_device, mode, i, &caps);
++		if (ret != VK_SUCCESS) {
++			break;
++		}
++		VkDisplayPlaneAlphaFlagBitsKHR alpha = choose_alpha_mode(caps.supportedAlpha);
++		ret = VK_ERROR_INITIALIZATION_FAILED;
++		if (!alpha || caps.minSrcPosition.x > 0 || caps.maxSrcPosition.x < 0 ||
++		    caps.minSrcPosition.y > 0 || caps.maxSrcPosition.y < 0 ||
++		    caps.minDstPosition.x > 0 || caps.maxDstPosition.x < 0 ||
++		    caps.minDstPosition.y > 0 || caps.maxDstPosition.y < 0 ||
++		    extent.width < caps.minSrcExtent.width || extent.width > caps.maxSrcExtent.width ||
++		    extent.height < caps.minSrcExtent.height || extent.height > caps.maxSrcExtent.height ||
++		    extent.width < caps.minDstExtent.width || extent.width > caps.maxDstExtent.width ||
++		    extent.height < caps.minDstExtent.height || extent.height > caps.maxDstExtent.height) {
++			continue;
++		}
++		*out_plane = i;
++		*out_stack = planes[i].currentStackIndex;
++		*out_alpha = alpha;
++		ret = VK_SUCCESS;
++		break;
++	}
++	free(planes);
++	if (ret != VK_SUCCESS) {
++		COMP_ERROR(cts->base.c, "Unable to select a compatible display plane: %s", vk_result_string(ret));
++	}
++	return ret;
++}
+ 
+ /*
+  *
+@@ -178,28 +275,7 @@
+                                   uint32_t height)
+ {
+ 	struct vk_bundle *vk = get_vk(cts);
+-	VkDisplayPlanePropertiesKHR *plane_properties = NULL;
+-	uint32_t plane_property_count = 0;
+ 	VkResult ret;
+-
+-	// Get plane properties
+-	ret = vk_enumerate_physical_display_plane_properties( //
+-	    vk,                                               //
+-	    vk->physical_device,                              //
+-	    &plane_property_count,                            //
+-	    &plane_properties);                               //
+-	if (ret != VK_SUCCESS) {
+-		COMP_ERROR(cts->base.c, "vk_enumerate_physical_display_plane_properties: %s", vk_result_string(ret));
+-		return VK_ERROR_INITIALIZATION_FAILED;
+-	}
+-
+-	// Select the plane.
+-	//! @todo actually select the plane.
+-	uint32_t plane_index = 0;
+-	uint32_t plane_stack_index = plane_properties[plane_index].currentStackIndex;
+-
+-	free(plane_properties);
+-	plane_properties = NULL;
+ 
+ 	// Select the mode.
+ 	uint32_t mode_width = 0, mode_height = 0;
+@@ -233,9 +309,13 @@
+ 		          mode_height); //
+ 	}
+ 
+-	// We need the capabilities of the selected plane.
+-	VkDisplayPlaneCapabilitiesKHR plane_caps;
+-	vk->vkGetDisplayPlaneCapabilitiesKHR(vk->physical_device, display_mode, plane_index, &plane_caps);
++	uint32_t plane_index, plane_stack_index;
++	VkDisplayPlaneAlphaFlagBitsKHR alpha;
++	VkExtent2D extent = {mode_width, mode_height};
++	ret = choose_display_plane(cts, display, display_mode, extent, &plane_index, &plane_stack_index, &alpha);
++	if (ret != VK_SUCCESS) {
++		return ret;
++	}
+ 
+ 	VkDisplaySurfaceCreateInfoKHR surface_info = {
+ 	    .sType = VK_STRUCTURE_TYPE_DISPLAY_SURFACE_CREATE_INFO_KHR,
+@@ -246,7 +326,7 @@
+ 	    .planeStackIndex = plane_stack_index,
+ 	    .transform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+ 	    .globalAlpha = 1.0,
+-	    .alphaMode = choose_alpha_mode(plane_caps.supportedAlpha),
++	    .alphaMode = alpha,
+ 	    .imageExtent =
+ 	        {
+ 	            .width = mode_width,
+--- a/src/xrt/auxiliary/vk/vk_generate_inc_files.py
++++ b/src/xrt/auxiliary/vk/vk_generate_inc_files.py
+@@ -249,6 +249,10 @@
+         None,
+         Cmd(
+             "vkCreateDisplayPlaneSurfaceKHR", requires=("VK_USE_PLATFORM_DISPLAY_KHR",)
++        ),
++        Cmd(
++            "vkGetDisplayPlaneSupportedDisplaysKHR",
++            requires=("VK_USE_PLATFORM_DISPLAY_KHR",),
+         ),
+         Cmd(
+             "vkGetDisplayPlaneCapabilitiesKHR",
+--- a/src/xrt/auxiliary/vk/vk_enumerate.c
++++ b/src/xrt/auxiliary/vk/vk_enumerate.c
+@@ -239,6 +239,9 @@
+ 	CHECK_FIRST_CALL("vkGetPhysicalDeviceDisplayPropertiesKHR", ret, prop_count);
+ 
+ 	props = U_TYPED_ARRAY_CALLOC(VkDisplayPropertiesKHR, prop_count);
++	if (props == NULL) {
++		return VK_ERROR_OUT_OF_HOST_MEMORY;
++	}
+ 	ret = vk->vkGetPhysicalDeviceDisplayPropertiesKHR(physical_device, &prop_count, props);
+ 	CHECK_SECOND_CALL("vkGetPhysicalDeviceDisplayPropertiesKHR", ret, props);
+ 
+@@ -263,6 +266,9 @@
+ 	CHECK_FIRST_CALL("vkGetPhysicalDeviceDisplayPlanePropertiesKHR", ret, prop_count);
+ 
+ 	props = U_TYPED_ARRAY_CALLOC(VkDisplayPlanePropertiesKHR, prop_count);
++	if (props == NULL) {
++		return VK_ERROR_OUT_OF_HOST_MEMORY;
++	}
+ 	ret = vk->vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physical_device, &prop_count, props);
+ 	CHECK_SECOND_CALL("vkGetPhysicalDeviceDisplayPlanePropertiesKHR", ret, props);
+ 
+@@ -270,6 +276,30 @@
+ 	*out_props = props;
+ 	*out_prop_count = prop_count;
+ 
++	return VK_SUCCESS;
++}
++
++VkResult
++vk_enumerate_display_plane_supported_displays(struct vk_bundle *vk,
++                                              VkPhysicalDevice physical_device,
++                                              uint32_t plane_index,
++                                              uint32_t *out_count,
++                                              VkDisplayKHR **out_displays)
++{
++	VkDisplayKHR *displays = NULL;
++	uint32_t count = 0;
++	VkResult ret = vk->vkGetDisplayPlaneSupportedDisplaysKHR(physical_device, plane_index, &count, NULL);
++	CHECK_FIRST_CALL("vkGetDisplayPlaneSupportedDisplaysKHR", ret, count);
++	displays = U_TYPED_ARRAY_CALLOC(VkDisplayKHR, count);
++	if (displays == NULL) {
++		return VK_ERROR_OUT_OF_HOST_MEMORY;
++	}
++	ret = vk->vkGetDisplayPlaneSupportedDisplaysKHR(physical_device, plane_index, &count, displays);
++	CHECK_SECOND_CALL("vkGetDisplayPlaneSupportedDisplaysKHR", ret, displays);
++
++out:
++	*out_count = count;
++	*out_displays = displays;
+ 	return VK_SUCCESS;
+ }
+ 
+@@ -288,6 +318,9 @@
+ 	CHECK_FIRST_CALL("vkGetDisplayModePropertiesKHR", ret, prop_count);
+ 
+ 	props = U_TYPED_ARRAY_CALLOC(VkDisplayModePropertiesKHR, prop_count);
++	if (props == NULL) {
++		return VK_ERROR_OUT_OF_HOST_MEMORY;
++	}
+ 	ret = vk->vkGetDisplayModePropertiesKHR(physical_device, display, &prop_count, props);
+ 	CHECK_SECOND_CALL("vkGetDisplayModePropertiesKHR", ret, props);
+ 
+--- a/src/xrt/auxiliary/vk/vk_helpers.h
++++ b/src/xrt/auxiliary/vk/vk_helpers.h
+@@ -668,6 +668,13 @@
+                                                uint32_t *out_prop_count,
+                                                VkDisplayPlanePropertiesKHR **out_props);
+ 
++VkResult
++vk_enumerate_display_plane_supported_displays(struct vk_bundle *vk,
++                                              VkPhysicalDevice physical_device,
++                                              uint32_t plane_index,
++                                              uint32_t *out_count,
++                                              VkDisplayKHR **out_displays);
++
+ /*!
+  * Enumerate the mode properties of the given @p VkDisplayKHR, which belongs
+  * to the given @p VkPhysicalDevice.
+--- a/tests/tests_pacing.cpp
++++ b/tests/tests_pacing.cpp
+@@ -402,3 +402,31 @@
+ 	}
+ 	u_pc_destroy(&upc);
+ }
++
++TEST_CASE("u_pacing_compositor_fake_vblank_phase")
++{
++	for (int64_t hz : {72, 90, 120}) {
++		int64_t period = INT64_C(1000000000) / hz;
++		u_pacing_compositor *upc = nullptr;
++		REQUIRE(u_pc_fake_create(period, 0, &upc) == XRT_SUCCESS);
++		REQUIRE(upc != nullptr);
++		int64_t vblank = INT64_C(10000000000) + period / 4;
++		for (int i = 0; i < 64; i++) {
++			vblank += period + period / 3;
++			u_pc_update_vblank_from_display_control(upc, vblank);
++			int64_t now = vblank + 1000;
++			CompositorPredictions prediction;
++			u_pc_predict(upc, now, &prediction.frame_id, &prediction.wake_up_time_ns,
++			             &prediction.desired_present_time_ns, &prediction.present_slop_ns,
++			             &prediction.predicted_display_time_ns, &prediction.predicted_display_period_ns,
++			             &prediction.min_display_period_ns);
++			CHECK(prediction.wake_up_time_ns >= now);
++			CHECK(prediction.desired_present_time_ns > now);
++			CHECK((prediction.desired_present_time_ns - vblank) % period == 0);
++			CHECK(prediction.predicted_display_period_ns == period);
++			CHECK(prediction.min_display_period_ns == period);
++		}
++		u_pc_destroy(&upc);
++		CHECK(upc == nullptr);
++	}
++}

@@ -132,10 +132,19 @@ The exact [Monado source](https://gitlab.freedesktop.org/monado/monado/-/tree/01
 was retrieved and checked against Git blob identities. The files and hashes are
 preserved under `output/hardware-research/monado-display-01c1f6b/`. Its
 `XRT_COMPOSITOR_FORCE_VK_DISPLAY` setting selects a zero-based display index and
-requests `VK_KHR_display`. The target currently forces simulated display timing;
-its automatic mode selection prioritizes pixel count and then refresh rate.
-The display-index bounds check and zero-plane handling also need correction
-before enabling an unattended physical session.
+requests `VK_KHR_display`. The [native Monado bundle](monado.md) corrects the
+display-index bounds check, empty-plane access, mode validation and compatible
+plane selection. The existing runtime image still contains the original package;
+root integration with the new bundle remains outstanding. Automatic mode selection
+still prioritizes pixel count and then refresh rate.
+
+The earlier description of this target as forcing simulated display timing was
+incomplete. `COMP_TARGET_FORCE_FAKE_DISPLAY_TIMING` selects the simple pacing
+implementation, but the independent `VK_EXT_display_control` event thread feeds
+actual vblank timestamps into it when supported. The new upstream pacing test
+verifies that supplied vblank phase changes reach its predictions at 72, 90 and
+120 Hz. No KGSL/SDE hardware timing has been measured; the existing flag is
+preserved pending that validation.
 
 The vendor Sharp panel description specifies two DSI controllers and a
 2064-by-2208 per-panel timing. The vendor mode enumeration multiplies horizontal

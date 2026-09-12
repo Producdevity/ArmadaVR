@@ -1,0 +1,9 @@
+ARG BASE_IMAGE=localhost/armada-vr:dev
+FROM ${BASE_IMAGE}
+RUN dnf -y --setopt=install_weak_deps=False install \
+    patch eigen3-devel systemd-devel libbsd-devel glslang SDL2-devel libglvnd-devel \
+    opencv-devel libusb1-devel libdrm-devel wayland-devel wayland-protocols-devel \
+    libXrandr-devel libxcb-devel libX11-devel zlib-devel \
+    && dnf clean all
+WORKDIR /work
+ENTRYPOINT ["bash"]

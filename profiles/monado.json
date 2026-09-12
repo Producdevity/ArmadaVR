@@ -1,0 +1,22 @@
+{
+  "version": "25.1.0",
+  "commit": "01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
+  "repository": "https://gitlab.freedesktop.org/monado/monado",
+  "full_source": {
+    "url": "https://gitlab.freedesktop.org/api/v4/projects/monado%2Fmonado/repository/archive.tar.gz?sha=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
+    "size": 5848758,
+    "sha256": "b3a0902a6a0cd870845a24f7ef509fea87b94578079d9ee080befe2cc40c189e",
+    "archive_root": "monado-01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2-01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2"
+  },
+  "cmake_options": [
+    "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_INSTALL_PREFIX=/opt/armada-vr/monado",
+    "-DCMAKE_INSTALL_LIBDIR=lib64", "-DGIT_DESC=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
+    "-DXRT_OPENXR_INSTALL_ABSOLUTE_RUNTIME_PATH=ON", "-DXRT_OPENXR_INSTALL_ACTIVE_RUNTIME=OFF",
+    "-DXRT_INSTALL_SYSTEMD_UNIT_FILES=OFF", "-DXRT_FEATURE_SERVICE_SYSTEMD=OFF"
+  ],
+  "required_features": [
+    "XRT_HAVE_VULKAN", "XRT_HAVE_OPENCV", "XRT_HAVE_XCB", "XRT_HAVE_WAYLAND_DIRECT",
+    "XRT_MODULE_COMPOSITOR_MAIN", "XRT_FEATURE_OPENXR", "XRT_FEATURE_SERVICE",
+    "XRT_FEATURE_STEAMVR_PLUGIN", "XRT_BUILD_DRIVER_SIMULATED", "BUILD_TESTING"
+  ]
+}
