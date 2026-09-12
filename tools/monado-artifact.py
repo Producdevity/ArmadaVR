@@ -3,11 +3,15 @@
 import hashlib
 import json
 import os
+import shutil
+import stat
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-ROOT = Path(__file__).resolve().parents[1]
-PREFIX = 'stage/opt/armada-vr/monado'
+ROOT = Path(__file__).resolve().parent.parent
+INSTALL_PREFIX = 'opt/armada-vr/monado'
+PREFIX = 'stage/' + INSTALL_PREFIX
+BUILD_RECORD = 'usr/share/armada-vr/monado-build.json'
 
 
 def digest(path):
@@ -73,3 +77,76 @@ def validate(directory):
     return {'build_sha256': digest(directory / 'build.json'), 'prefix': str(prefix),
             'ctest_executables': int(tests.get('tests')), 'hardware_verified': False,
             'default_runtime': False}
+
+
+def contents(prefix):
+    prefix = Path(prefix)
+    if prefix.is_symlink() or not prefix.is_dir():
+        raise ValueError('Expected a regular Monado prefix directory')
+    result = {'files': {}, 'directories': {}, 'symlinks': {}, 'prefix_mode': stat.S_IMODE(prefix.stat().st_mode)}
+    for path in sorted(prefix.rglob('*')):
+        name = str(path.relative_to(prefix))
+        if path.is_symlink():
+            if (Path(os.readlink(path)).is_absolute() or not path.is_file() or
+                    not path.resolve().is_relative_to(prefix.resolve())):
+                raise ValueError('Monado library link is broken or escapes its prefix: ' + name)
+            result['symlinks'][name] = os.readlink(path)
+        elif path.is_file():
+            result['files'][name] = {'sha256': digest(path), 'mode': stat.S_IMODE(path.stat().st_mode)}
+        elif path.is_dir():
+            result['directories'][name] = stat.S_IMODE(path.stat().st_mode)
+        else:
+            raise ValueError('Unexpected Monado file type: ' + name)
+    return result
+
+
+def package(directory):
+    directory = Path(directory)
+    record = validate(directory)
+    record['contents'] = contents(directory / PREFIX)
+    tree = record['contents']
+    if (tree['prefix_mode'] != 0o755 or any(mode != 0o755 for mode in tree['directories'].values()) or
+            any(item['mode'] not in (0o644, 0o755) for item in tree['files'].values())):
+        raise ValueError('Unexpected Monado installation permissions')
+    for name, item in tree['files'].items():
+        if name.startswith('bin/') and item['mode'] != 0o755:
+            raise ValueError('Monado executable lost its executable mode: ' + name)
+    return record
+
+
+def root_path(root, name):
+    root = Path(root)
+    if not root.is_dir() or root.resolve() == Path('/'):
+        raise ValueError('Expected an offline staging root')
+    path = root / name
+    for parent in (path, *path.parents):
+        if parent == root:
+            break
+        if parent.is_symlink():
+            raise ValueError('Monado installation path contains a symlink: ' + str(parent))
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise ValueError('Monado installation path escapes the staging root')
+    return path
+
+
+def verify_install(root, record):
+    if contents(root_path(root, INSTALL_PREFIX)) != record['contents']:
+        raise ValueError('Installed Monado inventory, permissions or hashes differ')
+    metadata = root_path(root, BUILD_RECORD)
+    if not metadata.is_file() or digest(metadata) != record['build_sha256']:
+        raise ValueError('Installed Monado build record differs')
+
+
+def install(directory, root, record):
+    directory = Path(directory)
+    if (digest(directory / 'build.json') != record['build_sha256'] or
+            contents(directory / PREFIX) != record['contents']):
+        raise ValueError('Monado bundle changed before installation')
+    prefix, metadata = root_path(root, INSTALL_PREFIX), root_path(root, BUILD_RECORD)
+    if prefix.exists() or metadata.exists():
+        raise ValueError('Staging root already supplies the selected Monado bundle')
+    prefix.parent.mkdir(parents=True, exist_ok=True)
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(directory / PREFIX, prefix, symlinks=True)
+    shutil.copy2(directory / 'build.json', metadata)
+    verify_install(root, record)

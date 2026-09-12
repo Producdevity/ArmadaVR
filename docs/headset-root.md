@@ -17,6 +17,12 @@ network-disabled container limited to two CPUs, 2 GiB and five minutes. It never
 mounts or formats a host block device. `rootfs.tar` preserves the exported input;
 previous output directories are refused.
 
+Before creating or exporting a container, the builder checks available output
+space against the requested filesystem size, the Docker image size when an export
+is needed, and 512 MiB of headroom. This is a minimum for output storage; it does
+not include Docker's separate filesystem extraction and verification scratch
+space. A failed preflight retains its report without starting a large export.
+
 With `--reuse-export PREVIOUS_ROOT_DIRECTORY`, the builder instead reads that
 successful build's retained `rootfs.tar`. The immutable userspace image must
 match, and the export's checksum must match before and after construction.
@@ -36,6 +42,21 @@ actual DRM compile/link evidence, loads it inside the assembled userspace, and
 checks the extracted files from the finished ext4 image. See
 [Turnip build and evidence boundaries](turnip.md). This does not select a global
 ICD or enable an automatic headset session.
+
+Use `--monado VERIFIED_MONADO_BUILD` to install the native service, client libraries,
+tools and OpenXR manifest under `/opt/armada-vr/monado`. The builder validates
+source/build/test identities, native ELF architecture, exact file inventories,
+permissions and relative library links. It refuses an existing bundle at that
+prefix and preserves the distribution's current runtime selection. No Monado
+service is enabled. See [Monado build and runtime checks](monado.md).
+
+A small, read-only container first checks the new service's dependencies and
+immediately loads both client libraries against the chosen immutable userspace
+image. Missing libraries or symbols stop the build before export. The assembled
+root repeats these checks in a chroot, then the files, modes, links and build
+record extracted from ext4 must match the validated bundle exactly. The userspace
+image must supply its dependencies, including `opencv-videoio` for the current
+build; `--monado` does not install distribution packages.
 
 `--gpu-firmware VERIFIED_GPU_BUNDLE` adds the five KGSL firmware files selected
 by the [firmware preparer](quest-firmware.md#gpu-firmware). The GPU and ADSP
@@ -136,3 +157,23 @@ VR lab in 112.913 seconds, and mapper-failure poweroff in 5.509 seconds.
 Evidence: `output/quest-startup-gpu-firmware-v1/`. The separate diskless kernel
 firmware test verifies lookup and MDT metadata using files extracted from the
 completed root; it does not run the GPU.
+
+
+September 12: `output/monado-root-package-v6/` exercises the maintained assembly
+script with the v10 QEMU kernel modules, matching startup unit, 48 ADSP files,
+five GPU files, `turnip-display-v2` and `monado/build-v3`. All 85 Monado regular
+files and two relative library links survive installation and extraction with
+matching hashes and modes. Native dependency/loading checks and read-only ext4
+checks pass. The dependency fixture and 6 GiB logical filesystem were held in RAM;
+the temporary filesystem was not retained. Logs and source identities remain.
+
+This fixture contains the native dependencies from the selected runtime image,
+not the complete headset userspace. It proves combined packaging and extraction,
+not a full root build or boot. The retained complete roots remain v3 and do not
+match the newer kernel/startup pair. They still need rebuilding and root-handoff
+acceptance with the new graphics/runtime inputs.
+
+`output/monado-root-audit-v1/` records the packaging result and 130 passing host
+tests. The original runtime image fails the early dependency probe for missing
+OpenCV videoio. The corrected runtime image passes that probe, then stops at the
+output-space guard before export. Both preflight reports are preserved.

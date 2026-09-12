@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import time
@@ -18,6 +19,9 @@ spec.loader.exec_module(assembly)
 spec = importlib.util.spec_from_file_location("turnip_artifact", ROOT / "tools/turnip-artifact.py")
 turnip_artifact = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(turnip_artifact)
+spec = importlib.util.spec_from_file_location("monado_artifact", ROOT / "tools/monado-artifact.py")
+monado_artifact = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(monado_artifact)
 
 SCRIPT = r'''
 set -eu
@@ -25,7 +29,7 @@ mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
 tar -xpf /rootfs.tar -C /tmp/root
 tar -xzf /kernel/modules.tar.gz -C /tmp/modules --no-same-owner
 python3 - "$1" <<'PYROOT'
-import hashlib,json,shutil,sys
+import hashlib,importlib.util,json,shutil,sys
 from pathlib import Path
 root=Path('/tmp/root'); version=sys.argv[1]
 if not (root/'usr/lib/systemd/systemd').is_file() or (root/'etc/initrd-release').exists():
@@ -74,13 +78,24 @@ if Path('/output/turnip.json').is_file():
         target=root/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(Path('/turnip')/item['source'],target)
     shutil.copy2('/turnip/build.json',metadata/'turnip-build.json')
+monado=None
+if Path('/output/monado.json').is_file():
+    monado=json.loads(Path('/output/monado.json').read_text())
+    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.install('/monado',root,monado)
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest(),'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'gpu_firmware':gpu},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'gpu_firmware':gpu},indent=2)+'\n')
 PYROOT
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
     chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/armada-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
+fi
+if test -f /output/monado.json; then
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/ldd -r /opt/armada-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
+    python3 -c 'from pathlib import Path; data=Path("/output/monado-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/armada-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
 fi
 python3 - "$2" <<'PYSIZE'
 import sys
@@ -97,8 +112,13 @@ if test -f /output/turnip.json; then
     debugfs -R 'rdump /opt/armada-vr/turnip /tmp/verify/turnip' /output/rootfs.ext4
     debugfs -R 'dump /usr/share/armada-vr/turnip-build.json /tmp/verify/turnip-build.json' /output/rootfs.ext4
 fi
+if test -f /output/monado.json; then
+    mkdir -p /tmp/verify/monado-root/opt/armada-vr /tmp/verify/monado-root/usr/share/armada-vr
+    debugfs -R 'rdump /opt/armada-vr/monado /tmp/verify/monado-root/opt/armada-vr' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/armada-vr/monado-build.json /tmp/verify/monado-root/usr/share/armada-vr/monado-build.json' /output/rootfs.ext4
+fi
 python3 - <<'PYVERIFY'
-import hashlib,json
+import hashlib,importlib.util,json
 from pathlib import Path
 module_root=Path('/tmp/verify/modules/modules')
 expected=json.loads(Path('/kernel/modules.json').read_text())
@@ -127,8 +147,14 @@ if Path('/output/turnip.json').is_file():
             raise SystemExit('Root image Turnip mismatch: '+item['path'])
     if hashlib.sha256(Path('/tmp/verify/turnip-build.json').read_bytes()).hexdigest()!=turnip['build_sha256']:
         raise SystemExit('Root image Turnip build record mismatch')
+monado=None
+if Path('/output/monado.json').is_file():
+    monado=json.loads(Path('/output/monado.json').read_text())
+    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.verify_install('/tmp/verify/monado-root',monado)
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,
-    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip},indent=2)+'\n')
+    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip,'monado':monado},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -142,6 +168,10 @@ def run(args):
     if turnip_dir and any(c in str(turnip_dir) for c in (",", ":")):
         raise ValueError("Choose a Turnip path without commas or colons")
     turnip = turnip_artifact.validate(turnip_dir) if turnip_dir else None
+    monado_dir = args.monado.absolute() if args.monado else None
+    if monado_dir and any(c in str(monado_dir) for c in (",", ":")):
+        raise ValueError("Choose a Monado path without commas or colons")
+    monado = monado_artifact.package(monado_dir) if monado_dir else None
     gpu_dir = args.gpu_firmware.absolute() if args.gpu_firmware else None
     export_dir = args.reuse_export.absolute() if args.reuse_export else None
     if any(c in str(p) for p in (gpu_dir, export_dir) if p for c in (",", ":")):
@@ -166,6 +196,7 @@ def run(args):
     if initrd.get("quest_inputs_sha256") != inputs:
         raise ValueError("Quest startup sources changed since the initramfs build")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
+    inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")
     inputs["tools/turnip-artifact.py"] = builder.digest(ROOT / "tools/turnip-artifact.py")
     inputs["tools/prepare-quest-firmware.py"] = builder.digest(ROOT / "tools/prepare-quest-firmware.py")
     image = json.loads(subprocess.check_output([args.engine, "image", "inspect", args.image], text=True))[0]
@@ -185,13 +216,41 @@ def run(args):
     output.mkdir(parents=True)
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
-    report = {"status": "started", "turnip": turnip, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
+    if monado:
+        (output / "monado.json").write_text(json.dumps(monado, indent=2) + "\n")
+    report = {"status": "started", "turnip": turnip, "monado": monado, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw, "container_image": image["Id"], "inputs_sha256": inputs,
               "root_label": args.root_label, "size_gib": args.size_gib, "commands": []}
     container = None; started = time.monotonic()
     try:
+        if monado_dir:
+            probe = """import ctypes, os, subprocess
+prefix='/opt/armada-vr/monado'
+data=subprocess.check_output(['ldd','-r',prefix+'/bin/monado-service'],text=True,stderr=subprocess.STDOUT)
+print(data,flush=True)
+if 'not found' in data or 'undefined symbol' in data:
+    raise SystemExit('Monado runtime image has unresolved dependencies')
+for name in ('libopenxr_monado.so','libmonado.so'):
+    ctypes.CDLL(prefix+'/lib64/'+name,mode=os.RTLD_NOW)
+print('Monado runtime image preflight: passed')
+"""
+            command = [args.engine, "run", "--rm", "--read-only", "--network", "none",
+                       "--memory", "256m", "--memory-swap", "256m", "--cpus", "1", "--pids-limit", "64",
+                       "-v", f"{monado_dir / monado_artifact.PREFIX}:/opt/armada-vr/monado:ro",
+                       "-e", "LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64",
+                       "--entrypoint", "python3", image["Id"], "-B", "-c", probe]
+            report["commands"].append(command)
+            with (output / "monado-preflight.txt").open("wb") as log:
+                subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=30)
+        required = args.size_gib * 1024**3 + (0 if export_source else image["Size"]) + 512 * 1024**2
+        available = shutil.disk_usage(output).free
+        report["storage_preflight"] = {"available_bytes": available, "required_output_bytes": required,
+                                       "container_scratch_included": False}
+        if available < required:
+            raise ValueError(f"Root export requires at least {required / 1024**3:.2f} GiB free in the output filesystem; "
+                             f"only {available / 1024**3:.2f} GiB is available")
         if export_source:
             archive = Path(export_source["path"])
             report["export_sha256"] = export_source["sha256"]
@@ -209,6 +268,7 @@ def run(args):
                    "-v", f"{firmware}:/firmware:ro", "-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro",
                    *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
+                   *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
         report["commands"].append(command)
@@ -224,11 +284,15 @@ def run(args):
             raise ValueError("GPU firmware changed during root construction")
         if turnip_dir and turnip_artifact.validate(turnip_dir) != turnip:
             raise ValueError("Turnip changed during root construction")
+        if monado_dir and monado_artifact.package(monado_dir) != monado:
+            raise ValueError("Monado changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
             raise ValueError("Root build sources changed during construction")
         names = ["rootfs.ext4", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
         if turnip:
             names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
+        if monado:
+            names += ["monado.json", "monado-preflight.txt", "monado-dependencies.txt", "monado-loader.txt"]
         report["artifacts"] = [{"path": n, "bytes": (output / n).stat().st_size, "sha256": builder.digest(output / n)}
                                for n in names]
         contents = json.loads((output / "contents.json").read_text())
@@ -252,6 +316,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default="localhost/armada-vr:runtime")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
+    parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
     parser.add_argument("--gpu-firmware", type=Path, help="Verified GPU bundle from the same Quest reference image")
     parser.add_argument("--reuse-export", type=Path, help="Reuse rootfs.tar from a successful root build with the same userspace image")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))

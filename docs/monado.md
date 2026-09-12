@@ -23,7 +23,7 @@ source tree identity, test results and output hashes.
 
 The installed bundle is under `stage/opt/armada-vr/monado`. It contains native
 service/client libraries, tools and the OpenXR manifest. `tools/monado-artifact.py`
-provides `validate(directory)` for packaging and test callers; validation rejects
+provides `validate(directory)` for build and test callers; validation rejects
 changed sources, failed tests, damaged artifacts and foreign-architecture ELFs.
 The service must contain the actual direct-display implementation, and the
 preprocessor record must show that the target was compiled.
@@ -38,7 +38,18 @@ Runtime dependencies must be checked in the final userspace. The current base
 runtime needed Fedora's `opencv-videoio` package for this build. The separate
 `localhost/armada-vr:monado-runtime-test` image adds that dependency; `ldd -r` on
 the service and immediate dynamic loading of both client libraries then passed.
-The canonical runtime image and headset roots have not yet received this bundle.
+The canonical runtime image and retained complete headset roots have not yet
+received this bundle.
+
+The [offline root builder](headset-root.md) accepts `--monado VERIFIED_MONADO_BUILD`.
+Its `package(directory)` helper extends build validation with an exact inventory
+of file hashes, permissions, directories and relative symlink targets. Installation
+accepts an offline staging root, refuses existing bundle paths and symlink
+ancestors, copies the bundle and build record, then verifies them. The root builder
+also compares this inventory with files extracted from the completed ext4 image.
+Both the early userspace-image probe and assembled-root checks must resolve every
+service dependency and immediately load `libopenxr_monado.so` and `libmonado.so`.
+This packages the bundle without selecting a runtime or enabling a service.
 
 ## Direct display selection
 
@@ -88,8 +99,19 @@ Evidence from September 12, 2026:
   tests pass. The failed build with a missing patch utility and failed runtime
   probe with a missing videoio library remain preserved alongside the fixes.
 
+- `output/monado-root-package-v6/`: the maintained root assembly script installs
+  all 85 regular files and two library symlinks alongside the new kernel modules,
+  firmware and Turnip. Native loading, filesystem checking and exact extraction
+  checks pass using a dependency fixture and a temporary ext4 filesystem in RAM.
+  This is not a retained complete root or a boot test.
+- `output/monado-root-audit-v1/`: 130 host tests pass, including installation
+  rejection cases. The original runtime fails the early missing-library probe;
+  the corrected runtime passes it, then the output-space guard prevents export
+  on the nearly full host disk. Both outcomes and earlier failed fixtures remain.
+
 These are native software and virtual rendering checks. They do not prove
 SteamVR dashboard navigation, real controller tracking/haptics, KGSL/SDE panel
 operation, optics calibration, exact-device custom boot or recovery. The complete
-kernel/module/root integration and those acceptance gates remain outstanding.
+root build and boot integration with the updated kernel/modules and those
+acceptance gates remain outstanding.
 Virtual results do not establish flash readiness.
