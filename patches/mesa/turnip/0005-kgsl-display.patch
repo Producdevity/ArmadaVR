@@ -1,0 +1,207 @@
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -26,6 +26,7 @@
+ #include "vk_drm_syncobj.h"
+ #include "util/u_sync_provider.h"
+ #include "tu_kgsl_drm_sync.h"
++#include "tu_kgsl_display.h"
+ #endif
+ 
+ #include "tu_cmd_buffer.h"
+@@ -261,6 +262,10 @@
+              struct tu_sparse_vma *lazy_vma,
+              const char *name)
+ {
++   if (flags & TU_BO_ALLOC_IMPLICIT_SYNC)
++      return vk_errorf(dev, VK_ERROR_FEATURE_NOT_PRESENT,
++                       "KGSL presentation requires DMA-buffer sync-file ioctls");
++
+    if (flags & TU_BO_ALLOC_SHAREABLE) {
+       /* The Vulkan spec doesn't forbid allocating exportable memory with a
+        * fixed address, only imported memory, but on kgsl we can't sensibly
+@@ -354,6 +359,10 @@
+                     enum tu_bo_alloc_flags flags,
+                     int fd)
+ {
++   if (flags & TU_BO_ALLOC_IMPLICIT_SYNC)
++      return vk_errorf(dev, VK_ERROR_FEATURE_NOT_PRESENT,
++                       "KGSL presentation requires DMA-buffer sync-file ioctls");
++
+    struct kgsl_gpuobj_import_dma_buf import_dmabuf = {
+       .fd = fd,
+    };
+@@ -1888,10 +1897,13 @@
+ VkResult
+ tu_knl_kgsl_load(struct tu_instance *instance, int fd)
+ {
++#ifndef HAVE_LIBDRM
+    if (instance->vk.enabled_extensions.KHR_display) {
++      close(fd);
+       return vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
+-                       "I can't KHR_display");
+-   }
++                       "KGSL KHR_display requires DRM support");
++   }
++#endif
+ 
+    struct tu_physical_device *device = (struct tu_physical_device *)
+       vk_zalloc(&instance->vk.alloc, sizeof(*device), 8,
+@@ -1976,6 +1988,19 @@
+    device->sync_types[1] = &device->timeline_type.sync;
+    device->sync_types[2] = NULL;
+ #ifdef HAVE_LIBDRM
++   if (instance->vk.enabled_extensions.KHR_display) {
++      /* Open scanout before the sync bridge can acquire DRM master. */
++      device->master_fd = tu_kgsl_display_open(
++         debug_get_option("TU_KGSL_DISPLAY", NULL),
++         &device->master_major, &device->master_minor);
++      if (device->master_fd < 0) {
++         result = vk_errorf(instance, VK_ERROR_INITIALIZATION_FAILED,
++                           "KGSL KHR_display requires a usable TU_KGSL_DISPLAY primary node: %s",
++                           strerror(errno));
++         goto fail;
++      }
++      device->has_master = true;
++   }
+    result = kgsl_init_drm_sync(device);
+    if (result != VK_SUCCESS)
+       goto fail;
+@@ -2063,6 +2088,8 @@
+    return VK_SUCCESS;
+ 
+ fail:
++   if (device->has_master)
++      close(device->master_fd);
+    if (device->has_kgsl_drm_sync)
+       close(device->kgsl_sync_fd);
+    vk_free(&instance->vk.alloc, device);
+--- a/src/freedreno/vulkan/tu_wsi.cc
++++ b/src/freedreno/vulkan/tu_wsi.cc
+@@ -15,6 +15,10 @@
+ 
+ #include "tu_device.h"
+ 
++#ifdef HAVE_LIBDRM
++#include "tu_kgsl_display.h"
++#endif
++
+ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+ tu_wsi_proc_addr(VkPhysicalDevice physicalDevice, const char *pName)
+ {
+@@ -27,6 +31,10 @@
+ {
+ #ifdef HAVE_LIBDRM
+    VK_FROM_HANDLE(tu_physical_device, pdevice, physicalDevice);
++   if (strcmp(pdevice->instance->knl->name, "kgsl") == 0)
++      return pdevice->has_master &&
++             tu_kgsl_display_matches_fd(fd, pdevice->master_major,
++                                       pdevice->master_minor);
+    return wsi_common_drm_devices_equal(fd, pdevice->local_fd);
+ #else
+    return true;
+--- a/src/freedreno/vulkan/tu_device.cc
++++ b/src/freedreno/vulkan/tu_device.cc
+@@ -314,7 +314,7 @@
+       .EXT_mutable_descriptor_type = true,
+       .EXT_nested_command_buffer = true,
+       .EXT_non_seamless_cube_map = true,
+-      .EXT_physical_device_drm = !is_kgsl(device->instance),
++      .EXT_physical_device_drm = !is_kgsl(device->instance) || device->has_master,
+       .EXT_pipeline_creation_cache_control = true,
+       .EXT_pipeline_creation_feedback = true,
+ #ifdef TU_USE_WSI_PLATFORM
+--- /dev/null
++++ b/src/freedreno/vulkan/tu_kgsl_display.h
+@@ -0,0 +1,92 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef TU_KGSL_DISPLAY_H
++#define TU_KGSL_DISPLAY_H
++
++#include <errno.h>
++#include <fcntl.h>
++#include <stdint.h>
++#include <stdbool.h>
++#include <sys/stat.h>
++#include <sys/sysmacros.h>
++#include <unistd.h>
++#include <xf86drm.h>
++#include <xf86drmMode.h>
++
++static inline int
++tu_kgsl_display_open(const char *path, int64_t *device_major,
++                     int64_t *device_minor)
++{
++   if (!path || !path[0]) {
++      errno = EINVAL;
++      return -1;
++   }
++
++   int fd = open(path, O_RDWR | O_CLOEXEC);
++   if (fd < 0)
++      return -1;
++
++   struct stat st;
++   uint64_t prime;
++   drmModeRes *resources;
++   drmModePlaneRes *planes;
++   int saved_errno, usable;
++
++   if (fstat(fd, &st) < 0)
++      goto fail;
++   if (!S_ISCHR(st.st_mode) || drmGetNodeTypeFromFd(fd) != DRM_NODE_PRIMARY) {
++      errno = ENODEV;
++      goto fail;
++   }
++   if (drmGetCap(fd, DRM_CAP_PRIME, &prime) < 0)
++      goto fail;
++   if (!(prime & DRM_PRIME_CAP_IMPORT)) {
++      errno = ENOTSUP;
++      goto fail;
++   }
++   if (drmSetClientCap(fd, DRM_CLIENT_CAP_UNIVERSAL_PLANES, 1) < 0 ||
++       drmSetClientCap(fd, DRM_CLIENT_CAP_ATOMIC, 1) < 0)
++      goto fail;
++   if (!drmIsMaster(fd)) {
++      errno = EACCES;
++      goto fail;
++   }
++   resources = drmModeGetResources(fd);
++   if (!resources)
++      goto fail;
++   usable = resources->count_connectors > 0 && resources->count_crtcs > 0;
++   drmModeFreeResources(resources);
++   if (!usable) {
++      errno = ENODEV;
++      goto fail;
++   }
++   planes = drmModeGetPlaneResources(fd);
++   if (!planes)
++      goto fail;
++   usable = planes->count_planes > 0;
++   drmModeFreePlaneResources(planes);
++   if (!usable) {
++      errno = ENODEV;
++      goto fail;
++   }
++
++   *device_major = major(st.st_rdev);
++   *device_minor = minor(st.st_rdev);
++   return fd;
++
++fail:
++   saved_errno = errno;
++   close(fd);
++   errno = saved_errno;
++   return -1;
++}
++
++static inline bool
++tu_kgsl_display_matches_fd(int fd, int64_t device_major, int64_t device_minor)
++{
++   struct stat st;
++   return fstat(fd, &st) == 0 && S_ISCHR(st.st_mode) &&
++          (int64_t)major(st.st_rdev) == device_major &&
++          (int64_t)minor(st.st_rdev) == device_minor;
++}
++
++#endif

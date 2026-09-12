@@ -124,6 +124,17 @@ def build(profile, driver="lavapipe"):
                 "helpers_sha256": digest(output / "kgsl-submit-under-test.h"),
                 "executable_sha256": digest(output / "kgsl-submit-tests"),
             }
+            run([sys.executable, str(ROOT / "tests/kgsl-display-tests.py"),
+                 str(source / "src/freedreno/vulkan/tu_kgsl_display.h"), str(output)],
+                "kgsl-display-tests.log", timeout=120)
+            report["kgsl_display_tests"] = {
+                "status": "passed",
+                "scope": "actual display helper with modeled DRM failures and real descriptor ownership",
+                "runner_sha256": digest(ROOT / "tests/kgsl-display-tests.py"),
+                "model_sha256": digest(ROOT / "tests/kgsl-display-tests.cpp"),
+                "helpers_sha256": digest(output / "tu_kgsl_display.h"),
+                "executable_sha256": digest(output / "kgsl-display-tests"),
+            }
         report["source_sha256"] = stamp.read_text()
         (output / "packages.txt").write_text(subprocess.check_output(["rpm", "-qa"], text=True))
         if not (build_dir / "build.ninja").is_file():
@@ -158,9 +169,18 @@ def build(profile, driver="lavapipe"):
                 "source_sha256": digest(ROOT / "tests/kgsl-drm-sync.c"),
                 "header_sha256": digest(header),
             }
-            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync"]
+            run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror",
+                 "-I", str(header.parent), str(ROOT / "tests/kgsl-display.c"),
+                 *drm_flags, "-o", str(output / "kgsl-display")], "kgsl-display-build.log")
+            report["kgsl_display_test"] = {
+                "status": "compiled-not-run",
+                "scope": "real DRM descriptor ownership; requires a diskless QEMU transport kernel",
+                "source_sha256": digest(ROOT / "tests/kgsl-display.c"),
+                "header_sha256": digest(output / "tu_kgsl_display.h"),
+            }
+            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display"]
         for name in names:
-            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync"):
+            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display"):
                 shutil.copy2(build_dir / targets / name, output / name)
         for path in (ROOT / "tests/vulkan-external-sync.c", ROOT / "src/vulkan-interop.c"):
             run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror", str(path),
@@ -175,11 +195,13 @@ def build(profile, driver="lavapipe"):
                 raise ValueError("KGSL compile omitted the DRM bridge")
             dynamic = subprocess.check_output(["readelf", "-d", str(output / names[0])], text=True)
             library = (output / names[0]).read_bytes()
-            if "libdrm.so.2" not in dynamic or b"TU_KGSL_DRM_SYNC" not in library:
+            if ("libdrm.so.2" not in dynamic or b"TU_KGSL_DRM_SYNC" not in library or
+                    b"TU_KGSL_DISPLAY" not in library):
                 raise ValueError("Turnip library is missing the DRM bridge or dependency")
             (output / "kgsl-compile-command.txt").write_text(kgsl[0] + "\n")
             (output / "dynamic-dependencies.txt").write_text(dynamic)
             report["kgsl_drm_bridge_compiled"] = True
+            report["kgsl_display_compiled"] = True
         evidence = ["kgsl-compile-command.txt", "dynamic-dependencies.txt"] if driver == "turnip" else []
         for name in (*names, "vulkan-external-sync", "vulkan-interop", *evidence):
             path = output / name

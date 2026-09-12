@@ -17,9 +17,9 @@ immutable ARM64 container image, a source cache keyed by profile, patches,
 builder and image, and no network during compilation. Existing outputs are
 refused. Build and test logs, source identities and artifact hashes are retained.
 
-The four Turnip patches fix fence ownership and wait-any behavior, implement
-an opt-in KGSL-to-DRM synchronization bridge, and enable that bridge in the
-KGSL-only build. Submission still uses KGSL. The DRM device supplies binary and
+The five Turnip patches fix fence ownership and wait-any behavior, implement
+an opt-in KGSL-to-DRM synchronization bridge, enable that bridge in the
+KGSL-only build, and connect an explicitly selected DRM display to KGSL WSI. Submission still uses KGSL. The DRM device supplies binary and
 timeline synchronization objects; it does not replace the KGSL GPU driver.
 
 The bridge requires `-Dfreedreno-kgsl-drm-sync=true` at build time and
@@ -67,17 +67,85 @@ The existing QEMU software-rendering lab remains available. Headset session
 selection, display scanout, GPU execution, tracking/calibration, thermal
 operation, exact-device boot acceptance and recovery still require completion.
 
-## Direct headset display remains incomplete
+## Opt-in direct display
 
-The corrected v7 compile command already enables `VK_USE_PLATFORM_DISPLAY_KHR`
-and includes common DRM display WSI. However, `tu_knl_kgsl_load()` still rejects
-instances that enable `VK_KHR_display`, sets `master_fd` to `-1`, and uses its
-KGSL descriptor as `local_fd`. Turnip's presentation-device check compares the
-candidate DRM device with that local descriptor. A separate, correctly selected
-SDE display descriptor and its ownership/lifetime handling are still required.
+Patch 0005 allows a KGSL instance enabling `VK_KHR_display` to open the DRM
+primary node named by `TU_KGSL_DISPLAY`. The helper requires a character device,
+primary-node identity, PRIME import, universal planes, atomic KMS, DRM master,
+and nonempty connector/CRTC/plane inventories. It does not force another client
+to surrender DRM master. Failure closes the opened descriptor and preserves the
+original error; later KGSL initialization failures also release that descriptor.
+
+The display opens before the synchronization bridge, which could otherwise take
+DRM master first. `local_fd` remains the KGSL GPU descriptor; `master_fd` is the
+selected display. Existing common display WSI uses the latter for scanout.
+Presentation-device checks match the selected primary's device identity,
+including DRM leases. Physical-device DRM properties describe the selected
+primary and do not invent a DRM render node for KGSL.
+
+This selection applies only to instances enabling `VK_KHR_display`. Ordinary
+application instances do not acquire the primary through `TU_KGSL_DISPLAY`.
+`TU_KGSL_DRM_SYNC` remains independent; applications should use a verified,
+suitable render node for synchronization so they do not occupy display master.
+The vendor SDE DRM driver declares render-node support, but actual node identity,
+permissions and synchronization capabilities still require target validation.
 
 The [DMA-buffer sync-file backport](dma-buf-sync.md) supplies the kernel API
-Mesa uses to attach completion fences before presentation. It does not remove
-that KGSL display rejection or prove panel presentation. Device access for KGSL
-and the system DMA heap, buffer formats/modifiers, display selection and the
-physical compositor session remain integration work.
+Mesa uses to attach completion fences before presentation. KGSL now rejects
+allocation/import requests for its unsupported implicit-sync fallback instead
+of silently accepting that flag. This does not prove GPU completion, modifier
+compatibility or scanout. The full exported v7 kernel/root bundles still predate
+the backport; the incremental DMA-buffer kernels are separate artifacts.
+
+`output/mesa/turnip-display-v2/` contains the compiled ARM64 driver, four passing
+ASan/UBSan suites and five passing Freedreno tests. The first display build is
+preserved at `turnip-display-v1/`; it failed because the presentation callback
+referenced a function private to another source file. The corrected callback
+uses the kernel backend identity directly.
+
+```sh
+python3 -B tools/test-kgsl-display.py QEMU_KERNEL_BUILD \
+  --turnip NEW_MESA_DIRECTORY --output NEW_DISPLAY_TEST_DIRECTORY
+```
+
+This runner refuses physical kernel builds and existing output directories,
+verifies kernel/Turnip identities, and boots without disks or networking.
+`output/kgsl-display-v1/` uses the QEMU DMA-buffer test kernel and the exact
+compiled display helper with real virtio-gpu DRM ioctls. Primary/render-node
+checks, master contention, lease identity, repeated release/reacquisition and
+clean power-off pass. The separate sanitizer suite models libdrm failures with
+real descriptor ownership. These tests perform no KGSL GPU work or panel scanout.
+
+`output/kgsl-display-audit-v1/` records artifact rejection tests, loading the new
+DSO in the pinned ARM64 runtime, and an absent-KGSL negative probe. The previous
+v7 bundle is preserved but is not accepted as a build of the current patches.
+Root repackaging with the new display driver has not been performed.
+
+## Native compositor integration still required
+
+The pinned runtime already includes a native ARM64 Monado service with the
+Vulkan direct-display target. Its package is
+`25.1.0^20260820git01c1f6b-1.fc44.aarch64`; this is distinct from the translated
+desktop SteamVR compatibility runtime.
+
+The exact [Monado source](https://gitlab.freedesktop.org/monado/monado/-/tree/01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2/src/xrt/compositor/main)
+was retrieved and checked against Git blob identities. The files and hashes are
+preserved under `output/hardware-research/monado-display-01c1f6b/`. Its
+`XRT_COMPOSITOR_FORCE_VK_DISPLAY` setting selects a zero-based display index and
+requests `VK_KHR_display`. The target currently forces simulated display timing;
+its automatic mode selection prioritizes pixel count and then refresh rate.
+The display-index bounds check and zero-plane handling also need correction
+before enabling an unattended physical session.
+
+The vendor Sharp panel description specifies two DSI controllers and a
+2064-by-2208 per-panel timing. The vendor mode enumeration multiplies horizontal
+active pixels by controller count; this implies a 4128-by-2208 combined mode for
+that configuration. It is source-derived topology, not a measurement of the
+attached headset. BOE/JDI/Sharp variants, selected panel, orientation, mode,
+optics/calibration and compositor timing must be matched to the actual device.
+Do not select the highest advertised refresh rate automatically for bring-up.
+
+No physical compositor service is enabled by this change. DMA allocation,
+GPU rendering, PRIME import/modifiers, correct binocular output and timing,
+tracking/calibration, thermal behavior, exact-device boot acceptance and recovery
+remain required. Virtual results do not establish flash readiness.
