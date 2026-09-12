@@ -88,6 +88,11 @@ separate `root-fault` case terminates the actual mapper after handoff and requir
 orderly filesystem shutdown and power-off. `--case NAME` can select individual
 cases; the default runs all eight startup cases.
 
+For a diskless initramfs check, explicitly select cases such as `--case ready`
+and omit `--rootfs`. The runner then reports no root-image hash or root-handoff
+claim. The default complete suite and explicit `root` or `root-fault` cases
+still require a matching root image; a missing or older root is refused.
+
 The hardware-facing ADSP/PMIC/UCSI/USB state is modeled. These tests do not boot
 DSP firmware, negotiate USB-C power, execute on the headset or prove recovery.
 The physical kernel still needs real panel/GPU, controller/tracking/calibration,

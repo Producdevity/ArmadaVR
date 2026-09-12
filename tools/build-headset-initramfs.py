@@ -162,7 +162,10 @@ def run(args):
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
               "firmware_validator_sha256": digest(Path(firmware.__file__))}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
-               "--cpus", "2", "--pids-limit", "256", "-e", "SOURCE_DATE_EPOCH=0", "-e", "PYTHONDONTWRITEBYTECODE=1",
+               "--cpus", "2", "--pids-limit", "256",
+               "--tmpfs", "/tmp:rw,exec,size=512m", "--tmpfs", "/var/tmp:rw,exec,size=512m",
+               "--tmpfs", "/usr/lib/modules:rw,nosuid,size=128m",
+               "-e", "SOURCE_DATE_EPOCH=0", "-e", "PYTHONDONTWRITEBYTECODE=1",
                "-v", f"{kernel}:/kernel:ro", "-v", f"{output}:/output"]
     if firmware_dir:
         command.extend(["-v", f"{firmware_dir}:/firmware:ro"])

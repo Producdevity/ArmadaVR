@@ -69,9 +69,29 @@ that kernel has not run on a headset.
 The incremental build uses private copy-on-write source/build layers over the
 existing kernel cache mounted read-only. Build records contain the baseline,
 patch, complete source-tree identity, compiler commands and output hashes.
-These test build directories require their recorded overlay cache; they do not
-replace the complete kernel/module/DT bundles consumed by the root builder.
-The existing v3 roots and startup artifacts remain unchanged.
+Those incremental test directories retain their recorded overlay-cache
+requirement. Complete exports are now available at
+`output/kernel/quest3/linux-build-v10/` and `qemu-abi-v10/`; packaging their
+Image, 272 modules and 14 device trees no longer requires access to the cache.
+Compiling additional external test modules still requires the original matching
+source/build layers; older runners that infer a plain cache path from
+`olddefconfig` commands do not consume these export records.
+
+The exports read both original and incremental caches through read-only mounts.
+Module installation and stripping run in RAM, with checksummed output copied to
+the host only after verifying its size and remaining headroom. Source identity,
+Image, configuration and cached module hashes are checked around the export.
+The full new SDE module differs from the older bundle; the other 271 module
+hashes and all device trees match. Export logs and provenance remain in each
+build directory. The v8 missing-Python-path and v9 insufficient-RAM failures are
+preserved; v10 completes successfully.
+
+Matching startup artifacts are `output/headset-initramfs-quest-v4/` and
+`headset-initramfs-quest-qemu-v6/`. The new QEMU package passes actual module load
+and QRTR/QMI readiness in `output/quest-startup-dmabuf-v1/`, with modeled peripheral
+state and clean power-off. This does not repeat or replace the earlier DMA-buffer
+ioctl tests, whose kernel Image is identical. The existing v3 full roots remain
+unchanged and still need the new kernels/modules and graphics/runtime bundles.
 
 This API closes one synchronization prerequisite. KGSL execution, SDE buffer
 import and scanout, physical panel timing, tracking, thermal behavior and the

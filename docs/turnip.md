@@ -94,8 +94,9 @@ The [DMA-buffer sync-file backport](dma-buf-sync.md) supplies the kernel API
 Mesa uses to attach completion fences before presentation. KGSL now rejects
 allocation/import requests for its unsupported implicit-sync fallback instead
 of silently accepting that flag. This does not prove GPU completion, modifier
-compatibility or scanout. The full exported v7 kernel/root bundles still predate
-the backport; the incremental DMA-buffer kernels are separate artifacts.
+compatibility or scanout. Complete v10 kernel/module/device-tree exports now
+include the backport. The existing v3 roots still contain the older v7 kernel
+modules and require repackaging.
 
 `output/mesa/turnip-display-v2/` contains the compiled ARM64 driver, four passing
 ASan/UBSan suites and five passing Freedreno tests. The first display build is

@@ -13,7 +13,10 @@ The builder needs the project's Fedora VM container with dracut, systemd and
 kmod, or a compatible image selected with `--image`. It resolves the image to
 an immutable Docker ID, disables networking and limits the build to two CPUs,
 2 GiB and four minutes. Docker's init process is required: this Fedora image's
-`timeout` exits 125 when used directly as container PID 1.
+`timeout` exits 125 when used directly as container PID 1. Module staging,
+dracut temporary files and unpacking use bounded RAM mounts, so they do not
+expand the container's writable disk layer. The compressed output and logs
+remain in the selected output directory.
 
 All modules are taken from the selected build. After unpacking the result, the
 builder verifies every module's hash and rejects additional modules, mixed
@@ -101,6 +104,23 @@ Earlier failures are retained: the PID-1 timeout launch, a test's incorrect
 assumption that the lower mount remains visible after switch-root, missing
 dracut emergency handling, and a temporary module-path layout rejected by the
 strict archive check. The final builder uses standard `/lib/modules` staging.
+
+September 12: `output/kernel/quest3/linux-build-v10/` and `qemu-abi-v10/`
+export the complete DMA-buffer synchronization builds: Image, configuration,
+272 matching modules and 14 device trees for each variant. Their kernel images
+match the previously tested incremental builds. Module extraction, architecture,
+release and hash checks pass; `depmod` reports no unresolved symbols. The SDE
+module is updated in both variants; the other module hashes and device trees
+match the respective previous full builds.
+
+`output/headset-initramfs-quest-v4/` and `headset-initramfs-quest-qemu-v6/`
+contain those matching modules and all 48 ADSP firmware files. The diskless
+`output/quest-startup-dmabuf-v1/` readiness case boots the new QEMU package,
+loads six actual vendor modules, completes 96 QRTR/QMI requests and powers off
+cleanly in 2.568 seconds. ADSP, PMIC and USB hardware state is modeled; no DSP
+firmware executes. `output/kernel-startup-audit-v1/` records input/artifact checks,
+physical/mismatched-root refusals and 123 passing host tests. Root handoff with
+these new artifacts still requires a newly assembled, matching root image.
 
 The maintained assembly command is an offline container builder. It is not an
 installer or updater. It uses reference firmware `52433670036000520`, which

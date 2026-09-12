@@ -62,9 +62,13 @@ cp /fixture/handoff-install.service /output/extra/etc/systemd/system/quest-hando
 
 
 def run(args):
-    kernel, initramfs, source_dir, rootfs = (p.absolute() for p in (args.kernel, args.initramfs, args.sources, args.rootfs))
+    kernel, initramfs, source_dir = (p.absolute() for p in (args.kernel, args.initramfs, args.sources))
+    rootfs = args.rootfs.absolute() if args.rootfs else None
+    needs_root = not args.case or any(name in ("root", "root-fault") for name in args.case)
+    if needs_root and rootfs is None:
+        raise ValueError("Root handoff cases require --rootfs; diskless cases must be selected explicitly")
     output = args.output.absolute()
-    if output.exists() or output.is_symlink() or any(c in str(p) for p in (kernel, initramfs, source_dir, rootfs, output, ROOT) for c in (",", ":")):
+    if output.exists() or output.is_symlink() or any(c in str(p) for p in (kernel, initramfs, source_dir, rootfs, output, ROOT) if p for c in (",", ":")):
         raise ValueError("Choose a new output directory and paths without commas or colons")
     build, hashes, _, _ = builder.inputs(kernel)
     initrd = json.loads((initramfs / "build.json").read_text())
@@ -79,18 +83,20 @@ def run(args):
     current = {name: builder.digest(ROOT / name) for name in builder.QUEST_INPUTS}
     if initrd.get("quest_inputs_sha256") != current:
         raise ValueError("Initramfs Quest sources differ from the current tree")
-    manifest = json.loads((rootfs / "manifest.json").read_text())
-    if manifest.get("target") not in ("qemu-arm64", "headset-root-offline") or manifest.get("hardware_flash_image") is not False:
-        raise ValueError("Requires a QEMU-only lab root manifest")
-    packaged = manifest["target"] == "headset-root-offline"
-    if packaged and (manifest.get("status") != "built" or manifest.get("qemu_transports") is not True or
-                     manifest.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
-                     manifest.get("initramfs_sha256") != expected or
-                     manifest.get("quest_startup_unit_sha256") != current["system/quest/armada-quest-boot.service"]):
-        raise ValueError("Packaged root does not match the QEMU kernel and startup initramfs")
-    root_hash = builder.digest(rootfs / "rootfs.ext4")
-    if root_hash != manifest["sha256"]["rootfs.ext4"]:
-        raise ValueError("Root filesystem checksum mismatch")
+    manifest, packaged, root_hash = {}, False, None
+    if rootfs:
+        manifest = json.loads((rootfs / "manifest.json").read_text())
+        if manifest.get("target") not in ("qemu-arm64", "headset-root-offline") or manifest.get("hardware_flash_image") is not False:
+            raise ValueError("Requires a QEMU-only lab root manifest")
+        packaged = manifest["target"] == "headset-root-offline"
+        if packaged and (manifest.get("status") != "built" or manifest.get("qemu_transports") is not True or
+                         manifest.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
+                         manifest.get("initramfs_sha256") != expected or
+                         manifest.get("quest_startup_unit_sha256") != current["system/quest/armada-quest-boot.service"]):
+            raise ValueError("Packaged root does not match the QEMU kernel and startup initramfs")
+        root_hash = builder.digest(rootfs / "rootfs.ext4")
+        if root_hash != manifest["sha256"]["rootfs.ext4"]:
+            raise ValueError("Root filesystem checksum mismatch")
     profile = sources.verify(source_dir)
     image = subprocess.check_output([args.engine, "image", "inspect", args.image, "--format", "{{.Id}}"], text=True).strip()
     if image != initrd["container_image"]:
@@ -99,7 +105,8 @@ def run(args):
     files = ["tools/test-quest-startup.py", "tools/build-headset-initramfs.py", "tools/assemble-quest-boot.py",
              "tests/qcom-services/probe.c", *builder.QUEST_INPUTS]
     files += [str(p.relative_to(ROOT)) for p in sorted(fixtures.iterdir()) if p.is_file()]
-    report = {"status": "started", "scope": "real systemd, vendor modules, QRTR and root handoff; modeled Quest hardware state",
+    report = {"status": "started", "scope": "real systemd, vendor modules and QRTR; modeled Quest hardware state",
+              "root_handoff_requested": needs_root,
               "firmware_executed": False, "hardware_boot_verified": False, "container_image": image,
               "kernel_sha256": hashes["Image"], "rootfs_sha256": root_hash, "base_initramfs_sha256": expected,
               "sources": profile, "packaged_root": packaged, "inputs_sha256": {n: builder.digest(ROOT / n) for n in files}, "cases": []}
@@ -192,13 +199,13 @@ def run(args):
                 raise RuntimeError("Quest startup acceptance failed: " + name)
             case["status"] = "passed"
             print(name, case["elapsed_seconds"], flush=True)
-        if builder.digest(rootfs / "rootfs.ext4") != root_hash:
+        if rootfs and builder.digest(rootfs / "rootfs.ext4") != root_hash:
             raise ValueError("Root image changed during testing")
         if sources.verify(source_dir) != profile or any(builder.digest(ROOT / n) != sha for n, sha in report["inputs_sha256"].items()):
             raise ValueError("Test sources changed during execution")
-        report.update(status="passed", rootfs_unchanged=True)
+        report.update(status="passed", rootfs_unchanged=True if rootfs else None)
     except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
-        report.update(status="failed", error=str(error), rootfs_unchanged=builder.digest(rootfs / "rootfs.ext4") == root_hash)
+        report.update(status="failed", error=str(error), rootfs_unchanged=(builder.digest(rootfs / "rootfs.ext4") == root_hash) if rootfs else None)
         raise
     finally:
         (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
@@ -210,7 +217,7 @@ if __name__ == "__main__":
     parser.add_argument("kernel", type=Path)
     parser.add_argument("initramfs", type=Path)
     parser.add_argument("sources", type=Path)
-    parser.add_argument("--rootfs", type=Path, required=True)
+    parser.add_argument("--rootfs", type=Path, help="Required for root handoff cases and the default complete suite")
     parser.add_argument("--case", action="append", choices=("identity", "ready", "missing-firmware", "repeated-request",
                                                           "missing-mapper", "missing-host-role", "root", "root-fault"))
     parser.add_argument("--output", type=Path, required=True)
