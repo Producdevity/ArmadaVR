@@ -71,8 +71,26 @@ extraction pass; original reference hashes remain unchanged. The AOSP tool pin
 is commit `d2bb0af5ba6d3198a3e99529c97eda1be0b5a093` with per-file hashes in
 `profiles/mkbootimg.json`.
 
-The reference differs from the recorded headset build `52083180031500520`.
-Exact-unit stock artifacts, authenticated recovery, an accepted custom-kernel
-boot route, firmware/calibration and physical driver operation remain missing.
-These unsigned files are not flash-ready. The QEMU initramfs/runtime results
-exercise Linux userspace and archive handling, not the Quest bootloader.
+October 8: `output/quest3-boot-assembly-current-20261008/` repeats assembly against
+reference build `52083180032000520`, extracted from the previously authenticated
+current-device OTA. A new read-only device query confirms the same build and
+locked/green boot state. All 13 compiled overlays match that reference exactly,
+including PVT1.1 at table index 8. Stock boot/vendor payload roundtrips, Linux
+payload extraction, partition headroom and unchanged reference inputs pass.
+The boot image matches the earlier hash; vendor metadata and the DTBO table
+reflect the current reference. The independently rehashed outputs are:
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| boot | 70,262,784 | `4b8cf866f134e0b8e8ebaafdcfb0d3b3f4ca815545be3a3178cdadd42de82884` |
+| vendor_boot | 716,800 | `6f0ac21d29ccae115f2dedecc2d4e728fbbe7c41734fa4a142888389ab2842d4` |
+| dtbo | 12,564 | `227b03c7b0bf2f052ec65fb97b6991c2e3135ab513d41c6908c3abb574beff9b` |
+
+This uses the existing `linux-build-v7` kernel and firmware-free
+`headset-initramfs-v3`; no kernel rebuild or physical execution occurred. The
+custom kernel is 5.10.246, while the running stock kernel is 5.10.237. Matching
+container metadata and overlays do not establish stock module ABI compatibility,
+peripheral handoff or bootloader acceptance. Authenticated recovery, an accepted
+custom boot route, firmware/calibration and physical driver operation remain
+missing. These unsigned files are not flash-ready. The QEMU initramfs/runtime
+results exercise Linux userspace and archive handling, not the Quest bootloader.
