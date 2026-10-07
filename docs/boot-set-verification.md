@@ -5,6 +5,44 @@ The read-only verifier checks a local reference set before it can be used to
 develop boot-image assembly. It never generates an image, contacts a headset,
 changes partitions, disables AVB or changes rollback values.
 
+## Authenticate the OTA first
+
+Obtain `otacerts.zip` independently from the stock device or another already
+authenticated source. The certificate embedded in an untrusted OTA cannot
+establish its own trust. Keep the original firmware and certificate copies
+outside Git.
+
+```sh
+python3 -B tools/verify-ota.py PATH_TO_STOCK_OTA.zip \
+  --device-certificates PATH_TO_DEVICE_OTACERTS.zip \
+  --expected-device eureka --expected-build EXPECTED_INCREMENTAL
+```
+
+The equivalent recipe is `just verify-ota OTA CERTIFICATES DEVICE BUILD`.
+The verifier reads local regular files only. It authenticates the whole ZIP
+with OpenSSL using the supplied certificates, excluding embedded package
+certificates from signer lookup. It then checks the authenticated A/B target
+metadata and the payload's full SHA-256, metadata SHA-256 and header geometry.
+It does not contact a device, unpack partitions, modify inputs or install an
+update. Python 3.11+ and OpenSSL with the `cms` command are required on a POSIX
+host.
+
+Supported packages use a single detached PKCS7 SHA-256/RSA signature without
+CMS attributes, non-ZIP64 directory geometry, and a stored version-2 payload.
+Unsupported formats fail closed. The signed byte range and ambiguous-end-record
+checks follow the [AOSP recovery verifier](https://android.googlesource.com/platform/bootable/recovery/+/ceb7924c43dc2e1be597ffa7b7f9fd5c5f7ddcb7/otautil/verifier.cpp).
+Certificate lifetime and PKI chain validation are not used; the caller must
+provide independently trusted device signing keys, as Android recovery does.
+
+A successful result establishes authentication under those supplied keys. It
+does not establish recovery-key provisioning, stored rollback values, update
+acceptance, recoverability after boot-chain changes, or custom-kernel boot.
+Those proof fields remain false. Use the separate boot-set verifier below on
+partition images reconstructed from that authenticated package, preserving
+the package, extraction and image hashes as one provenance chain.
+
+## Verify extracted boot images
+
 Fetch the pinned AOSP tool once, then work offline:
 
 ```sh
@@ -43,6 +81,24 @@ for the distinction between signature validation, platform key trust and stored
 rollback values. Android container geometry is a separate check provided by
 `tools/inspect-boot.py`.
 
+## Exact-build result, October 7, 2026
+
+The local `52083180032000520` OTA authenticates under the release certificate
+copied read-only from stock Quest 3. Its archive SHA-256 is
+`0e7c4b8b7668741f6538a6a4a598011b39950f0a6d24dbfba48be91889e40719`.
+The payload and metadata hashes pass. Extracted `boot`, `vendor_boot`, `dtbo`,
+`vbmeta` and `vbmeta_system` pass boot-set integrity verification. Both signed
+VBMeta images use SHA256_RSA2048, flags zero, and rollback index `1767571200`
+at effective locations 0 and 1. The boot/vendor_boot containers use header
+version 4. The reported DTBO index 8 maps to Eureka PVT1.1 in this package's
+13-entry table; that index must not be applied to a different build's table.
+
+This is an authenticated stock input, not a tested restore. The OTA does not
+contain a separate recovery partition payload or unit-specific calibration.
+Its images are not backups of both installed slots. Bootloader acceptance,
+stored rollback values, runtime memory-map adjustments and restoration after
+a modified boot chain remain unverified.
+
 ## Reference result, September 11, 2026
 
 The existing `52433670036000520` reference passes boot-set integrity checks.
@@ -77,6 +133,3 @@ explicitly false in the report. No zero-brick-risk or flash-ready claim follows.
 4. Complete hardware GPU/display, tracking, controllers, audio and thermal
    acceptance before calling the first standalone VR version working. VM input,
    Windows rendering and reproducible-image work remain required alongside it.
-
-Local commits of finished, verified Armada VR work are authorized. Device writes
-and pushes are not authorized. Historical evidence and unfinished work are kept.

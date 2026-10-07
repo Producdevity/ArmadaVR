@@ -72,6 +72,10 @@ fetch-kernel profile="quest3":
 build-device-trees profile="quest3":
     python3 -B tools/kernel-source.py build-dt {{ quote(profile) }}
 
+# Authenticate a local OTA with independently collected device certificates.
+verify-ota ota certificates device build:
+    python3 -B tools/verify-ota.py {{ quote(ota) }} --device-certificates {{ quote(certificates) }} --expected-device {{ quote(device) }} --expected-build {{ quote(build) }}
+
 # Inspect a local boot/vendor_boot copy without accessing a headset.
 inspect-boot image:
     python3 -B tools/inspect-boot.py {{ quote(image) }}

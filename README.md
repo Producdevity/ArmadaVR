@@ -17,7 +17,7 @@ virtual target for functional tests.
 | Graphics | KGSL Turnip and native Monado builds; offline synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
 | SteamVR | Translated desktop runtime presents stereo samples and receives both virtual controllers' input | Reliable stock dashboard navigation, a complete reproducible image and native ARM64 runtime integration |
-| Installation | Offline Android boot-container assembly and integrity checks | Accepted custom boot, exact stock recovery and a tested installation/rollback procedure |
+| Installation | Authenticated current-build stock OTA, boot-container assembly and integrity checks | Accepted custom boot, exact stock recovery and a tested installation/rollback procedure |
 
 VM results do not establish hardware compatibility or flash readiness. Read the
 [device installation requirements](docs/device-installation.md) before planning

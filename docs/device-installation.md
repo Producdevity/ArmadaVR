@@ -19,6 +19,31 @@ These properties do not establish root, permission to boot another kernel, or a
 usable restore path. Earlier reports inspected build `52083180031500520`;
 exact-build assumptions must be checked against the current unit.
 
+## Offline preparation completed
+
+The exact-build stock OTA now authenticates against the release certificate
+copied read-only from the stock headset. Payload hashes and the extracted boot
+set's AVB integrity checks pass; see [boot-set verification](boot-set-verification.md).
+The current table's DTBO index 8 selects Eureka PVT1.1. The stock kernel enables
+module versioning and enforced Clang CFI, so a loader built for a nearby release
+cannot be considered compatible merely by changing its version string.
+
+The pinned Fuguquest target's two carrier modules and init configuration match
+the authenticated OTA byte for byte. Its four relative kernel offsets match
+the extracted stock symbol table; credential and SELinux offsets match the
+kernel's BTF layouts. The readable device injection library and configuration
+match the OTA, and library offsets agree with the target. These are static
+compatibility checks, not evidence that the exploit works on this unit.
+The [runner](https://github.com/Henry1887/fuguquest/blob/2324ce262e674504ad41ec82abcda3bf09dd01e6/rust/src/orchestrate.rs)
+also changes persistent Android settings and only warns on a build mismatch.
+Any device test needs strict identity/binary guards and explicit restoration of
+settings and temporary files; the upstream defaults are unsuitable as an
+unattended installation workflow.
+
+Exact loader source/config/toolchain/CFI compatibility, the live reserved-memory
+map, independently usable recovery and custom-boot acceptance remain open.
+The signed stock package is not a backup of both slots or unit calibration.
+
 ## Research that changes the plan
 
 **Temporary custom boot is now a concrete research route.**
@@ -66,8 +91,8 @@ matching recovery hardware and firmware for those devices.
 
 ## Work required before installation
 
-1. **Establish exact-device boot and restoration.** Obtain authenticated stock
-   boot, vendor_boot, DTBO and AVB artifacts matching the current build. Preserve
+1. **Establish exact-device boot and restoration.** Retain the authenticated
+   stock OTA and verified boot artifacts matching the current build. Preserve
    the partition maps, both slots and calibration, and prove that the proposed
    restore method works for this device. Review the matching root implementation
    separately from any bootloader capability.
