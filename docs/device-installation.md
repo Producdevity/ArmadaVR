@@ -65,10 +65,14 @@ is not a successful test on this unit, and root remains separate from unlock.
 [Lepton v3.0.5 source](https://gitlab.steamos.cloud/frame-public/lepton/-/tree/8be10c8a86ed2a6de1c6a2d6587994e957a35515)
 includes launcher, host-library, OpenXR-layer and Android image build sources.
 The [official recovery index](https://steamdeck-images.steamos.cloud/recovery/)
-now lists Steam Frame `20260922.5153644-0.3.0` images. Inspect their native
-SteamVR libraries, executables, ABI and dependencies offline. The image payload
-has not been extracted here; native runtime availability and Quest portability
-are not yet verified. Frame images and its QDL programmer target Frame hardware.
+now lists Steam Frame `20260922.5153644-0.3.0` images. Offline extraction obtained
+native ARM64 SteamVR client/server/compositor binaries and the Android ARM64
+client. [Static ABI, library loading and CLI checks](steamvr-arm64.md) pass;
+native backend startup and Quest portability remain unverified. The
+[Podman/FUSE writable-mount lifecycle](android-containers.md) also passes on the
+unchanged Quest test kernel. Actual Lepton Android boot needs its matching
+patched payload, which is absent from the repair image. Frame images and its
+QDL programmer target Frame hardware.
 
 **Standalone game compatibility can be studied on stock Android.**
 [GameNative's Quest XR releases](https://github.com/utkarshdalal/GameNative/releases)
@@ -109,14 +113,15 @@ matching recovery hardware and firmware for those devices.
    IMU streams, device calibration, 6DoF prediction, distortion and display
    timing. Validate both controllers' pairing, poses, every required input,
    haptics, recentering, disconnect and reconnect behavior.
-5. **Resolve native runtime integration.** Inspect the official Frame image
-   before choosing a native Valve runtime or Monado-based game bridge. Keep
+5. **Resolve native runtime integration.** Test the obtained Frame ARM64 runtime
+   in a fresh virtual session, with native virtual drivers and probes. Keep
    FEX/Proton for game compatibility and preserve the existing translated
    SteamVR baseline for comparison. Reuse applicable source changes while
    retaining Quest-specific KGSL, panel and firmware support.
-6. **Complete Lepton integration offline.** Verify the original source and image
-   inputs, inspect the real mount lifecycle, and resolve the vendor kernel's
-   rootless OverlayFS failure. Test Android boot, Binder transactions, shutdown,
+6. **Complete Lepton integration offline.** Obtain matching patched rootfs,
+   sysbake and xattrs. The three Podman/FUSE mount views now pass; native kernel
+   rootless OverlayFS remains unsupported. Test Android boot, Binder transactions,
+   shutdown,
    an openly licensed APK, and Android/Linux graphics buffer and fence sharing.
 7. **Finish repeatable VR acceptance.** Build a complete fresh image, repeat
    Windows rendering on a fresh backend, and verify both-hand stock dashboard
@@ -136,5 +141,6 @@ Quest boot route. See [board support](headset-bringup.md) and
 a distro change does not remove the device-driver or boot requirements.
 
 The useful next development milestone is a reviewed Quest 3 temporary-boot
-design plus native-runtime inspection. Flashing cannot currently be recommended,
-and no installation can be described as eliminating all bricking risk.
+design plus native-runtime and Android startup tests. Flashing cannot currently
+be recommended, and no installation can be described as eliminating all bricking
+risk.

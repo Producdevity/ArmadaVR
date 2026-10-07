@@ -1,4 +1,4 @@
-# Native ARM64 SteamVR runtime search
+# Native ARM64 SteamVR runtime
 
 For the October 7 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
@@ -9,6 +9,59 @@ The VM's x86-64 SteamVR through FEX is a compatibility baseline. It does not
 establish Steam Frame's compositor architecture or headset performance.
 Valve documents Proton/FEX for Windows x86 games and forwarding graphics calls
 to native libraries in its [Frame compatibility guide](https://partner.steamgames.com/doc/steamhardware/steamframe/compatibility?l=english).
+
+## Official Frame runtime obtained — October 7, 2026
+
+Valve's [official repair image](https://steamdeck-images.steamos.cloud/recovery/steamframe-oobe-repair-20260922.5153644-0.3.0.img.zip)
+now provides an obtainable native runtime. Offline inspection of its `rootfs-A`
+found `/opt/steamvr`, package `deckard-steamvr-rel` version
+`r25358740+28b72a4f-1`, with build marker `1789606310`. The complete runtime was
+retained privately, with a file hash inventory. Its license is recorded as
+`LicenseRef-steam-subscriber-agreement`; redistribution has not been reviewed.
+
+| Component | ELF / userspace ABI |
+|---|---|
+| `bin/linuxarm64/vrserver`, `vrcompositor`, `vrmonitor`, `vrstartup`, `vrpathreg` | AArch64 Linux/glibc |
+| `bin/linuxarm64/vrclient.so` | AArch64 Linux/glibc |
+| `bin/androidarm64/vrclient.so` | AArch64 Android/Bionic; depends on Android GLES/EGL, log and libc |
+| `bin/linux64/vrclient.so` | x86-64 Linux/glibc application compatibility client |
+| `steamxr_linuxarm64.json` | Selects `bin/linuxarm64/vrclient.so` |
+
+The ZIP SHA-256 is
+`672df1b9c5c6b849df506c995a32fe136b53c4db688f924e6727639dd8b963a9`.
+The whole-image ZIP CRC, primary GPT header/table CRCs, partition bounds and
+extracted partition hash were checked. Official HTTPS provenance and these
+integrity checks do not establish manufacturer-signature authentication.
+No image was mounted, booted or supplied to a headset.
+
+The five Linux executables' direct library dependencies resolve in an isolated
+ARM64 Fedora 44 container after supplying Debian Bookworm's `libpcre16-3` for
+the bundled Qt libraries. The native `vrpathreg show` command executes and reads
+the isolated runtime registry. This is loader/CLI evidence, not a compositor,
+dashboard, OpenXR rendering or Quest-kernel pass.
+
+Two integration details need explicit handling:
+
+- The shipped `bin/vrenv.sh` still selects `linux64`. Native launch must select
+  `linuxarm64` and its library paths; blindly invoking that wrapper would select
+  the x86 runtime.
+- The package has an absolute PulseAudio compatibility-library link outside
+  its runtime tree. Preserve the original package and validate the chosen host
+  library set; do not rename unrelated libraries to satisfy a SONAME.
+
+Frame's service launches native tools after Gamescope and includes Frame-specific
+display/charger hooks. Its hardware and computer-vision components are not Quest
+drivers. The next runtime milestone is a separately validated native session in
+QEMU, including ARM64 virtual-driver/probe builds, software graphics sharing,
+both-hand dashboard interaction and Windows rendering on a fresh backend.
+Keep the existing translated runtime and its evidence for comparison.
+
+The same image supplies host Android graphics overlays but no matching Lepton
+rootfs/sysbake. [Podman's three writable views now pass on the unchanged Quest
+test kernel](android-containers.md#podman-writable-mount-acceptance); actual
+Android startup still requires the patched Lepton payload.
+
+## Earlier search results
 
 On September 11, 2026, the following checks found no obtainable complete ARM64
 SteamVR runtime. This is a bounded search result, not proof that none exists.

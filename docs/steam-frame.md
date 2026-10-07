@@ -4,6 +4,15 @@ For the October 7 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
 retain their original investigation dates.
 
+Since that investigation, original Lepton v3.0.5 source and official Frame
+repair images became public. October 7 offline inspection obtained native
+ARM64 SteamVR client/server/compositor binaries;
+[ABI and loader results](steamvr-arm64.md#official-frame-runtime-obtained--october-7-2026)
+are documented separately. [Rootless Podman/FUSE mount acceptance](android-containers.md#podman-writable-mount-acceptance)
+now passes on the unchanged Quest test kernel. Actual Lepton Android startup and
+native SteamVR backend rendering remain unverified. Docker is healthy. The
+September results below are historical, including their access and Docker limits.
+
 The September 14, 2026 investigation finds useful public runtime changes,
 controller contracts and development tools, but no newly obtainable complete
 Frame OS or native Valve SteamVR bundle. Armada VR already has native ARM64
