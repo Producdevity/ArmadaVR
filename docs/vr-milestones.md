@@ -1,0 +1,39 @@
+# VR software milestones before hardware installation
+
+Physical flashing waits until the virtual VR software work below is
+complete and reviewed. The complete headset kernel and driver port remains part
+of the goal. A successful VM run cannot validate a headset bootloader,
+recovery path, panel, tracking camera, calibration, radio or thermal control.
+Those remain additional prerequisites for a physical installation.
+
+| Milestone | Required evidence | Current status |
+|---|---|---|
+| Native OpenXR | Stereo rendering, valid HMD/controller poses, keyboard-controlled movement | Passed in ARM64 QEMU |
+| SteamVR OpenXR | OpenXR projection layers reaching SteamVR's compositor | Passed through FEX with valid stereo poses, actual presentations, captured eye colors and clean exit; sample only |
+| ARM64 Steam client | Rendered client and persistent desktop session | Persistent authenticated client session; game launch pending |
+| Native ARM64 SteamVR | Obtainable, verified client/runtime and native composition with matching game bridge | No complete runtime obtained from the official and unofficial sources checked. ARM64 SDK loaders are available but do not supply the runtime. See [search evidence](steamvr-arm64.md) |
+| SteamVR interface | Actual stereo dashboard rendering; both hands can point, select, navigate, scroll, use menu bindings and close/reopen it; input focus transfers to and from applications | Stereo dashboard captures and both hands' application-menu, trackpad axes/click/touch, trigger, grip, system, pose and haptic acceptance pass. The installed launcher opens the dashboard automatically. Both hands now pass measured dashboard-overlay pointing, primary selection, click, discrete scroll, menu/Back events and close/reopen, plus Windows application focus transfer. New backend v17 has two passing smooth-scroll repetitions after close/reopen failures and system UI renderer restarts. Stock Library navigation, rendered scroll-content behavior, intermittent renderer exits and earlier nonfinite smooth-scroll events remain. See [details](steamvr.md) |
+| Steam Runtime 4 | ARM64 pressure-vessel launch, graphics and OpenXR working across its boundary | Passed native stereo sample, including clean exit through its input pipe |
+| Windows compatibility | Correct ARM64 Proton/FEX architecture, Windows program execution, Vulkan rendering | CPU smoke and both Vulkan OpenXR sample bindings passed; game launch pending |
+| Windows OpenXR | Windows VR application rendering and receiving controller actions | Monado headless actions and simultaneous rendered interaction pass. An isolated x86-64 Proton/FEX sample also reaches SteamVR: two runs produced 94 and 216 actual compositor presentations and exited normally. New tests add unobstructed stereo capture, fresh-prefix reproduction, both-hand focus transfer and menu-to-quit, and virtual-driver haptic delivery. The bundled launcher/resolver also pass on fresh backend v17 with another new prefix, 404 submissions and 710 presentations, and are installed in the VM. A fresh complete image, Windows games and physical output remain. See [tests](windows-openxr.md) |
+| OpenVR compatibility | OpenVR application rendering and receiving input through the tested runtime | Native x86-64 OpenVR through FEX and actual SteamVR passes frame/controller acceptance; Windows OpenVR games remain untested |
+| Interaction and audio | Both controllers' actions, pose changes, recentering, application-level haptic requests and guest audio | Native/Windows actions, rendered interaction, virtual recentering and stereo PipeWire loopback pass. Haptic output, game/spatial audio and physical I/O remain |
+| Session reliability | Application exit/relaunch, runtime restart, VM reboot, bounded soak with no unbounded memory growth | Five native controller and five Windows rendered-input restart cycles passed through Monado, plus persistent desktop shutdown/reboot and two fresh interactive SteamVR dashboard launches. Repeated Windows-to-SteamVR testing encountered disk exhaustion, then a shared-image allocation failure after expanding the disk. A clean-backend repeat and fresh-prefix rendering now pass; longer SteamVR soak and the allocation failure root cause remain |
+| Reproducible image | Pinned downloads, supported build/launch commands and captured acceptance results | Fresh offline Runtime 4/Proton image passes CPU, both Windows Vulkan bindings and native/Windows controller tests on two kernels. SteamVR bundle v10 includes the Windows launcher/resolver and is built, pinned, tested and installed with its prior version preserved; a fresh complete SteamVR image remains |
+
+The next tests use redistributable samples and local prefixes without requiring
+a Steam account. A direct Proton launch does not count as Steam library launch
+proof. Software Vulkan is suitable for functional checks, not headset frame-time
+or power measurements. Simulated haptics can establish API handling, not motor
+operation. Each result must retain those limits.
+
+Menu and trackpad support are release requirements. Passing virtual input
+components is only one part: both hands must work in the dashboard and
+applications, and the physical controller mapping must preserve those usable
+actions. Missing inputs or failed navigation cannot be deferred past flash
+readiness.
+
+Do not add a hardware flash target or generate a Quest/Pico installation image
+as a shortcut around an unfinished milestone. Device inventory and source
+research may proceed independently; any future hardware work needs an explicit
+plan for the exact device and firmware, with a verified recovery procedure.

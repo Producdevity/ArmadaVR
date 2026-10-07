@@ -1,5 +1,9 @@
 # Steam Frame software reuse in Armada VR
 
+For the October 7 update and current implementation priorities, see
+[device installation requirements](device-installation.md). The findings below
+retain their original investigation dates.
+
 The September 14, 2026 investigation finds useful public runtime changes,
 controller contracts and development tools, but no newly obtainable complete
 Frame OS or native Valve SteamVR bundle. Armada VR already has native ARM64
