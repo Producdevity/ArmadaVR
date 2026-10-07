@@ -59,7 +59,7 @@ used by the recorded SteamVR tests.
 
 - [Kernel and board support](docs/headset-bringup.md), [boot containers](docs/quest-boot-assembly.md), and [offline root filesystem](docs/headset-root.md)
 - [Turnip](docs/turnip.md), [Monado](docs/monado.md), and [DMA-buffer synchronization](docs/dma-buf-sync.md)
-- [SteamVR](docs/steamvr.md), [Windows OpenXR](docs/windows-openxr.md), and [controller acceptance](docs/controller-tests.md)
+- [SteamVR](docs/steamvr.md), [native ARM64 runtime](docs/steamvr-arm64.md), [Windows OpenXR](docs/windows-openxr.md), and [controller acceptance](docs/controller-tests.md)
 - [VR acceptance milestones](docs/vr-milestones.md), [Steam Frame components](docs/steam-frame.md), and [Android container checks](docs/android-containers.md)
 
 Source revisions, archive hashes and build profiles are recorded under

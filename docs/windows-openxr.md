@@ -7,13 +7,17 @@ sample result, not a Steam library launch, SteamVR dashboard or physical
 headset result. Application-level controller actions and haptic API calls also
 pass through Monado; physical haptic output remains untested.
 
-The installed ARM64 Proton bridge cannot directly load this SteamVR build's
+The installed ARM64 Proton bridge cannot directly load the older desktop
+SteamVR test build's
 x86-64 runtime into its native process. `output/steamvr-runtime-architectures/report.json`
 records actual ELF headers and hashes: SteamVR's `vrclient.so` is x86-64, while
 Proton's `wineopenxr.so` and native OpenXR loader are AArch64. The SteamVR
-installation has no `bin/linuxarm64`. The cached FEX rootfs contains x86-64 Wine,
+test installation has no `bin/linuxarm64`. The cached FEX rootfs contains x86-64 Wine,
 but no Wine OpenXR bridge. A separate, entirely x86-64 Proton/FEX test path now
-renders through SteamVR. This does not add an ARM64 SteamVR client library.
+renders through SteamVR. This does not add an ARM64 SteamVR client library to
+that installation. The subsequently obtained [Frame ARM64 runtime](steamvr-arm64.md)
+is a separate native candidate; its compositor presentation and ARM64 Proton
+bridge have not passed acceptance.
 
 The separate x86-64 CachyOS package now passes a Windows CPU baseline through
 FEX, using its `x86_64-unix/wine-preloader`, matching Wine executable and

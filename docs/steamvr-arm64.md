@@ -1,12 +1,12 @@
 # Native ARM64 SteamVR runtime
 
-For the October 7 update and current implementation priorities, see
+For current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
 retain their original investigation dates.
 
 Native tracking, composition and graphics remain the intended headset path.
 The VM's x86-64 SteamVR through FEX is a compatibility baseline. It does not
-establish Steam Frame's compositor architecture or headset performance.
+establish native compositor portability or headset performance.
 Valve documents Proton/FEX for Windows x86 games and forwarding graphics calls
 to native libraries in its [Frame compatibility guide](https://partner.steamgames.com/doc/steamhardware/steamframe/compatibility?l=english).
 
@@ -71,11 +71,35 @@ Clang, Vulkan headers/loader and the pinned OpenVR headers:
 just build-steamvr-probe output/openvr-sdk output/steamvr-native-probe aarch64
 ```
 
-The native bundle contains `armada_virtual/bin/linuxarm64/driver_armada_virtual.so`
-and the native virtual profile. Register that driver in an isolated OpenVR path
-registry and invoke `bin/linuxarm64` components directly. The current
-`steamvr-session.py` remains specific to the validated x86/FEX presentation path;
-a native compositor launcher has not yet passed acceptance.
+The native bundle contains `armada_virtual/bin/linuxarm64/driver_armada_virtual.so`,
+the native virtual profile, session launcher and Vulkan sharing probes. On
+unprivileged AArch64 Linux, select the locally supplied runtime explicitly:
+
+```sh
+python3 output/steamvr-native-probe/steamvr-session.py \
+  --bundle output/steamvr-native-probe --runtime /path/to/frame/steamvr \
+  --icd /path/to/verified/lavapipe.json --render-node /dev/dri/renderD128 \
+  --native-devices
+
+python3 output/steamvr-native-probe/steamvr-session.py \
+  --bundle output/steamvr-native-probe --runtime /path/to/frame/steamvr \
+  --icd /path/to/verified/lavapipe.json --render-node /dev/dri/renderD128 \
+  --native-preflight
+```
+
+`--native-devices` checks the bundle hashes, ARM64 runtime ABI and simulated
+profile, then uses a private OpenVR registry with automatic component launch
+disabled. It runs real cross-process buffer/semaphore sharing and native server,
+HMD/controller acceptance; it does not launch a compositor or dashboard. Native
+components are invoked directly without FEX or Frame's x86-oriented `vrenv.sh`.
+The session lock is shared with the existing translated launcher. Owned server
+processes and private session files are cleaned up; logs remain in
+`~/.local/state/armada-vr/steamvr-native.log`.
+
+`--native-preflight` queries display, present-id/wait features and semaphore
+capabilities on the same Vulkan device, without launching SteamVR. A successful
+query still requires display acquisition, scanout and compositor acceptance.
+The VM backend currently fails this query and the launcher exits unsuccessfully.
 
 SteamVR **2.17.10** now executes on the unchanged Quest-derived **5.10.246 QEMU
 transport kernel**, as UID1000 in a new snapshot-only filesystem. The native probe
@@ -85,12 +109,25 @@ patched Lavapipe also passes binary/timeline semaphore plus 4 MiB buffer round t
 across processes in this VM. These are virtual-device and sharing checks, not
 physical tracking or rendering proof.
 
-A separate fresh native compositor test under authenticated Xvfb fails with SIGSEGV
+Two consecutive maintained native device sessions on a fresh VM pass, including
+cleanup and restart after the expected graphics refusal. A separate fresh native
+compositor test under authenticated Xvfb fails with SIGSEGV
 while looking for a direct display through Vulkan WSI. Disabling `direct_mode.enable`
 reaches the same failure. GDB confirms an indirect call to address zero at
-compositor offset `0xb39a8`, returning to `0xb39ac`; the exact Vulkan command
-has not yet been identified. Preserve those failed runs; native compositor presentation,
-stock dashboard interaction and Windows rendering on this backend remain open.
+compositor offset `0xb39a8`, returning to `0xb39ac`. Runtime lookup tracing and
+disassembly identify `vkGetPhysicalDeviceDisplayPropertiesKHR`: the compositor
+calls the null pointer even though `VK_KHR_display` is not enabled. The
+[Vulkan lookup contract](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetInstanceProcAddr.html)
+permits a null pointer for an unavailable extension command.
+
+A debugger-only experiment that returns an empty display list gets past that
+call, then reports missing `VK_KHR_present_wait` support and aborts in a later
+Vulkan device call. No runtime binary was changed. Valve's simulated-display
+debug property and scanout-scaling settings also fail to select a working window
+path. These failures require a compatible native presentation backend; adding a
+null-call workaround alone does not provide one. Preserve the failed runs.
+Native compositor presentation, stock dashboard interaction and Windows
+rendering on this backend remain open.
 The QEMU runtime has no network, host filesystem sharing or passed-through devices.
 
 The same image supplies host Android graphics overlays but no matching Lepton
@@ -120,8 +157,8 @@ underlying scripts and runtime were not independently obtained here.
 
 The existing ARM64 Steam client, Proton, OpenVR SDK loaders, Monado and ALVR
 are distinct components. None supplies the missing Valve ARM64 runtime merely
-by being ARM64. The current ARM64 Wine OpenXR bridge cannot load the installed
-x86-64 `vrclient.so`; the ELF evidence is in
+by being ARM64. The ARM64 Wine OpenXR bridge cannot load the older desktop test
+runtime's x86-64 `vrclient.so`; the historical ELF evidence is in
 `output/steamvr-runtime-architectures/report.json`.
 
 Exact URLs, response statuses, package metadata, hashes and search limits are

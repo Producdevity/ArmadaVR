@@ -33,9 +33,11 @@ server, compositor and monitor are x86-64. The ARM64 Steam client launches
 these through FEX. The pinned client download now also includes the x86 Steam
 SDK libraries, Scout and the ARM64 runtime launcher service.
 
-The [native ARM64 runtime investigation](steamvr-arm64.md) found API loaders
-and platform references, but no obtainable complete native SteamVR runtime in
-the sources checked. The translated desktop runtime remains a VM test baseline.
+The [native ARM64 runtime investigation](steamvr-arm64.md) subsequently obtained
+SteamVR 2.17.10 from Valve's Frame repair image. Native virtual devices and Vulkan
+sharing pass; compositor presentation remains blocked by the VM's missing direct
+display and present-wait support. The translated desktop runtime remains a VM
+test baseline.
 
 The FEX graphics-provider root filesystem is the verified Arch Linux SquashFS
 from `profiles/vr-runtime.json`, mounted read-only at

@@ -13,6 +13,91 @@ spec.loader.exec_module(session)
 
 
 class SessionTests(unittest.TestCase):
+    def native_fixture(self, root):
+        runtime, bundle = root / "runtime", root / "bundle"
+        binaries = runtime / "bin/linuxarm64"
+        binaries.mkdir(parents=True)
+        payload = b"\x7fELF\x02\x01" + bytes(12) + b"\xb7\x00"
+        for name in ("vrserver", "vrcompositor", "vrclient.so", "libopenvr_api.so"):
+            (binaries / name).write_bytes(payload)
+        (runtime / "steamxr_linuxarm64.json").write_text(json.dumps({
+            "runtime": {"library_path": "bin/linuxarm64/vrclient.so"}}))
+        for name in ("steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
+                     "armada_virtual/driver.vrdrivermanifest", "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"):
+            path = bundle / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        profile = Path(__file__).parents[1] / "profiles/steamvr-native-virtual.json"
+        (bundle / "steamvr-virtual.json").write_bytes(profile.read_bytes())
+        self.native_manifest(bundle)
+        return runtime, bundle
+
+    def native_manifest(self, bundle):
+        hashes = {p.relative_to(bundle).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in bundle.rglob("*") if p.is_file() and p.name != "build.json"}
+        (bundle / "build.json").write_text(json.dumps({"target": "steamvr-virtual-aarch64", "sha256": hashes}))
+
+    def test_native_bundle_and_selected_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime, bundle = self.native_fixture(Path(temporary))
+            settings = session.validate_native_inputs(runtime, bundle)
+            self.assertTrue(settings["driver_armada_virtual"]["simulateHeadset"])
+            self.assertFalse((runtime / "config").exists())
+
+    def test_native_bundle_rejects_modified_artifacts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime, bundle = self.native_fixture(Path(temporary))
+            (bundle / "steamvr-probe").write_bytes(b"changed")
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                session.validate_native_inputs(runtime, bundle)
+
+    def test_native_bundle_rejects_external_artifact_and_wrong_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime, bundle = self.native_fixture(root)
+            probe = bundle / "steamvr-probe"
+            external = root / "probe"
+            probe.rename(external)
+            probe.symlink_to(external)
+            with self.assertRaisesRegex(ValueError, "Invalid native bundle path"):
+                session.validate_native_inputs(runtime, bundle)
+            probe.unlink()
+            probe.write_bytes(external.read_bytes())
+            manifest = json.loads((bundle / "build.json").read_text())
+            manifest["target"] = "steamvr-virtual-x86_64"
+            (bundle / "build.json").write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, "AArch64 virtual-device bundle"):
+                session.validate_native_inputs(runtime, bundle)
+
+    def test_native_bundle_rejects_physical_or_automatic_launch_profile(self):
+        for section, name, value in (("steamvr", "forcedDriver", "lighthouse"),
+                ("driver_armada_virtual", "simulateHeadset", False),
+                ("steamvr", "startCompositorFromAppLaunch", True)):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                runtime, bundle = self.native_fixture(Path(temporary))
+                settings = json.loads((bundle / "steamvr-virtual.json").read_text())
+                settings[section][name] = value
+                (bundle / "steamvr-virtual.json").write_text(json.dumps(settings))
+                self.native_manifest(bundle)
+                with self.assertRaisesRegex(ValueError, "simulated headset|automatic component launch"):
+                    session.validate_native_inputs(runtime, bundle)
+
+    def test_native_runtime_rejects_x86_client_or_external_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime, bundle = self.native_fixture(root)
+            client = runtime / "bin/linuxarm64/vrclient.so"
+            original = client.read_bytes()
+            client.write_bytes(original[:18] + b"\x3e\x00")
+            with self.assertRaisesRegex(ValueError, "not AArch64"):
+                session.validate_native_inputs(runtime, bundle)
+            client.write_bytes(original)
+            manifest = runtime / "steamxr_linuxarm64.json"
+            manifest.rename(root / "external.json")
+            manifest.symlink_to(root / "external.json")
+            with self.assertRaisesRegex(ValueError, "must resolve in"):
+                session.validate_native_inputs(runtime, bundle)
+
     def selected_runtime_fixture(self, root):
         binaries = root / "bin/linux64"
         binaries.mkdir(parents=True)

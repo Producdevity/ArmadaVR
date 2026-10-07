@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import signal
 import secrets
@@ -146,7 +147,127 @@ def validate_runtime_paths(runtime):
         raise ValueError("OpenXR manifest does not select this SteamVR runtime's client")
 
 
+def validate_native_inputs(runtime, bundle):
+    runtime = runtime.resolve(strict=True)
+    manifest = json.loads((bundle / "build.json").read_text())
+    if manifest.get("target") != "steamvr-virtual-aarch64":
+        raise ValueError("Native session requires an AArch64 virtual-device bundle")
+    required = {"steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
+                "steamvr-virtual.json", "armada_virtual/driver.vrdrivermanifest",
+                "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"}
+    hashes = manifest.get("sha256", {})
+    if not required.issubset(hashes):
+        raise ValueError("Native bundle is missing its checked session dependencies")
+    for name, checksum in hashes.items():
+        relative = Path(name)
+        path = bundle / relative
+        if relative.is_absolute() or ".." in relative.parts or path.is_symlink() or not path.is_file():
+            raise ValueError(f"Invalid native bundle path: {name}")
+        if not path.resolve().is_relative_to(bundle.resolve()):
+            raise ValueError(f"Native bundle resolves outside its directory: {name}")
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != checksum:
+                raise ValueError(f"Native bundle checksum mismatch: {name}")
+    for name in ("vrserver", "vrcompositor", "vrclient.so", "libopenvr_api.so"):
+        path = runtime / "bin/linuxarm64" / name
+        if not path.is_file() or not path.resolve().is_relative_to(runtime):
+            raise ValueError(f"Native runtime component resolves outside its directory: {name}")
+        with path.open("rb") as stream:
+            header = stream.read(20)
+        if header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\xb7\x00":
+            raise ValueError(f"Native runtime component is not AArch64 ELF: {name}")
+    path = runtime / "steamxr_linuxarm64.json"
+    if not path.is_file() or path.resolve().parent != runtime:
+        raise ValueError("Native OpenXR manifest must resolve in the selected runtime")
+    library = json.loads(path.read_text()).get("runtime", {}).get("library_path")
+    if not isinstance(library, str) or (path.parent / library).resolve() != (runtime / "bin/linuxarm64/vrclient.so").resolve():
+        raise ValueError("Native OpenXR manifest does not select this runtime's client")
+    settings = json.loads((bundle / "steamvr-virtual.json").read_text())
+    steamvr = settings.get("steamvr", {})
+    driver = settings.get("driver_armada_virtual", {})
+    if steamvr.get("forcedDriver") != "armada_virtual" or driver.get("simulateHeadset") is not True or driver.get("enable") is not True:
+        raise ValueError("Native test requires the explicitly enabled simulated headset")
+    if any(steamvr.get(name) is not False for name in ("activateMultipleDrivers", "startMonitorFromAppLaunch",
+            "startCompositorFromAppLaunch", "startDashboardFromAppLaunch", "startOverlayAppsFromDashboard")):
+        raise ValueError("Native test must disable additional drivers and automatic component launch")
+    return settings
+
+
+def run_native(args):
+    if platform.system() != "Linux" or platform.machine() not in ("aarch64", "arm64"):
+        raise ValueError("Native session requires AArch64 Linux")
+    if os.geteuid() == 0:
+        raise ValueError("Run native checks as an unprivileged user")
+    if not args.runtime or args.probe or args.resolver or args.debug_compositor or args.virtual_display:
+        raise ValueError("Native checks require --runtime and do not accept FEX or presentation options")
+    runtime, bundle = args.runtime.resolve(strict=True), args.bundle.resolve(strict=True)
+    settings = validate_native_inputs(runtime, bundle)
+    if not args.icd.is_file() or not args.render_node.exists():
+        raise ValueError("Native checks require an existing Vulkan ICD and DRM render node")
+    state = Path.home() / ".local/state/armada-vr"
+    state.mkdir(parents=True, exist_ok=True)
+    with (state / "steamvr-session.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise RuntimeError("An Armada VR session is already running") from error
+        with tempfile.TemporaryDirectory(prefix="native-", dir=state) as temporary:
+            directory = Path(temporary)
+            for name in ("config", "logs", "run"):
+                (directory / name).mkdir(mode=0o700)
+            (directory / "config/steamvr.vrsettings").write_text(json.dumps(settings, indent=2) + "\n")
+            registry = directory / "openvrpaths.vrpath"
+            registry.write_text(json.dumps({"version": 1, "jsonid": "vrpathreg", "runtime": [str(runtime)],
+                "config": [str(directory / "config")], "log": [str(directory / "logs")],
+                "external_drivers": [str(bundle / "armada_virtual")]}) + "\n")
+            binaries = runtime / "bin/linuxarm64"
+            libraries = f"{binaries}:{binaries / 'qt/lib'}"
+            env = os.environ | {"VR_PATHREG_OVERRIDE": str(registry), "VR_OVERRIDE": str(runtime),
+                "VR_CONFIG_PATH": str(directory / "config"), "VR_LOG_PATH": str(directory / "logs"),
+                "XDG_RUNTIME_DIR": str(directory / "run"), "STEAMVR_TOOLSDIR": str(runtime),
+                "LD_LIBRARY_PATH": libraries, "VRCOMPOSITOR_LD_LIBRARY_PATH": libraries,
+                "VK_DRIVER_FILES": str(args.icd.resolve()), "LVP_DRM_SYNC": str(args.render_node), "LP_NUM_THREADS": "2"}
+            for name in ("LD_PRELOAD", "FEX_ENV", "FEX_GDBSERVER", "STEAMVR_VRENV", "ARMADA_VR_XPRESENT_BOOTSTRAP"):
+                env.pop(name, None)
+            processes = []
+            def interrupted(_signum, _frame):
+                raise KeyboardInterrupt
+            with (state / "steamvr-native.log").open("ab", buffering=0) as log:
+                previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
+                try:
+                    def execute(command, timeout):
+                        subprocess.run(command, env=env, cwd=binaries, stdin=subprocess.DEVNULL,
+                                       stdout=log, stderr=subprocess.STDOUT, check=True, timeout=timeout)
+                    if args.native_preflight:
+                        execute([str(bundle / "vulkan-interop"), "--direct-display"], 20)
+                        print("Native direct-display capabilities advertised; rendering is not verified.", flush=True)
+                        return 0
+                    execute([str(bundle / "vulkan-interop")], 20)
+                    execute([str(bundle / "vulkan-external-sync")], 20)
+                    processes.append(subprocess.Popen([str(binaries / "vrserver"), "-keepalive"], env=env,
+                        cwd=binaries, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True))
+                    time.sleep(2)
+                    if processes[0].poll() is not None:
+                        raise RuntimeError("Native vrserver exited before device acceptance")
+                    for mode in ("--setup-room", "--controllers"):
+                        execute([str(bundle / "steamvr-probe"), str(binaries / "libopenvr_api.so"), mode], 45)
+                    print("Native virtual devices and Vulkan sharing passed; rendering is not verified.", flush=True)
+                    return 0
+                finally:
+                    for process in reversed(processes):
+                        stop(process)
+                    for path in sorted((directory / "logs").glob("*.txt")):
+                        log.write(f"\nLOG_FILE={path.name}\n".encode())
+                        with path.open("rb") as stream:
+                            while chunk := stream.read(65536):
+                                log.write(chunk)
+                    for sig, handler in previous.items():
+                        signal.signal(sig, handler)
+
+
 def run(args):
+    if args.native_devices or args.native_preflight:
+        return run_native(args)
     client = args.client.resolve()
     runtime = args.runtime.resolve() if args.runtime else client / "steamapps/common/SteamVR"
     validate_runtime_paths(runtime)
@@ -314,6 +435,9 @@ def main():
                         help="Run the pinned SteamVR build with a private simulated headset and X server")
     parser.add_argument("--bundle", type=Path, default=Path(__file__).resolve().parent,
                         help="Directory produced by build-steamvr-probe.sh")
+    native = parser.add_mutually_exclusive_group()
+    native.add_argument("--native-devices", action="store_true", help="Test native ARM64 simulated devices and sharing without starting a compositor")
+    native.add_argument("--native-preflight", action="store_true", help="Query native direct-display prerequisites without starting SteamVR")
     args = parser.parse_args()
     if not 1 <= args.startup_timeout <= 900 or not 1 <= args.session_timeout <= 14400:
         parser.error("Startup timeout must be 1–900 seconds and session timeout 1–14400 seconds")
