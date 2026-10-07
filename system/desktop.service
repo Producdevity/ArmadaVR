@@ -1,0 +1,13 @@
+[Unit]
+Description=Armada VR interactive virtual desktop
+After=systemd-user-sessions.service
+ConditionKernelCommandLine=armada.desktop=1
+
+[Service]
+ExecStart=/usr/local/libexec/armada-vr/start-desktop.sh
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

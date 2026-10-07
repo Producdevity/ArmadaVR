@@ -1,0 +1,25 @@
+--- a/src/Xpresent.c
++++ b/src/Xpresent.c
+@@ -28,6 +28,8 @@
+ 
+ #include <stdint.h>
+ #include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
+ #include <X11/Xlib.h>
+ #include <X11/Xlibint.h>
+ #include <X11/Xutil.h>
+@@ -568,6 +570,13 @@
+     req->eventMask = event_mask;
+     UnlockDisplay (dpy);
+     SyncHandle();
++    const char *bootstrap = getenv("ARMADA_VR_XPRESENT_BOOTSTRAP");
++    if ((event_mask & PresentCompleteNotifyMask) && bootstrap &&
++        strcmp(bootstrap, "1337") == 0) {
++        /* SteamVR 2.16.7 waits for serial 1337 before requesting its first MSC. */
++        XPresentNotifyMSC(dpy, window, 1337, 0, 0, 0);
++        XFlush(dpy);
++    }
+     return eid;
+ }
+ 

@@ -1,0 +1,5 @@
+find_package(Vulkan REQUIRED)
+add_executable(armada_xr_probe /project/src/xr-probe.cpp /project/src/xr-renderer.cpp)
+target_compile_features(armada_xr_probe PRIVATE cxx_std_17)
+target_compile_options(armada_xr_probe PRIVATE -Wall -Wextra -Werror -Wno-missing-field-initializers)
+target_link_libraries(armada_xr_probe PRIVATE openxr_loader Vulkan::Vulkan)

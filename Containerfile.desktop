@@ -1,0 +1,32 @@
+FROM localhost/armada-vr:steam
+RUN kver=$(ls /usr/lib/modules | sort -V | tail -1) \
+    && dnf -y --setopt=install_weak_deps=False install "kernel-modules-$kver" \
+       xorg-x11-server-Xorg xorg-x11-server-Xephyr xorg-x11-drv-libinput xterm xsetroot \
+       xorg-x11-fonts-misc qemu-guest-agent \
+    && dnf clean all \
+    && useradd -m -U -G video,render,input vr \
+    && modinfo -k "$kver" virtio_gpu >/dev/null
+COPY --from=steam-client --chown=vr:vr / /home/vr/.local/share/Steam/
+# Valve's helper pins Frame CPU indices that do not exist in this two-vCPU guest.
+RUN helper=/home/vr/.local/share/Steam/steamrtarm64/steamwebhelper.sh \
+    && grep -q 'exec taskset 0x7c ' "$helper" \
+    && sed -i 's/exec taskset 0x7c /exec /' "$helper"
+COPY system/desktop.service /etc/systemd/system/armada-vr-desktop.service
+COPY system/desktop-test.conf /etc/systemd/system/armada-vr-lab.service.d/desktop.conf
+COPY system/xorg.conf /etc/X11/xorg.conf.d/20-virtual-display.conf
+COPY system/70-armada-vr-udmabuf.rules /etc/udev/rules.d/70-armada-vr-udmabuf.rules
+COPY system/menu.xml /etc/xdg/openbox/menu.xml
+COPY system/20-qemu.network /etc/systemd/network/20-qemu.network
+COPY system/fex-config.json /usr/share/fex-emu/Config.json
+COPY --chown=vr:vr profiles/steamvr-virtual.json /home/vr/.local/share/Steam/config/steamvr.vrsettings
+COPY --chown=vr:vr system/monado-imgui.ini /home/vr/.config/monado/imgui.ini
+COPY tools/start-desktop.sh tools/desktop-session.sh tools/desktop-steam.sh tools/desktop-steamvr.sh tools/vr-scene.sh /usr/local/libexec/armada-vr/
+COPY tools/make-rootfs.sh /usr/local/bin/make-rootfs
+RUN chmod +x /usr/local/libexec/armada-vr/*.sh \
+    && systemctl enable armada-vr-desktop.service qemu-guest-agent.service systemd-networkd.service systemd-resolved.service \
+    && ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf \
+    && systemctl mask getty@tty1.service \
+    && rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' | sort > /usr/share/armada-vr/package-versions.txt
+ENV VR_VM_SIZE=24G
+LABEL org.armada-vr.desktop=true
+CMD ["/sbin/init"]

@@ -1,0 +1,12 @@
+FROM localhost/armada-vr:vm
+RUN dnf -y --setopt=install_weak_deps=False install \
+    gtk2 openal-soft NetworkManager-libnm ibus-libs glibc-langpack-en \
+    lsof pciutils libssh2 dbus-x11 openbox xdg-utils xdg-user-dirs lsb_release \
+    && dnf clean all
+ARG LAB_UID=1000
+ARG LAB_GID=1000
+RUN if ! getent group "$LAB_GID" >/dev/null; then groupadd -g "$LAB_GID" steam-lab; fi \
+    && if ! getent passwd "$LAB_UID" >/dev/null; then \
+         useradd -M -u "$LAB_UID" -g "$LAB_GID" -d /tmp/steam-home steam-lab; fi
+COPY tools/steam-sandbox.sh /usr/local/bin/steam-sandbox
+CMD ["bash"]

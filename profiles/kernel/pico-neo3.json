@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "repository": "bytedance/neo3-kernel",
+  "commit": "9cacc1c1356dd32a048f4cb13bc84af402bd3326",
+  "kernel_version": "4.19.81",
+  "base": null,
+  "overlays": [],
+  "include_dirs": [],
+  "device_tree_blocker": "ByteDance Neo3 source omits arch/arm64/boot/dts/vendor; no exact Pro/Pro Eye DTS is available in this release. Obtain matching board source or stock DTB/DTBO before compiling.",
+  "files": {
+    "AndroidKernel.mk": "84199ddbd244920e0f9902fd29e0fcab392027290b999c830a66477fbbf803cd",
+    "COPYING": "ee5808b032a67f587d3541099d46de34f5bec8cd5976114ba07f1299ee6001ff",
+    "LICENSES/exceptions/Linux-syscall-note": "8e378ab93586eb55135d3bc119cce787f7324f48394777d00c34fa3d0be3303f",
+    "LICENSES/preferred/GPL-2.0": "f6b78c087c3ebdf0f3c13415070dd480a3f35d8fc76f3d02180a407c1c812f79",
+    "Makefile": "3ae0e0e288cdaf77ab555e86c70897b35f38c030e1d87d3264d92165ee7a1b59",
+    "README.md": "2828f023d9f4d96c5d32067e464c2b117db00efbc139d866e6c71137bdcb4274",
+    "arch/arm64/boot/dts/Makefile": "6e561915f12379dc0df50d526acfa891e8ba0276af01b2c15bcff3d87414d800",
+    "arch/arm64/boot/dts/qcom/Makefile": "bf5384d48e7620f6ed425af2e09e3398605c86fbf4e0dc52299bd0ca898c420c",
+    "arch/arm64/configs/vendor/kona-perf-uart_defconfig": "57ea84acb56f74b5a468a0a31df80f354223134cf91d391de57870f766a78be5",
+    "arch/arm64/configs/vendor/kona-perf_defconfig": "803f68058227dbfeda21f5eaa724765ceef20d90097670808d1207e1ae9e7086",
+    "arch/arm64/configs/vendor/kona_defconfig": "6a1c9ccc490aee5bf251dd55ffa7cd926c254989e4fde93d6681bb431fae35e4",
+    "drivers/gpu/msm/Kconfig": "30ffafee23827367da19608b6b765438ebded9cc5506b66947966d5af97c776a",
+    "pvr_kernel_config": "9ad44affd21474d95aad796b8aecfc216b17fc0f39b9d71d9efaee9aff1e58e9",
+    "techpack/display/config/konadisp.conf": "705d3ac2359c633f6fca0a2c135b29f69432855f1922831c00a5688485446529"
+  },
+  "symlinks": {}
+}

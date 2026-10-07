@@ -1,0 +1,36 @@
+FROM localhost/armada-vr:windows AS windows
+FROM localhost/armada-vr:vm AS native
+COPY CMakeLists.txt /src/CMakeLists.txt
+COPY src /src/src
+RUN cmake -S /src -B /runtime-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /runtime-build --target openxr-procaddr xr-probe --parallel 1
+
+FROM localhost/armada-vr:desktop
+COPY --from=windows /windows/ /opt/armada-vr/windows/
+COPY --from=native /runtime-build/libopenxr-procaddr.so /usr/local/libexec/armada-vr/
+COPY --from=native /runtime-build/xr-probe /usr/local/bin/
+COPY --from=runtime-archives SteamLinuxRuntime_4-arm64.tar.xz /tmp/archives/
+COPY --from=runtime-archives proton-cachyos-11.0-20260703-slr-arm64.tar.xz /tmp/archives/
+COPY profiles/vr-runtime.json /tmp/verify/profiles/vr-runtime.json
+COPY tools/fetch-runtime.py /tmp/verify/tools/fetch-runtime.py
+RUN python3 -B /tmp/verify/tools/fetch-runtime.py /tmp/archives \
+      --component SteamLinuxRuntime_4-arm64.tar.xz \
+      --component proton-cachyos-11.0-20260703-slr-arm64.tar.xz \
+    && mkdir -p /opt/armada-vr/runtime /opt/armada-vr/proton \
+    && tar -xf /tmp/archives/SteamLinuxRuntime_4-arm64.tar.xz --no-same-owner -C /opt/armada-vr/runtime \
+    && tar -xf /tmp/archives/proton-cachyos-11.0-20260703-slr-arm64.tar.xz --no-same-owner -C /opt/armada-vr/proton \
+    && chown -R vr:vr /opt/armada-vr/runtime \
+    && rm -rf /tmp/archives /tmp/verify
+COPY tools/run-runtime.sh /usr/local/bin/run-runtime
+COPY tools/run-proton.sh /usr/local/bin/run-proton
+COPY tools/run-proton-openxr.sh /usr/local/bin/run-proton-openxr
+COPY tools/render-xr.sh /usr/local/bin/render-xr
+COPY tools/test-windows-xr.sh /usr/local/bin/test-windows-xr
+COPY tools/vm-test.sh /usr/local/bin/vm-test
+COPY tools/test-input.py /usr/local/bin/test-input
+RUN chmod +x /usr/local/bin/run-runtime /usr/local/bin/run-proton /usr/local/bin/run-proton-openxr \
+    /usr/local/bin/render-xr /usr/local/bin/test-windows-xr /usr/local/bin/vm-test /usr/local/bin/test-input \
+    && install -d -o vr -g vr /home/vr/.steam \
+    && ln -s ../.local/share/Steam/linuxarm64 /home/vr/.steam/sdkarm64 \
+    && chown -h vr:vr /home/vr/.steam/sdkarm64
+LABEL org.armada-vr.windows-runtime=true

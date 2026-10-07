@@ -1,0 +1,48 @@
+{
+  "action_sets": [
+    {
+      "name": "/actions/probe",
+      "usage": "leftright"
+    }
+  ],
+  "actions": [
+    {
+      "name": "/actions/probe/in/trigger",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/probe/in/grip",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/probe/in/pull",
+      "type": "vector1"
+    },
+    {
+      "name": "/actions/probe/in/menu",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/probe/in/pad_click",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/probe/in/pad_touch",
+      "type": "boolean"
+    },
+    {
+      "name": "/actions/probe/in/pad_position",
+      "type": "vector2"
+    },
+    {
+      "name": "/actions/probe/out/haptic",
+      "type": "vibration"
+    }
+  ],
+  "default_bindings": [
+    {
+      "controller_type": "vive_controller",
+      "binding_url": "bindings_vive.json"
+    }
+  ]
+}

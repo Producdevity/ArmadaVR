@@ -1,0 +1,149 @@
+{
+  "firmware_incremental": "52083180031500520",
+  "stock_thermal_config_sha256": "c9301ff553f65255f7e204da9988345a0ecf1a5305099889db43ce1ab5473cd4",
+  "source": "/vendor/etc/thermal_info_config.json",
+  "severity": "SHUTDOWN",
+  "severity_index": 6,
+  "zones": [
+    {
+      "name": "batt-virt-usr",
+      "temperature_millicelsius": 65000,
+      "hysteresis_millicelsius": 1000
+    },
+    {
+      "name": "cpu-0-0-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-0-0-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-0-1-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-0-1-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-0-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-0-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-1-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-1-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-2-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-2-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-3-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpu-1-3-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpuss-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "cpuss-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-2",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-3",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-4",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-5",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-6",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "gpuss-7",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "nspss-0",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "nspss-1",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "nspss-2",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "soc-usr",
+      "temperature_millicelsius": 115000,
+      "hysteresis_millicelsius": 5000
+    },
+    {
+      "name": "surf-virt-usr",
+      "temperature_millicelsius": 60000,
+      "hysteresis_millicelsius": 5000
+    }
+  ]
+}

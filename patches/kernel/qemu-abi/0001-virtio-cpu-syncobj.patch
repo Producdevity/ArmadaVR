@@ -1,0 +1,21 @@
+From: Armada VR project
+Subject: [QEMU ABI only] Expose DRM core sync objects for CPU-rendered frames
+
+The 5.10 virtio driver predates its GPU submission syncobj support. The
+software Vulkan test backend needs only DRM core CPU signal/wait and fd
+sharing, which are already implemented by this kernel. Enable those ioctls
+for the virtual render node. This does not connect sync objects to virgl
+submissions and must not be used to claim hardware GPU synchronization.
+
+--- a/drivers/gpu/drm/virtio/virtgpu_drv.c
++++ b/drivers/gpu/drm/virtio/virtgpu_drv.c
+@@ -190,7 +190,8 @@
+ DEFINE_DRM_GEM_FOPS(virtio_gpu_driver_fops);
+ 
+ static struct drm_driver driver = {
+-	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_RENDER | DRIVER_ATOMIC,
++	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_RENDER | DRIVER_ATOMIC |
++			   DRIVER_SYNCOBJ | DRIVER_SYNCOBJ_TIMELINE,
+ 	.open = virtio_gpu_driver_open,
+ 	.postclose = virtio_gpu_driver_postclose,
+ 

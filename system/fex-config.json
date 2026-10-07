@@ -1,0 +1,5 @@
+{
+  "Config": {
+    "RootFS": "/usr/share/guestos/fex-mesa"
+  }
+}

@@ -1,0 +1,13 @@
+--- a/techpack/display/msm/msm_drv.c
++++ b/techpack/display/msm/msm_drv.c
+@@ -2264,7 +2264,9 @@
+ 	.driver_features    = DRIVER_GEM |
+ 				DRIVER_RENDER |
+ 				DRIVER_ATOMIC |
+-				DRIVER_MODESET,
++				DRIVER_MODESET |
++				DRIVER_SYNCOBJ |
++				DRIVER_SYNCOBJ_TIMELINE,
+ 	.open               = msm_open,
+ 	.postclose          = msm_postclose,
+ 	.lastclose          = msm_lastclose,

@@ -1,0 +1,262 @@
+--- a/arch/arm64/boot/dts/oculus/eureka/eureka-thermal.dtsi
++++ b/arch/arm64/boot/dts/oculus/eureka/eureka-thermal.dtsi
+@@ -2060,3 +2060,259 @@
+ 		};
+ 	};
+ };
++
++/* Preserve stock Android shutdown limits when running Linux userspace. */
++&thermal_zones {
++	batt-virt-usr {
++		trips {
++			linux-critical {
++				temperature = <65000>;
++				hysteresis = <1000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-0-0-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-0-0-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-0-1-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-0-1-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-0-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-0-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-1-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-1-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-2-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-2-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-3-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpu-1-3-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpuss-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	cpuss-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-2 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-3 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-4 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-5 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-6 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	gpuss-7 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	nspss-0 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	nspss-1 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	nspss-2 {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	soc-usr {
++		trips {
++			linux-critical {
++				temperature = <115000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++	surf-virt-usr {
++		trips {
++			linux-critical {
++				temperature = <60000>;
++				hysteresis = <5000>;
++				type = "critical";
++			};
++		};
++	};
++};

@@ -1,0 +1,28 @@
+FROM localhost/armada-vr:vm
+RUN dnf -y --setopt=install_weak_deps=False install \
+    mingw64-gcc mingw64-gcc-c++ mingw64-cmake mingw64-vulkan-headers \
+    mingw64-vulkan-loader mingw64-jsoncpp \
+    && dnf clean all
+ADD --checksum=sha256:3a6f217eda99c5535ad2626e34a67147ba63b8e6fe398183b484d7d43846642a \
+    https://github.com/KhronosGroup/OpenXR-SDK-Source/archive/b5fd54b056650ab8a148c50d0cce9ac912dd4d1e.tar.gz /tmp/openxr.tar.gz
+COPY src/xr-probe.cpp src/xr-renderer.cpp src/xr-renderer.h /project/src/
+COPY cmake/windows-tests.cmake /project/cmake/windows-tests.cmake
+RUN mkdir /sdk /windows && tar -xf /tmp/openxr.tar.gz -C /sdk --strip-components=1 \
+    && echo 'include(/project/cmake/windows-tests.cmake)' >> /sdk/CMakeLists.txt \
+    && mingw64-cmake -S /sdk -B /sdk-build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_C_FLAGS=-DWINAPI_PARTITION_SYSTEM=0 -DCMAKE_CXX_FLAGS=-DWINAPI_PARTITION_SYSTEM=0 \
+       -DCMAKE_DISABLE_FIND_PACKAGE_OpenGL=ON \
+       -DBUILD_API_LAYERS=OFF -DBUILD_CONFORMANCE_TESTS=OFF -DBUILD_WITH_SYSTEM_JSONCPP=OFF \
+    && cmake --build /sdk-build --target hello_xr armada_xr_probe --parallel 2 \
+    && cp /sdk-build/src/tests/hello_xr/hello_xr.exe /windows/ \
+    && cp /sdk-build/armada_xr_probe.exe /windows/xr-probe.exe \
+    && cp /usr/x86_64-w64-mingw32/sys-root/mingw/bin/lib{gcc_s_seh-1,stdc++-6,winpthread-1}.dll /windows/ \
+    && cp -r /sdk/LICENSE* /windows/ \
+    && rm -rf /sdk /sdk-build /tmp/openxr.tar.gz
+COPY tests/windows-smoke.c /tmp/windows-smoke.c
+COPY src/openxr-launcher.c /tmp/openxr-launcher.c
+RUN x86_64-w64-mingw32-gcc -O0 -Wall -Wextra -Werror -static /tmp/windows-smoke.c -o /windows/windows-smoke.exe \
+    && x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -static -municode \
+       /tmp/openxr-launcher.c -ladvapi32 -o /windows/openxr-launcher.exe \
+    && rm /tmp/windows-smoke.c /tmp/openxr-launcher.c
+CMD ["bash"]

@@ -1,3 +1,6 @@
 .agents/
 output/
 __pycache__/
+.DS_Store
+/build/
+/docs/validation.md

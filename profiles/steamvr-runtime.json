@@ -1,0 +1,79 @@
+{
+  "libraries": [
+    {
+      "name": "libnss3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libnss3.so",
+      "sha256": "e1e8e6fc00f27b6e64686961137f0c509047f87ca8312a709f882864fd07aae8"
+    },
+    {
+      "name": "libnssutil3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libnssutil3.so",
+      "sha256": "9cb58b73e04494c3a01a815e6b52dc226a78b91497ce3c174a4f1673ab5f5342"
+    },
+    {
+      "name": "libsmime3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libsmime3.so",
+      "sha256": "220ce3a8b987249cd84d48b96b6237b9341f47dd11ac2273cc6df8fac6b59f98"
+    },
+    {
+      "name": "libssl3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libssl3.so",
+      "sha256": "7d512c0058a78543f0fa8b06de2cf470c6c8f41f9254cd294bb8351e38962281"
+    },
+    {
+      "name": "libnspr4.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libnspr4.so",
+      "sha256": "c01d766793d57e3336ea4a92d51f14211c2b2343b0de937d901e7cb87a137f94"
+    },
+    {
+      "name": "libplc4.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libplc4.so",
+      "sha256": "a416c075d667de4d469490b7588277cbba95829620bc3ed7d7ad5f23e779d44d"
+    },
+    {
+      "name": "libplds4.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/libplds4.so",
+      "sha256": "4791858d448a5b31ccf36743af2d12809a3e3808d4bfc261a34dc29768af8074"
+    },
+    {
+      "name": "libsoftokn3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/nss/libsoftokn3.so",
+      "sha256": "97822b0cf0647755d9b613103c8acc5b6b2e3961e22df84118a1a38b5721e95a"
+    },
+    {
+      "name": "libfreebl3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/nss/libfreebl3.so",
+      "sha256": "4d50d25a061cec6a2167c27f5335ca7d5267823f848e4598667b802dc2dfe84f"
+    },
+    {
+      "name": "libfreeblpriv3.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/nss/libfreeblpriv3.so",
+      "sha256": "1c085247713f0bf408c15449d28ed40a9a50a2a248fdf21d5b969ab56f3909dc"
+    },
+    {
+      "name": "libnssckbi.so",
+      "source": "steamapps/common/SteamLinuxRuntime_sniper/sniper_platform_3.0.20260805.254768/files/lib/x86_64-linux-gnu/nss/libnssckbi.so",
+      "sha256": "1c4cbc0a1775deda1412d0bf5f7578ca63072a8439fb92b8c41f392b1b33265f"
+    },
+    {
+      "name": "libssl.so.1.0.0",
+      "source": "ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/libssl.so.1.0.0",
+      "sha256": "28711dcb90e8f855b1225d3c6f63dcfb0d958d92164877056c336708976d319d"
+    },
+    {
+      "name": "libssl.so",
+      "source": "ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/libssl.so.1.0.0",
+      "sha256": "28711dcb90e8f855b1225d3c6f63dcfb0d958d92164877056c336708976d319d"
+    },
+    {
+      "name": "libcrypto.so.1.0.0",
+      "source": "ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/libcrypto.so.1.0.0",
+      "sha256": "cda9fbd3960ee93cfaa88491d966f27fab2b7ea46edb08d2ac016d2527bd18e6"
+    },
+    {
+      "name": "libcrypto.so",
+      "source": "ubuntu12_32/steam-runtime/lib/x86_64-linux-gnu/libcrypto.so.1.0.0",
+      "sha256": "cda9fbd3960ee93cfaa88491d966f27fab2b7ea46edb08d2ac016d2527bd18e6"
+    }
+  ]
+}

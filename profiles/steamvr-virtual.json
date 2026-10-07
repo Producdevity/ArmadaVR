@@ -1,0 +1,29 @@
+{
+  "steamvr": {
+    "forcedDriver": "null",
+    "requireHmd": true,
+    "activateMultipleDrivers": true,
+    "displayDebug": true,
+    "displayDebugX": 0,
+    "displayDebugY": 0,
+    "allowFallbackMirrorWindowLinux": true,
+    "enableHomeApp": false,
+    "enableLinuxVulkanAsync": false
+  },
+  "power": {
+    "pauseCompositorOnStandby": false
+  },
+  "driver_null": {
+    "enable": true,
+    "serialNumber": "armada-vr-qemu",
+    "modelNumber": "Armada VR virtual headset",
+    "windowX": 0,
+    "windowY": 0,
+    "windowWidth": 1024,
+    "windowHeight": 512,
+    "renderWidth": 512,
+    "renderHeight": 512,
+    "displayFrequency": 30.0,
+    "secondsFromVsyncToPhotons": 0.033333333
+  }
+}

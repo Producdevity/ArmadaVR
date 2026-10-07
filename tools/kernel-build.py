@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Compile a vendor kernel in Linux; export diagnostics and unassembled artifacts."""
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import time
+
+spec = importlib.util.spec_from_file_location("kernel_source", Path(__file__).with_name("kernel-source.py"))
+sources = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sources)
+
+
+def config_values(path):
+    result = {}
+    for line in path.read_text().splitlines():
+        if line.startswith("CONFIG_") and "=" in line:
+            name, value = line.split("=", 1)
+            result[name] = value
+        elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
+            result[line[2:-11]] = "n"
+    return result
+
+
+def config_changes(requested, resolved):
+    actual = config_values(resolved)
+    return [{"symbol": key, "requested": value, "resolved": actual.get(key, "n")}
+            for key, value in sorted(config_values(requested).items())
+            if actual.get(key, "n") != value]
+
+
+def file_record(path, root):
+    with path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    return {"path": path.relative_to(root).as_posix(), "bytes": path.stat().st_size, "sha256": digest}
+
+
+def module_metadata(data):
+    entries = data.split("\0")
+    result = {field: [entry.split("=", 1)[1] for entry in entries if entry.startswith(field + "=")]
+              for field in ("name", "vermagic", "depends", "softdep", "firmware", "alias")}
+    if len(result["name"]) != 1 or len(result["vermagic"]) != 1:
+        raise ValueError("modinfo did not return a module name and vermagic")
+    return result
+
+
+def tree_digest(root):
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            value = [relative, "symlink", os.readlink(path)]
+        elif path.is_file():
+            value = [relative, path.stat().st_mode & 0o777, file_record(path, root)["sha256"]]
+        elif path.is_dir():
+            value = [relative, "directory", path.stat().st_mode & 0o777]
+        else:
+            raise ValueError(f"Unexpected source entry: {path}")
+        digest.update(json.dumps(value, separators=(",", ":")).encode() + b"\n")
+    return digest.hexdigest()
+
+
+def patched_source(source, cache, patches):
+    target = cache / "source"
+    stamp = cache / "source-sha256.txt"
+    if target.exists():
+        if not stamp.is_file() or tree_digest(target) != stamp.read_text().strip():
+            raise ValueError("Patched kernel source changed; use a new build cache")
+        return target, stamp.read_text().strip()
+    shutil.copytree(source, target, symlinks=True)
+    for patch in patches:
+        subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
+                       cwd=target, check=True, timeout=30)
+    digest = tree_digest(target)
+    stamp.write_text(digest + "\n")
+    return target, digest
+
+
+def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
+    if sys.platform != "linux":
+        raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("Output exists; choose a new report directory")
+    output.mkdir(parents=True, exist_ok=True)
+    workspace.mkdir(parents=True, exist_ok=True)
+    sources.require_case_sensitive(workspace)
+    source = workspace / "source"
+    cache = workspace / "linux-userspace" if linux_userspace else workspace
+    cache.mkdir(exist_ok=True)
+    build_dir = cache / "build"
+    report = {"schema_version": 1, "purpose": "vendor kernel compilation baseline",
+              "repository": profile["repository"], "commit": profile["commit"],
+              "hardware_boot_verified": False, "flash_image": False,
+              "stock_toolchain_reproduction": False, "status": "started", "commands": [], "artifacts": [],
+              "variant": "qemu-abi" if qemu_abi else "linux-userspace" if linux_userspace else "vendor",
+              "qemu_transports": qemu_abi,
+              "limits": {"memory": os.environ.get("KERNEL_BUILD_MEMORY", "external"), "make_jobs": 2,
+                         "linker_threads": 1, "pahole_jobs": 1, "compile_seconds": 2700}}
+    started = time.monotonic()
+
+    def save():
+        report["elapsed_seconds"] = round(time.monotonic() - started, 2)
+        (output / "build.json").write_text(json.dumps(report, indent=2) + "\n")
+
+    env = {**os.environ, "ARCH": "arm64", "LLVM": "1", "LLVM_IAS": "1", "REAL_CC": "clang",
+           "CROSS_COMPILE": "aarch64-linux-gnu-", "CROSS_COMPILE_COMPAT": "arm-linux-gnueabi-",
+           "CROSS_COMPILE_ARM32": "arm-linux-gnueabi-", "KBUILD_BUILD_USER": "armada",
+           "KBUILD_BUILD_HOST": "kernel-builder", "KBUILD_BUILD_TIMESTAMP": "2026-09-10 00:00:00 UTC"}
+
+    def run(command, log, timeout=120):
+        report["commands"].append(command)
+        save()
+        print(f"Running {log}", flush=True)
+        with (output / log).open("wb") as stream:
+            subprocess.run(command, cwd=build_dir, env=env, stdout=stream, stderr=subprocess.STDOUT,
+                           check=True, timeout=timeout)
+
+    try:
+        if not source.exists():
+            sources.full_source(profile, archive, source)
+        report["source"] = sources.full_source(profile, archive, source, verify_only=True)
+        report["compiler"] = subprocess.check_output(["clang", "--version"], text=True).strip()
+        report["container_image"] = os.environ.get("KERNEL_BUILD_IMAGE_ID", "unrecorded")
+        (output / "compiler-packages.txt").write_text(subprocess.check_output(["dpkg-query", "-W"], text=True))
+        identity = {"profile_sha256": hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest(),
+                    "compiler": report["compiler"], "container_image": report["container_image"],
+                    "config_fragments": profile["config_fragments"]}
+        extensions = [sources.ROOT / "profiles/kernel" / name for name in
+                      ("linux-userspace.config", "quest3-build.config")] if linux_userspace else []
+        if qemu_abi:
+            extensions.append(sources.ROOT / "profiles/kernel/qemu-abi.config")
+        patches = sorted((sources.ROOT / "patches/kernel/linux-userspace").glob("*.patch")) if linux_userspace else []
+        if qemu_abi:
+            qemu_patches = sorted((sources.ROOT / "patches/kernel/qemu-abi").glob("*.patch"))
+            if not qemu_patches:
+                raise ValueError("Missing QEMU ABI source patches")
+            patches += qemu_patches
+        if patches:
+            identity["patches"] = {str(path.relative_to(sources.ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in patches}
+        if linux_userspace:
+            identity["config_extensions"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in extensions}
+            cache = cache / hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
+            cache.mkdir(exist_ok=True)
+            build_dir = cache / "build"
+        if patches:
+            source, report["patched_source_sha256"] = patched_source(source, cache, patches)
+        stamp = cache / "build-identity.json"
+        if build_dir.exists() and (not stamp.is_file() or json.loads(stamp.read_text()) != identity):
+            raise ValueError("Cached build identity differs; use a new Linux volume")
+        build_dir.mkdir(exist_ok=True)
+        stamp.write_text(json.dumps(identity, indent=2) + "\n")
+        fragments = [str(sources.source_path(source, name)) for name in profile["config_fragments"]]
+        fragments.extend(str(path) for path in extensions)
+        report["identity"] = identity
+        config_dir = cache / "config"
+        config_dir.mkdir(exist_ok=True)
+        run(["bash", str(source / "scripts/kconfig/merge_config.sh"), "-m", "-O", str(config_dir), *fragments],
+            "config-merge.log")
+        shutil.copyfile(config_dir / ".config", output / "requested.config")
+        config = build_dir / ".config"
+        requested_stamp = cache / "requested.config"
+        resolved_stamp = cache / "resolved.config"
+        if not config.exists():
+            shutil.copyfile(config_dir / ".config", config)
+        elif not requested_stamp.is_file() or requested_stamp.read_bytes() != (config_dir / ".config").read_bytes():
+            raise ValueError("Cached requested configuration differs; use a new Linux volume")
+        elif not resolved_stamp.is_file() or resolved_stamp.read_bytes() != config.read_bytes():
+            raise ValueError("Cached resolved configuration differs; use a new Linux volume")
+        shutil.copyfile(config_dir / ".config", requested_stamp)
+        make = ["make", "-C", str(source), f"O={build_dir}", "PYTHON=python3",
+                "LD=ld.lld --threads=1 --lto-partitions=1",
+                "PAHOLE_FLAGS=--skip_encoding_btf_enum64 --jobs=1"]
+        run([*make, "olddefconfig"], "config-resolve.log")
+        shutil.copyfile(config, output / "resolved.config")
+        shutil.copyfile(config, resolved_stamp)
+        report["config_changes"] = config_changes(output / "requested.config", config)
+        if linux_userspace:
+            report["unresolved_userspace_options"] = [change for path in extensions for change in config_changes(path, config)]
+            if report["unresolved_userspace_options"]:
+                raise ValueError("Kconfig rejected Linux userspace options; see build.json")
+        values = config_values(config)
+        report["optimization"] = {name: values.get(name, "n") for name in
+                                  ("CONFIG_LTO_CLANG_FULL", "CONFIG_LTO_CLANG_THIN", "CONFIG_CFI_CLANG", "CONFIG_META_SAMPLE_PGO")}
+        if configure_only:
+            report["status"] = "configured"
+            return report
+        report["status"] = "compiling"
+        # GNU timeout terminates make's complete process group, including compiler children.
+        run(["timeout", "--kill-after=15", "2700", *make, "-j2", "Image", "modules", "dtbs"], "compile.log", 2760)
+        for relative in ("arch/arm64/boot/Image", "System.map", ".config", "modules.order", "modules.builtin"):
+            shutil.copyfile(build_dir / relative, output / Path(relative).name)
+        dt_dir = output / "device-trees"
+        dt_dir.mkdir()
+        for path in sorted((build_dir / "arch/arm64/boot/dts").rglob("*")):
+            if path.suffix in (".dtb", ".dtbo"):
+                destination = dt_dir / path.relative_to(build_dir / "arch/arm64/boot/dts")
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+        staging = cache / "modules"
+        if staging.exists():
+            shutil.rmtree(staging)
+        run([*make, f"INSTALL_MOD_PATH={staging}", "INSTALL_MOD_STRIP=1", "modules_install"], "modules-install.log", 300)
+        for path in staging.glob("lib/modules/*/*"):
+            if path.name in ("build", "source") and path.is_symlink():
+                path.unlink()
+        modules = []
+        for path in sorted(staging.rglob("*.ko")):
+            metadata = subprocess.check_output(["modinfo", "-0", str(path)]).decode()
+            item = file_record(path, staging)
+            item.update(module_metadata(metadata))
+            modules.append(item)
+        (output / "modules.json").write_text(json.dumps(modules, indent=2) + "\n")
+        with tarfile.open(output / "modules.tar.gz", "w:gz") as stream:
+            stream.add(staging / "lib", arcname="lib")
+        report["module_count"] = len(modules)
+        if patches:
+            report["patched_source_after_build_sha256"] = tree_digest(source)
+            if report["patched_source_after_build_sha256"] != report["patched_source_sha256"]:
+                raise ValueError("Kernel build changed its patched source tree")
+        report["source_after_build"] = sources.full_source(profile, archive, workspace / "source", verify_only=True)
+        report["artifacts"] = [file_record(path, output) for path in sorted(output.rglob("*"))
+                               if path.is_file() and path.name != "build.json"]
+        report["status"] = "compiled"
+    except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
+        report.update(status="failed", error=str(error))
+        raise
+    finally:
+        report["resources"] = {}
+        for name in ("memory.peak", "memory.events", "pids.peak"):
+            path = Path("/sys/fs/cgroup") / name
+            if path.is_file():
+                report["resources"][name] = path.read_text().strip()
+        save()
+    return report
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("profile", choices=("quest3",))
+    parser.add_argument("--workspace", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--archive", type=Path, required=True)
+    parser.add_argument("--linux-userspace", action="store_true")
+    parser.add_argument("--configure-only", action="store_true")
+    parser.add_argument("--qemu-abi", action="store_true", help="Add virtual transports for userspace ABI tests")
+    args = parser.parse_args()
+    try:
+        result = build(sources.read_profile(args.profile), args.workspace.resolve(), args.output.resolve(), args.archive.resolve(),
+                       args.linux_userspace or args.qemu_abi, args.configure_only, args.qemu_abi)
+        print(f"Kernel baseline {result['status']}; no headset boot verified")
+    except (OSError, ValueError, subprocess.SubprocessError, tarfile.TarError) as error:
+        parser.exit(1, f"{error}\n")
+
+
+if __name__ == "__main__":
+    main()

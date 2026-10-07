@@ -1,0 +1,28 @@
+{
+  "components": [
+    {
+      "name": "Steam Runtime 4 ARM64",
+      "file": "SteamLinuxRuntime_4-arm64.tar.xz",
+      "url": "https://repo.steampowered.com/steamrt4/images/4.0.20260805.254769/SteamLinuxRuntime_4-arm64.tar.xz",
+      "size": 90057008,
+      "sha256": "caa4b3bc3aad1cac43d94dbd802a963c13ed63ea1c414f04669ae402af505adf",
+      "source": "https://repo.steampowered.com/steamrt4/images/4.0.20260805.254769/SHA256SUMS"
+    },
+    {
+      "name": "CachyOS Proton 11 ARM64",
+      "file": "proton-cachyos-11.0-20260703-slr-arm64.tar.xz",
+      "url": "https://github.com/CachyOS/proton-cachyos/releases/download/cachyos-11.0-20260703-slr/proton-cachyos-11.0-20260703-slr-arm64.tar.xz",
+      "size": 339912088,
+      "sha256": "317f4b8f390fb4dea15ef9ebcf75cb4f350d01b61bff184fe29a1c4e10ce0cc5",
+      "source": "https://api.github.com/repos/CachyOS/proton-cachyos/releases/tags/cachyos-11.0-20260703-slr"
+    },
+    {
+      "name": "FEX Arch Linux rootfs",
+      "file": "ArchLinux.sqsh",
+      "url": "https://rootfs.fex-emu.gg/ArchLinux/2026-08-11/ArchLinux.sqsh",
+      "size": 1359826944,
+      "sha256": "5d0c1a38590c68e5c2597c2c8a26d2f80170b1b738c857d63e1cdadada5f5f2a",
+      "source": "https://github.com/FEX-Emu/RootFS"
+    }
+  ]
+}

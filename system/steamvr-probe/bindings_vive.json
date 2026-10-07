@@ -1,0 +1,110 @@
+{
+  "controller_type": "vive_controller",
+  "name": "Armada VR controller acceptance",
+  "bindings": {
+    "/actions/probe": {
+      "sources": [
+        {
+          "path": "/user/hand/left/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/trigger"
+            },
+            "pull": {
+              "output": "/actions/probe/in/pull"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/grip"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trigger",
+          "mode": "trigger",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/trigger"
+            },
+            "pull": {
+              "output": "/actions/probe/in/pull"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/grip",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/grip"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/application_menu",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/menu"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/left/input/trackpad",
+          "mode": "trackpad",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/pad_click"
+            },
+            "touch": {
+              "output": "/actions/probe/in/pad_touch"
+            },
+            "position": {
+              "output": "/actions/probe/in/pad_position"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/application_menu",
+          "mode": "button",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/menu"
+            }
+          }
+        },
+        {
+          "path": "/user/hand/right/input/trackpad",
+          "mode": "trackpad",
+          "inputs": {
+            "click": {
+              "output": "/actions/probe/in/pad_click"
+            },
+            "touch": {
+              "output": "/actions/probe/in/pad_touch"
+            },
+            "position": {
+              "output": "/actions/probe/in/pad_position"
+            }
+          }
+        }
+      ],
+      "haptics": [
+        {
+          "path": "/user/hand/left/output/haptic",
+          "output": "/actions/probe/out/haptic"
+        },
+        {
+          "path": "/user/hand/right/output/haptic",
+          "output": "/actions/probe/out/haptic"
+        }
+      ]
+    }
+  }
+}

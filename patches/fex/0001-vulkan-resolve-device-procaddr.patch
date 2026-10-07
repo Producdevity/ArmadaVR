@@ -1,0 +1,11 @@
+--- a/ThunkLibs/libvulkan/Guest.cpp
++++ b/ThunkLibs/libvulkan/Guest.cpp
+@@ -68,6 +68,9 @@ PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice a_0, const char* a_1) {
+   if (!Ret) {
+     return nullptr;
+   }
++  if (a_1 == std::string_view {"vkGetDeviceProcAddr"}) {
++    return (PFN_vkVoidFunction)vkGetDeviceProcAddr;
++  }
+   return MakeGuestCallable(__FUNCTION__, Ret, a_1);
+ }
