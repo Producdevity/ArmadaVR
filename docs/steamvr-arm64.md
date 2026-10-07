@@ -56,6 +56,43 @@ QEMU, including ARM64 virtual-driver/probe builds, software graphics sharing,
 both-hand dashboard interaction and Windows rendering on a fresh backend.
 Keep the existing translated runtime and its evidence for comparison.
 
+## Native virtual device acceptance
+
+The Frame package omits Valve's null-headset driver. Armada VR's existing virtual
+controller driver now optionally supplies a fixed simulated HMD when the selected
+driver is `armada_virtual` and `driver_armada_virtual.simulateHeadset` is explicitly
+true. The original null-HMD/x86 path remains available. Neither simulated path
+has a physical-device transport.
+
+Build the native probe and driver in an AArch64 Linux development environment with
+Clang, Vulkan headers/loader and the pinned OpenVR headers:
+
+```sh
+just build-steamvr-probe output/openvr-sdk output/steamvr-native-probe aarch64
+```
+
+The native bundle contains `armada_virtual/bin/linuxarm64/driver_armada_virtual.so`
+and the native virtual profile. Register that driver in an isolated OpenVR path
+registry and invoke `bin/linuxarm64` components directly. The current
+`steamvr-session.py` remains specific to the validated x86/FEX presentation path;
+a native compositor launcher has not yet passed acceptance.
+
+SteamVR **2.17.10** now executes on the unchanged Quest-derived **5.10.246 QEMU
+transport kernel**, as UID1000 in a new snapshot-only filesystem. The native probe
+passes room setup, both controller poses, press/release for trigger/grip/menu/trackpad,
+input-origin checks, malformed-request rejection and haptic delivery. The existing
+patched Lavapipe also passes binary/timeline semaphore plus 4 MiB buffer round trips
+across processes in this VM. These are virtual-device and sharing checks, not
+physical tracking or rendering proof.
+
+A separate fresh native compositor test under authenticated Xvfb fails with SIGSEGV
+while looking for a direct display through Vulkan WSI. Disabling `direct_mode.enable`
+reaches the same failure. GDB confirms an indirect call to address zero at
+compositor offset `0xb39a8`, returning to `0xb39ac`; the exact Vulkan command
+has not yet been identified. Preserve those failed runs; native compositor presentation,
+stock dashboard interaction and Windows rendering on this backend remain open.
+The QEMU runtime has no network, host filesystem sharing or passed-through devices.
+
 The same image supplies host Android graphics overlays but no matching Lepton
 rootfs/sysbake. [Podman's three writable views now pass on the unchanged Quest
 test kernel](android-containers.md#podman-writable-mount-acceptance); actual

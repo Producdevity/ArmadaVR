@@ -67,8 +67,9 @@ includes launcher, host-library, OpenXR-layer and Android image build sources.
 The [official recovery index](https://steamdeck-images.steamos.cloud/recovery/)
 now lists Steam Frame `20260922.5153644-0.3.0` images. Offline extraction obtained
 native ARM64 SteamVR client/server/compositor binaries and the Android ARM64
-client. [Static ABI, library loading and CLI checks](steamvr-arm64.md) pass;
-native backend startup and Quest portability remain unverified. The
+client. [ABI, native server and virtual-controller checks](steamvr-arm64.md) pass
+on the Quest QEMU transport kernel; native compositor presentation and physical
+Quest portability remain unverified. The
 [Podman/FUSE writable-mount lifecycle](android-containers.md) also passes on the
 unchanged Quest test kernel. Actual Lepton Android boot needs its matching
 patched payload, which is absent from the repair image. Frame images and its
@@ -113,8 +114,9 @@ matching recovery hardware and firmware for those devices.
    IMU streams, device calibration, 6DoF prediction, distortion and display
    timing. Validate both controllers' pairing, poses, every required input,
    haptics, recentering, disconnect and reconnect behavior.
-5. **Resolve native runtime integration.** Test the obtained Frame ARM64 runtime
-   in a fresh virtual session, with native virtual drivers and probes. Keep
+5. **Resolve native runtime integration.** Native virtual-device input and
+   Vulkan sharing pass on the Quest test kernel. Resolve the native compositor
+   direct-display crash, then test dashboard interaction and fresh Windows rendering. Keep
    FEX/Proton for game compatibility and preserve the existing translated
    SteamVR baseline for comparison. Reuse applicable source changes while
    retaining Quest-specific KGSL, panel and firmware support.

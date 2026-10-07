@@ -112,6 +112,10 @@ test-kernel-thermal kernel="output/kernel/quest3/qemu-abi" directory="output/ker
 fetch-openvr directory="output/openvr-sdk":
     python3 -B tools/fetch-openvr.py {{ quote(directory) }}
 
+# Build the virtual SteamVR driver/probe in ARM64 Linux for either runtime ABI.
+build-steamvr-probe sdk="output/openvr-sdk" directory="output/steamvr-probe" target="x86_64":
+    bash tools/build-steamvr-probe.sh {{ quote(sdk) }} {{ quote(directory) }} {{ quote(target) }}
+
 # Build the x86-64 OpenXR acceptance sample inside the ARM64 development VM.
 build-steamvr-openxr archive="output/downloads/openxr-sdk-b5fd54b.tar.gz" directory="output/steamvr-openxr":
     bash tools/build-steamvr-openxr.sh {{ quote(archive) }} {{ quote(directory) }}

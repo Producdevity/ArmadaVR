@@ -1,0 +1,24 @@
+{
+  "steamvr": {
+    "forcedDriver": "armada_virtual",
+    "requireHmd": true,
+    "activateMultipleDrivers": false,
+    "displayDebug": true,
+    "displayDebugX": 0,
+    "displayDebugY": 0,
+    "allowFallbackMirrorWindowLinux": true,
+    "enableHomeApp": false,
+    "enableLinuxVulkanAsync": false,
+    "startMonitorFromAppLaunch": false,
+    "startCompositorFromAppLaunch": false,
+    "startDashboardFromAppLaunch": false,
+    "startOverlayAppsFromDashboard": false
+  },
+  "power": {
+    "pauseCompositorOnStandby": false
+  },
+  "driver_armada_virtual": {
+    "enable": true,
+    "simulateHeadset": true
+  }
+}

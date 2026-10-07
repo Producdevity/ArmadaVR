@@ -185,7 +185,10 @@ int main(int argc, char **argv) {
     system->GetStringTrackedDeviceProperty(0, vr::Prop_TrackingSystemName_String, tracking, sizeof(tracking), &property_error);
     require(property_error == vr::TrackedProp_Success, "Cannot identify tracking driver");
     std::printf("tracking=%s compositor_connected=%s\n", tracking, compositor ? "true" : "false");
-    require(!std::strcmp(tracking, "null"), "This probe requires Valve's virtual null headset");
+    char model[128] = {};
+    system->GetStringTrackedDeviceProperty(0, vr::Prop_ModelNumber_String, model, sizeof(model));
+    require(!std::strcmp(tracking, "null") || (!std::strcmp(tracking, "armada_virtual") &&
+        !std::strcmp(model, "Armada VR virtual headset")), "This probe requires a simulated headset");
     if (dashboard) {
         auto overlay = static_cast<vr::IVROverlay *>(get(vr::IVROverlay_Version, &error));
         require(overlay && error == vr::VRInitError_None, "No IVROverlay");

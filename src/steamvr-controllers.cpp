@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include "steamvr-headset.h"
 
 class Controller final : public vr::ITrackedDeviceServerDriver {
     std::mutex mutex;
@@ -141,23 +142,30 @@ public:
 
 class Provider final : public vr::IServerTrackedDeviceProvider {
     Controller left{true}, right{false};
+    Headset headset;
+    bool use_headset = false;
 public:
     vr::EVRInitError Init(vr::IVRDriverContext *context) override {
         VR_INIT_SERVER_DRIVER_CONTEXT(context);
         char driver[64] = {};
         vr::VRSettings()->GetString("steamvr", "forcedDriver", driver, sizeof(driver));
-        if (std::strcmp(driver, "null")) return vr::VRInitError_Driver_Failed;
+        use_headset = !std::strcmp(driver, "armada_virtual") &&
+            vr::VRSettings()->GetBool("driver_armada_virtual", "simulateHeadset");
+        if (std::strcmp(driver, "null") && !use_headset) return vr::VRInitError_Driver_Failed;
+        if (use_headset && !vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-qemu", vr::TrackedDeviceClass_HMD, &headset))
+            return vr::VRInitError_Driver_Failed;
         if (!vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-left", vr::TrackedDeviceClass_Controller, &left) ||
             !vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-right", vr::TrackedDeviceClass_Controller, &right))
             return vr::VRInitError_Driver_Failed;
         vr::VRDriverLog()->Log("Armada VR simulated controllers registered; no hardware transport");
         return vr::VRInitError_None;
     }
-    void Cleanup() override { left.Deactivate(); right.Deactivate(); VR_CLEANUP_SERVER_DRIVER_CONTEXT(); }
+    void Cleanup() override { headset.Deactivate(); left.Deactivate(); right.Deactivate(); VR_CLEANUP_SERVER_DRIVER_CONTEXT(); }
     const char *const *GetInterfaceVersions() override { return vr::k_InterfaceVersions; }
     void RunFrame() override {
         vr::VREvent_t event;
         while (vr::VRServerDriverHost()->PollNextEvent(&event, sizeof(event))) { left.event(event); right.event(event); }
+        if (use_headset) headset.frame();
         left.frame(); right.frame();
     }
     bool ShouldBlockStandbyMode() override { return false; }
