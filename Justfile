@@ -143,3 +143,11 @@ build-mesa directory="output/mesa/build":
 # Compile the Quest GPU's KGSL userspace driver and run offline Freedreno tests.
 build-turnip directory="output/mesa/turnip":
     CONTAINER_ENGINE={{ engine }} bash tools/build-mesa.sh {{ quote(directory) }} turnip
+
+# Build the small ARM64 Podman/FUSE dependency image for Quest VM tests.
+build-android-container-tools:
+    {{ engine }} build --platform linux/arm64 -f tests/android-container/Containerfile -t localhost/armada-vr:android-container-tools tests/android-container
+
+# Test rootless rootfs/data/APK overlay persistence, isolation and shutdown.
+test-android-mounts kernel="output/kernel/quest3/qemu-abi-v10" directory="output/android-mounts":
+    python3 -B tools/test-android-mounts.py {{ quote(kernel) }} --engine {{ engine }} --output {{ quote(directory) }}

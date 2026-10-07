@@ -59,9 +59,58 @@ BinderFS but not OverlayFS. [Podman documents a fuse-overlayfs fallback for
 older kernels](https://docs.podman.io/en/latest/markdown/podman.1.html#note-unsupported-file-systems-in-rootless-mode).
 Before choosing that fallback, inspect the actual Lepton launcher: Podman's
 storage driver and an explicit Android `/data` overlay can be separate mounts.
-A storage configuration change must not be assumed to fix both. A kernel
-backport would need its own source review, build and regression tests. Running
-the Android stack privileged is not the fallback implemented here.
+The separate Podman mount test below now verifies the helper on both types
+of mount. A kernel backport is not required solely to satisfy this tested
+writable-mount path.
 
 See [the Frame investigation](steam-frame.md) for source availability and the
 remaining Android, native runtime and hardware boundaries.
+
+## Podman writable-mount acceptance
+
+Valve's public [Lepton v3.0.5 launcher](https://gitlab.steamos.cloud/frame-public/lepton/-/blob/8be10c8a86ed2a6de1c6a2d6587994e957a35515/compat_tool/liblepton/liblepton.sh#L181)
+uses rootfs `:O`, with separate persistent data and APK `:O` views. Podman
+5.6.2 passes its configured mount helper to both
+[rootfs overlays](https://github.com/containers/podman/blob/v5.6.2/libpod/container_internal.go#L1785)
+and [explicit overlay volumes](https://github.com/containers/podman/blob/v5.6.2/libpod/container_internal_common.go#L474).
+The kernel's native OverlayFS limitation can therefore be tested with FUSE
+without changing the kernel or substituting a privileged Android container.
+
+```sh
+just build-android-container-tools
+just test-android-mounts output/kernel/quest3/qemu-abi-v10 output/android-mounts-new
+```
+
+This separate runner needs Docker, Zig and QEMU. It exports an immutable ARM64
+dependency image containing Podman 5.6.2 and fuse-overlayfs 1.15, verifies its
+bounded archive, and creates a new 256 MiB guest root disk. The root disk is
+necessary because OCI `pivot_root` cannot use the initial initramfs root. QEMU
+uses snapshot writes, no networking, host shares, USB or physical devices. The
+runner checks that the base disk, kernel and source hashes remain unchanged.
+The fixture requires PID 1, the QEMU board and an exact test command-line token.
+All container writes are in guest tmpfs.
+
+On October 7, 2026, `output/lepton-mount-v8/result.json` passes on the same
+`qemu-abi-v10` kernel image recorded above:
+
+- Guest UID 1000 starts rootless Podman; container PID 1 sees UID 0 through
+  Lepton's `keep-id` mapping.
+- Rootfs, data and APK mount entries use FUSE. The rootfs rejects writes.
+- Data copy-up, APK replacement and deletion whiteouts survive restart.
+- A second context sees the unchanged lower data and APK, independently of
+  the first context's upper directories.
+- Lower files remain unchanged; stopping removes the container and FUSE mounts
+  from Podman's mount namespace. The bounded stop deliberately reaches SIGKILL
+  for a non-cooperative fixture process.
+
+This resolves the measured writable-mount prerequisite for this Podman/helper
+pair. Native rootless kernel OverlayFS remains unsupported. It does not measure
+FUSE performance or establish graceful Android shutdown, Android boot, APK
+execution, delegated Android cgroups, Binder service transactions, graphics or
+OpenXR. The runner keeps those proof levels false.
+
+Actual Lepton startup requires its matching patched Android rootfs, sysbake and
+xattrs. Public source and a free development-app listing do not establish
+anonymous access to that payload. The inspected official Frame repair image
+provides native SteamVR and host Android graphics overlays, but not the Lepton
+Android rootfs. See [native runtime availability](steamvr-arm64.md).

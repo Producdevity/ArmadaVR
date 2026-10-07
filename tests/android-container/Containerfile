@@ -1,0 +1,7 @@
+FROM alpine@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce
+RUN apk add --no-cache podman=5.6.2-r3 fuse-overlayfs=1.15-r0 shadow-uidmap e2fsprogs \
+    && adduser -D -u 1000 vr \
+    && printf 'vr:100000:65536\n' > /etc/subuid \
+    && printf 'vr:100000:65536\n' > /etc/subgid \
+    && chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap \
+    && apk info -v | sort > /packages.txt
