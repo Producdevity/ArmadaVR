@@ -196,6 +196,17 @@ and distinguishes normal signed upgrades from EDL downgrade and recovery.
 
 ## Work required before installation
 
+The October 8 offline module audit found a concrete stock-ABI mismatch: all
+twenty dependencies of the passing VM inventory fixture exist in the current
+stock kernel, but eleven version CRCs differ, including `module_layout`. The
+fixture therefore cannot be treated as a stock-compatible module. The stock
+compiler's named Android Clang 14.0.7/r450784e build is
+[publicly available](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/5538393cf30cb39da6d53730a9b85f36958230da).
+Meta's public 5.10.237 source candidate still lacks a proven mapping to this
+stock build. A genuine source/configuration/toolchain rebuild and ABI comparison
+are required; editing version records or disabling CFI would not establish
+compatibility.
+
 1. **Establish exact-device boot and restoration.** Retain the authenticated
    stock OTA and verified boot artifacts matching the current build. Preserve
    the partition maps, both slots and calibration, and prove that the proposed
