@@ -49,6 +49,31 @@ the unsupported `Files.readString` call. Kernel security-association enumeration
 and taint remain unreadable, so API release is not independent proof of their
 kernel state. This test did not obtain root or load a module.
 
+The exact stock service and complete compiled SELinux policy identify the module
+loader as a root process in `init-insmod-sh`, rather than PID 1's `init` domain.
+Module initialization runs synchronously in that caller. The policy permits
+module loading from `vendor_file` but does not permit this domain to traverse or
+write `shell_data_file` output under `/data/local/tmp`. Android logging is allowed;
+the current headset also exposes its kernel log buffer read-only. Logging a new
+inventory result through that buffer has not been tested on hardware.
+
+An isolated QEMU fixture now loads the unchanged authenticated stock policy and
+uses its normal executable-label transitions. With Clang CFI and SELinux
+enforcement retained, 16 source-built module initialization attempts verify a
+bounded device-tree memory read, an injected allocation-failure path, a missing
+property and denied output access. Each returns a deliberate error, leaving no
+resident module; caller credentials remain unchanged and normal driver exit is
+not called. The read-only fixture filesystem retains its checksum. Evidence is
+in `output/quest-policy-20261008-v1/` and
+`output/quest-inventory-vm-20261008-v9/`. This uses the 5.10.246 QEMU kernel, not the
+stock 5.10.237 kernel; loading a new module adds the expected out-of-tree taint.
+
+The existing trigger still modifies shared executable mappings and restarts a
+tracking service. It has no verified protocol to prevent concurrent execution
+during replacement and restoration. File readback alone does not prove code
+quiescence or instruction-cache visibility. That gap blocks running the trigger
+on the headset even though the isolated inventory callback now passes.
+
 Exact loader source/config/toolchain/CFI compatibility, the live reserved-memory
 map, independently usable recovery and custom-boot acceptance remain open.
 The signed stock package is not a backup of both slots or unit calibration.

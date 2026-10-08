@@ -169,11 +169,24 @@ the temporary filesystem was not retained. Logs and source identities remain.
 
 This fixture contains the native dependencies from the selected runtime image,
 not the complete headset userspace. It proves combined packaging and extraction,
-not a full root build or boot. The retained complete roots remain v3 and do not
-match the newer kernel/startup pair. They still need rebuilding and root-handoff
+not a full root build or boot. The last complete roots were v3 and do not match
+the newer kernel/startup pair. They still need rebuilding and root-handoff
 acceptance with the new graphics/runtime inputs.
 
 `output/monado-root-audit-v1/` records the packaging result and 130 passing host
 tests. The original runtime image fails the early dependency probe for missing
 OpenCV videoio. The corrected runtime image passes that probe, then stops at the
 output-space guard before export. Both preflight reports are preserved.
+
+October 8: the prior root images and their Docker userspace image are no longer
+present after storage cleanup. Their manifests remain, and the compressed v2
+userspace export is intact at `output/headset-root-v2/rootfs.tar.zst`. Streaming
+verification reproduces the original 6,902,722,560-byte export and its SHA-256
+`8a8d5036014851f125cd7f83d1993c47bbf08e8b579dbf33f76e47bfe9234309`.
+Evidence: `output/headset-root-archive-audit-20261008-v1/`.
+This avoids reacquiring the older userspace contents; it does not restore the
+missing immutable Docker image or supply the newer Monado dependencies. The
+builder currently requires an uncompressed export and matching image for
+`--reuse-export`. Plan storage for restoration and assembly before expanding the
+archive. No complete root yet combines the current kernel/initramfs, exact-build
+firmware and newer graphics/runtime inputs.
