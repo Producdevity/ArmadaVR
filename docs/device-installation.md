@@ -44,6 +44,21 @@ Exact loader source/config/toolchain/CFI compatibility, the live reserved-memory
 map, independently usable recovery and custom-boot acceptance remain open.
 The signed stock package is not a backup of both slots or unit calibration.
 
+Inspect the selected stock device tree before designing a RAM boot layout:
+
+```sh
+python3 -B tools/inspect-boot-memory.py SELECTED_DTB --output NEW_REPORT.json
+```
+
+The authenticated current-build PVT1.1 tree has a zero-size `/memory/reg`
+placeholder, 35 fixed reservations and 13 dynamically placed reservations.
+The bootloader supplies the actual RAM banks; Linux chooses additional dynamic
+allocations. The inspector retains unresolved nodes and rejects malformed,
+overflowing or overlapping RAM ranges and invalid FDT reservation maps. Its
+output does not establish a free staging arena. Obtain the live device tree,
+allocator reservations and peripheral ownership before choosing Quest 3 loader
+addresses; do not reuse the Quest Pro constants from the public loader.
+
 ## Research that changes the plan
 
 **Temporary custom boot is now a concrete research route.**

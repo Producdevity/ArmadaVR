@@ -3,19 +3,68 @@ import importlib.util
 from pathlib import Path
 import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
 
 TOOLS = Path(__file__).resolve().parents[1] / "tools"
 sys.path.insert(0, str(TOOLS))
-from devicetree import inventory, read_fdt
+from devicetree import boot_memory, inventory, read_fdt
 spec = importlib.util.spec_from_file_location("kernel_source", TOOLS / "kernel-source.py")
 source_tool = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(source_tool)
 
 
 class DeviceTreeTests(unittest.TestCase):
+    def memory_tree(self, contents):
+        if not shutil.which("dtc"):
+            self.skipTest("Requires dtc")
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "memory.dts"
+            output = Path(temp) / "memory.dtb"
+            source.write_text('/dts-v1/; / { #address-cells = <2>; #size-cells = <2>; ' + contents + ' };')
+            subprocess.run(["dtc", "-I", "dts", "-O", "dtb", "-o", str(output), str(source)],
+                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return output.read_bytes()
+
+    def test_bootloader_ram_placeholder_and_dynamic_reservations(self):
+        data = self.memory_tree('memory { device_type = "memory"; reg = <0 0 0 0>; }; reserved-memory { #address-cells = <2>; #size-cells = <2>; ranges; pool { size = <0 0x2000000>; alloc-ranges = <0 0 0 0xffffffff>; }; };')
+        result = boot_memory(data)
+        self.assertEqual(result["ram"], [])
+        self.assertEqual(result["unresolved_nodes"], ["/memory"])
+        self.assertEqual(result["dynamic_reservations"][0]["size"], 0x2000000)
+        self.assertFalse(result["fixed_memory_map_complete"])
+
+    def test_64_bit_ram_reservations_and_disabled_nodes(self):
+        data = self.memory_tree('memory { device_type = "memory"; reg = <1 0 0 0x80000000>; }; reserved-memory { #address-cells = <2>; #size-cells = <2>; ranges; firmware { reg = <1 0x100000 0 0x200000>; no-map; }; disabled { status = "disabled"; reg = <0>; }; };')
+        result = boot_memory(data)
+        self.assertEqual(result["ram"][0]["start"], 1 << 32)
+        self.assertEqual(result["reserved"], [{"path": "/reserved-memory/firmware", "start": (1 << 32) + 0x100000, "size": 0x200000}])
+        self.assertTrue(result["fixed_memory_map_complete"])
+
+    def test_unsafe_memory_geometry_and_overlap_rejected(self):
+        for contents in (
+            'memory { device_type = "memory"; reg = <0 0x80000000 0>; };',
+            'memory { device_type = "memory"; reg = <0xffffffff 0xffffffff 0 2>; };',
+            'memory { device_type = "memory"; reg = <0 0x80000000 0 0x200000 0 0x80100000 0 0x200000>; };',
+            'reserved-memory { #address-cells = <2>; #size-cells = <2>; ranges = <0 0 0 0 0 0x100000>; };',
+            'bus { memory { device_type = "memory"; reg = <0 0x80000000 0 0x200000>; }; };',
+        ):
+            with self.subTest(contents=contents), self.assertRaises(ValueError):
+                boot_memory(self.memory_tree(contents))
+
+    def test_fdt_reservation_map_bounds_and_ranges(self):
+        data = bytearray(self.memory_tree('memory { device_type = "memory"; reg = <0 0x80000000 0 0x200000>; };'))
+        structure = struct.unpack_from(">I", data, 8)[0]
+        struct.pack_into(">I", data, 16, structure)
+        with self.assertRaisesRegex(ValueError, "reservation map offset"):
+            boot_memory(data)
+        struct.pack_into(">I", data, 16, 40)
+        struct.pack_into(">QQ", data, 40, 0x80000000, 0x1000)
+        with self.assertRaisesRegex(ValueError, "Unterminated"):
+            boot_memory(data)
+
     def test_incomplete_and_invalid_fdt_rejected(self):
         for data in (b"", bytes(40), struct.pack(">10I", 0xd00dfeed, 4096, 40, 44, 0, 17, 16, 0, 4, 4)):
             with self.subTest(data=data), self.assertRaises(ValueError):
