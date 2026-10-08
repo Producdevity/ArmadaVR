@@ -64,6 +64,53 @@ static int buffer(void)
     return fd;
 }
 
+static void mapped_buffer_lifetime(void)
+{
+    unsigned start = fd_count();
+    for (unsigned round = 0; round < 64; ++round) {
+        for (unsigned source_first = 0; source_first < 2; ++source_first) {
+            for (unsigned fault_after_close = 0; fault_after_close < 2; ++fault_after_close) {
+                int mem = memfd_create("udmabuf-lifetime", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+                CHECK(mem >= 0 && ftruncate(mem, 8192) == 0);
+                CHECK(fcntl(mem, F_ADD_SEALS, F_SEAL_SHRINK) == 0);
+                int dev = open("/dev/udmabuf", O_RDWR | O_CLOEXEC);
+                CHECK(dev >= 0);
+                struct udmabuf_create arg = {.memfd = mem, .flags = UDMABUF_FLAGS_CLOEXEC, .size = 8192};
+                int dma = ioctl(dev, UDMABUF_CREATE, &arg);
+                CHECK(dma >= 0 && close(dev) == 0);
+                volatile uint8_t *view = mmap(NULL, 8192, PROT_READ | PROT_WRITE, MAP_SHARED, dma, 0);
+                CHECK(view != MAP_FAILED);
+                if (!fault_after_close) {
+                    view[0] = 0x71; view[4096] = 0x92;
+                }
+                if (source_first) CHECK(close(mem) == 0);
+                CHECK(close(dma) == 0);
+                if (fault_after_close) {
+                    CHECK(view[0] == 0 && view[4096] == 0);
+                    view[0] = 0x71; view[4096] = 0x92;
+                }
+                pid_t child = fork(); CHECK(child >= 0);
+                if (!child) {
+                    CHECK(view[0] == 0x71 && view[4096] == 0x92);
+                    view[4096] = 0x53;
+                    CHECK(munmap((void *)view, 8192) == 0);
+                    _exit(0);
+                }
+                int status;
+                CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+                CHECK(view[0] == 0x71 && view[4096] == 0x53);
+                CHECK(munmap((void *)view, 8192) == 0);
+                if (!source_first) CHECK(close(mem) == 0);
+                FILE *stream = fopen("/proc/sys/kernel/tainted", "r");
+                unsigned taint;
+                CHECK(stream && fscanf(stream, "%u", &taint) == 1 && taint == 0);
+                CHECK(fclose(stream) == 0 && fd_count() == start);
+            }
+        }
+    }
+    puts("DMA_BUF_SYNC_MAPPED_LIFETIME_256_PASS");
+}
+
 static int timeline(void)
 {
     int fd = open("/sys/kernel/debug/sync/sw_sync", O_RDWR | O_CLOEXEC);
@@ -321,6 +368,7 @@ int main(void)
             int s = snapshot(buf, flags); ready(s); close(s);
         }
         puts("DMA_BUF_SYNC_EMPTY_AND_ABI_PASS");
+        mapped_buffer_lifetime();
         invalid_requests(buf); independent_writers(); readers_and_writer(); poll_independent_writer();
         snapshot_isolation(); cross_process(); repeated_imports(); descriptor_exhaustion(buf);
         CHECK(fd_count() == start);

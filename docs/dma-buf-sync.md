@@ -97,3 +97,31 @@ This API closes one synchronization prerequisite. KGSL execution, SDE buffer
 import and scanout, physical panel timing, tracking, thermal behavior and the
 exact-device boot/recovery gates remain unverified. These results do not
 establish installation or flash readiness.
+
+## Exported memfd mapping lifetime
+
+October 8 diagnosis isolates another vendor-kernel issue. A native ARM64 process
+exports an 8 KiB memfd through udmabuf, maps it, closes the source descriptor and
+then unmaps it. On the old QEMU kernel, closing the source produces `Bad page
+cache` warnings for that exact memfd inode and taints the kernel. Unmapping before
+closing the source succeeds. The reproducer runs without Steam, FEX or a GPU.
+Ordinary memfd and System V shared-memory lifecycle tests also pass separately.
+
+`patches/kernel/qemu-abi/0002-udmabuf-pfn-mapping.patch` backports
+[upstream Linux's PFN mapping fix](https://github.com/torvalds/linux/commit/7d79cd784470395539bda91bf0b3505ff5b2ab6d)
+to the vendor 5.10 API. It applies only to the QEMU transport variant, where
+udmabuf is enabled. The existing physical KGSL/SDE path remains a separate test
+requirement.
+
+The maintained diskless test now performs 256 two-page mapping/fault/fork cycles,
+covering source-close order, faults after descriptor close, shared child writes,
+unmapping, descriptor cleanup and kernel taint. The runner verifies either the
+builder's `resolved.config` artifact or older `.config` exports.
+
+`output/kernel-udmabuf-20261008-v1/` passes these cycles and the full existing
+synchronization suite, including 1,024 imports and descriptor exhaustion, with
+clean power-off and no kernel warning. Its complete maintained kernel build is
+`output/kernel/quest3/qemu-udmabuf-v1/`, Image SHA-256
+`1d9f5c180b247aa63b16f15080aeb1c4660775907daa95d91147a722a5e29911`.
+This closes the isolated udmabuf regression. It does not establish the cause of
+Steam's independent renderer restarts or prove physical rendering.

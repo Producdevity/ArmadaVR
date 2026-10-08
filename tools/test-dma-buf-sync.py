@@ -48,10 +48,11 @@ def run(args):
     if build.get('status') != 'compiled' or build.get('qemu_transports') is not True:
         raise ValueError('Requires a compiled QEMU transport kernel; physical builds are refused')
     expected = {item['path']: item['sha256'] for item in build['artifacts']}
-    for name in ('Image', '.config'):
+    config_name = '.config' if '.config' in expected else 'resolved.config'
+    for name in ('Image', config_name):
         if (kernel / name).is_symlink() or digest(kernel / name) != expected.get(name):
             raise ValueError(f'Kernel artifact mismatch: {name}')
-    config = (kernel / '.config').read_text().splitlines()
+    config = (kernel / config_name).read_text().splitlines()
     for name in ('CONFIG_SYNC_FILE', 'CONFIG_SW_SYNC', 'CONFIG_UDMABUF', 'CONFIG_DEBUG_FS'):
         if f'{name}=y' not in config:
             raise ValueError(f'Test requires built-in {name}')
@@ -92,7 +93,7 @@ def run(args):
                 'boot.log', 45)
         log = (output / 'boot.log').read_text(errors='replace')
         cases = (['BASELINE_UNSUPPORTED'] if args.expect_unsupported else
-                 ['EMPTY_AND_ABI', 'INVALID_AND_COPYBACK', 'WRITERS', 'READ_WRITE_SEPARATION',
+                 ['EMPTY_AND_ABI', 'MAPPED_LIFETIME_256', 'INVALID_AND_COPYBACK', 'WRITERS', 'READ_WRITE_SEPARATION',
                   'SNAPSHOT', 'CROSS_PROCESS', '1024_IMPORTS', 'FD_EXHAUSTION', 'POLL_WRITER', 'ALL'])
         if module:
             cases.append('RESERVATION_MODULE')
