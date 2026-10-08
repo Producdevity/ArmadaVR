@@ -131,9 +131,10 @@ rendering on this backend remain open.
 The QEMU runtime has no network, host filesystem sharing or passed-through devices.
 
 The same image supplies host Android graphics overlays but no matching Lepton
-rootfs/sysbake. [Podman's three writable views now pass on the unchanged Quest
-test kernel](android-containers.md#podman-writable-mount-acceptance); actual
-Android startup still requires the patched Lepton payload.
+rootfs/sysbake. A separate authenticated Steam installation now supplies that
+payload. [Actual Android boot, Binder services, context persistence, software
+APK rendering and network provisioning pass](android-containers.md#acquired-lepton-and-actual-android-boot)
+on the Quest test kernel. Android OpenXR remains unverified.
 
 ## Earlier search results
 

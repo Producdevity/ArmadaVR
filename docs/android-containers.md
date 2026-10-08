@@ -109,8 +109,63 @@ FUSE performance or establish graceful Android shutdown, Android boot, APK
 execution, delegated Android cgroups, Binder service transactions, graphics or
 OpenXR. The runner keeps those proof levels false.
 
-Actual Lepton startup requires its matching patched Android rootfs, sysbake and
-xattrs. Public source and a free development-app listing do not establish
-anonymous access to that payload. The inspected official Frame repair image
-provides native SteamVR and host Android graphics overlays, but not the Lepton
-Android rootfs. See [native runtime availability](steamvr-arm64.md).
+## Acquired Lepton and actual Android boot
+
+On October 8, 2026, a normal authenticated native Steam session installed app
+`3029110` through `steam://install/3029110`. Build `25257944` supplies launcher
+`2.8.14`, image `2.8.11`, Android 11 / SDK 30 and security patch `2024-02-05`.
+Installed depot manifests are `3029111:5805845383697258311` and
+`3029112:773148386728154884`. Anonymous depot access remains a separate route.
+The original 3,485 files/links and matching sysbake/xattrs were preserved before
+execution. The complete preserved archive has SHA-256
+`93b86093ef41f3d2f9c0a72ffddf74cd6540fe8c406e7312b986f908d073030e`.
+Steam content and Frame binaries remain ignored local inputs.
+
+The execution copy uses Podman 5.8.7, crun, fuse-overlayfs, subordinate IDs and
+a real user session with PipeWire/PulseAudio. Configure the user's default
+`containers/storage.conf`, not only `CONTAINERS_STORAGE_CONF`: the delivered
+launcher clears the environment for some Podman exec calls. Software startup
+uses a real headless Weston socket, SwiftShader and the original Android
+Fossilize layer/manifest extracted from Frame. A narrow `steamvr` metadata
+adapter supplies private mount directories; it provides no XR runtime.
+
+Two [version-specific launcher patches](../patches/lepton/README.md) resolve
+reproduced failures without changing the kernel, Android init or vendor version:
+
+- The host ashmem node exists but the container never mounts it. Enable memfd
+  rather than inferring container capability from host device existence.
+- Podman's default read-only `/proc/sys` prevents Android's netd from
+  configuring IPv6 in its private network namespace. Selectively unmask that
+  entry; retain the other default restrictions and rootless credentials.
+
+A finite user service also needs enough tasks: a 512-task cap caused real
+`pthread_create` failures and killed system_server. A 2,048-task cap passes;
+the first stable run used 622 tasks and about 1.67 GB of cgroup memory.
+
+Runs `v8`, `v9` and `v10` under `output/blockers-20261008-v1` reach the actual
+`sys.boot_completed=1`, running zygote and a single system_server startup.
+Activity, package, window and SurfaceFlinger Binder services respond. A data
+marker survives context restart. With the network patch, Ethernet reports
+`CONNECTED` and `VALIDATED`, with the configured address, route and DNS; a real
+outbound packet also succeeds. A locally built APK installs and starts through
+PackageManager/ActivityManager, and its red/blue frame is visible in Android's
+actual screencap. These are Android framework and software-rendering results,
+not Lepton OpenXR or headset hardware results. In the independent `v12`
+context, the earlier data marker is absent, Android boots normally, and the
+same APK installs through the VM's ADB endpoint. Two injected taps update its
+stored counter to 2 and appear in the captured frame. Raw Podman exec lacks
+Android init's Java environment and silently fails to start the input tool;
+the normal ADB shell supplies that environment. This was a test-harness issue,
+not an Android touch failure. The VM's ADB server and serial are explicit and
+separate from any physical-device ADB session.
+
+Application installation/persistence across the normal compatibility-tool
+lifecycle remains separate: the manually installed APK was absent after the
+developer context restarted. The `/data` marker alone does not prove persistent
+installed packages or application saves.
+
+Normal Android `sys.powerctl=shutdown` stops the context and the launcher returns
+zero. The private init log also records a shutdown-time abort after service
+teardown; a clean init shutdown remains unverified. All earlier failures and
+original inputs are retained. Physical devices, shared host filesystems and USB
+passthrough were absent from this VM.

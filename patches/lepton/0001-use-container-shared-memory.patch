@@ -1,0 +1,15 @@
+--- a/liblepton/properties.sh
++++ b/liblepton/properties.sh
+@@ -16,10 +16,8 @@
+     }
+     rm -f "${PROPS_FILE}"
+     
+-    # If we don't have `ashmem`, tell android to use `memfd` instead.
+-    if [[ ! -e /dev/ashmem ]]; then
+-        props_echo "sys.use_memfd=true"
+-    fi
++    # The private /dev does not mount the host ashmem device.
++    props_echo "sys.use_memfd=true"
+ 
+     if steamos_devmode_enabled; then
+         props_echo "ro.lepton.devmode=true"

@@ -1,6 +1,6 @@
 # Device installation requirements
 
-Updated October 7, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
+Updated October 8, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
 tests, but no validated Quest installation or recovery procedure.
 
 ## Current Quest 3
@@ -71,8 +71,12 @@ client. [ABI, native server and virtual-controller checks](steamvr-arm64.md) pas
 on the Quest QEMU transport kernel; native compositor presentation and physical
 Quest portability remain unverified. The
 [Podman/FUSE writable-mount lifecycle](android-containers.md) also passes on the
-unchanged Quest test kernel. Actual Lepton Android boot needs its matching
-patched payload, which is absent from the repair image. Frame images and its
+unchanged Quest test kernel. A separate authenticated Steam installation now
+supplies Lepton's matching payload; [Android boot, Binder services, context
+persistence, software APK rendering and network provisioning](android-containers.md#acquired-lepton-and-actual-android-boot)
+pass with two small launcher patches. Android APK input also passes; application
+lifecycle, clean init shutdown, Android XR and hardware graphics
+remain unverified. Frame images and its
 QDL programmer target Frame hardware.
 
 **Standalone game compatibility can be studied on stock Android.**
@@ -120,11 +124,13 @@ matching recovery hardware and firmware for those devices.
    FEX/Proton for game compatibility and preserve the existing translated
    SteamVR baseline for comparison. Reuse applicable source changes while
    retaining Quest-specific KGSL, panel and firmware support.
-6. **Complete Lepton integration offline.** Obtain matching patched rootfs,
-   sysbake and xattrs. The three Podman/FUSE mount views now pass; native kernel
-   rootless OverlayFS remains unsupported. Test Android boot, Binder transactions,
-   shutdown,
-   an openly licensed APK, and Android/Linux graphics buffer and fence sharing.
+6. **Complete Lepton integration offline.** Matching rootfs, sysbake and xattrs
+   are now preserved. Android boot, framework Binder services, context isolation,
+   data persistence, APK installation/rendering/input and network provisioning
+   pass. Verify application saves and package retention through the normal
+   compatibility-tool lifecycle, clean init shutdown, Android OpenXR and
+   Android/Linux graphics buffer and fence sharing. FUSE handles the writable
+   views; native kernel rootless OverlayFS remains unsupported.
 7. **Finish repeatable VR acceptance.** Build a complete fresh image, repeat
    Windows rendering on a fresh backend, and verify both-hand stock dashboard
    selection, scrolling, navigation, menu, close/reopen and focus transfer.

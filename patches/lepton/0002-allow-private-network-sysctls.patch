@@ -1,0 +1,12 @@
+--- a/liblepton/mounting.sh
++++ b/liblepton/mounting.sh
+@@ -185,6 +185,9 @@
+ function setup_podman_base()
+ {
+     podman_cmdline --cgroups=disabled
++
++    # Android configures IPv6 through procfs in its private network namespace.
++    podman_cmdline --security-opt unmask=/proc/sys
+ 
+     # namespaces
+     podman_cmdline --pid=private --ipc=private --uts=private --cgroupns=private

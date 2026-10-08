@@ -9,8 +9,11 @@ repair images became public. October 7 offline inspection obtained native
 ARM64 SteamVR client/server/compositor binaries;
 [ABI, native-server and virtual-device results](steamvr-arm64.md)
 are documented separately. [Rootless Podman/FUSE mount acceptance](android-containers.md#podman-writable-mount-acceptance)
-now passes on the unchanged Quest test kernel. Actual Lepton Android startup and
-native SteamVR backend rendering remain unverified. Docker is healthy. The
+now passes on the unchanged Quest test kernel. An October 8 authenticated Steam
+installation also supplies the [Lepton payload; actual Android boot, Binder,
+persistence, software APK rendering and networking pass](android-containers.md#acquired-lepton-and-actual-android-boot).
+APK input also passes. Application lifecycle, Android XR and native SteamVR
+backend rendering remain unverified. Docker is healthy. The
 September results below are historical, including their access and Docker limits.
 
 The September 14, 2026 investigation finds useful public runtime changes,
