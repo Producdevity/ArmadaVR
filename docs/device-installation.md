@@ -40,9 +40,25 @@ Any device test needs strict identity/binary guards and explicit restoration of
 settings and temporary files; the upstream defaults are unsuitable as an
 unattended installation workflow.
 
+The owned-file primitive has now passed on the current Quest: one byte of a
+disposable 256-byte fixture was changed, the full file was checked, and the byte
+was restored. Partial-allocation tests also verified explicit IPsec API release
+and removal of the owned worker, socket and files. The original early process
+exit was an uncaught Android API error; compiling against Android stubs exposed
+the unsupported `Files.readString` call. Kernel security-association enumeration
+and taint remain unreadable, so API release is not independent proof of their
+kernel state. This test did not obtain root or load a module.
+
 Exact loader source/config/toolchain/CFI compatibility, the live reserved-memory
 map, independently usable recovery and custom-boot acceptance remain open.
 The signed stock package is not a backup of both slots or unit calibration.
+
+The read-only device probe records whole-disk sysfs capacity, logical block size
+and SCSI topology when accessible. Linux sysfs `size` uses 512-byte units even
+when the logical block size is 4096 bytes. The current Quest permits topology
+reads for `sda` through `sdf`, but denies their capacity and block-size reads;
+those dimensions remain unknown. A readable SCSI path does not establish
+Firehose LUN numbering or provide a GPT backup.
 
 Inspect the selected stock device tree before designing a RAM boot layout:
 
@@ -173,8 +189,9 @@ Quest boot route. See [board support](headset-bringup.md) and
 [boot-container assembly](quest-boot-assembly.md). Moving to Holo Core is optional;
 a distro change does not remove the device-driver or boot requirements.
 
-The initial physical development milestone is a Neo3 Pro Eye Linux USB/console
-boot with demonstrated stock return and recovery; see the [Pico firmware baseline](pico-firmware.md).
-Quest 3 temporary boot, native-runtime and Android startup work remain in scope. Flashing cannot currently
-be recommended, and no installation can be described as eliminating all bricking
-risk.
+Quest 3 is the current physical development priority. Its first boot milestone
+is a RAM-only Linux USB/console boot with demonstrated return to stock Android.
+Pico development is paused while the Pro Eye's return from EDL remains unresolved;
+see the [Pico firmware baseline](pico-firmware.md). Native-runtime and Android
+startup work remain in scope. Flashing cannot currently be recommended, and no
+installation can be described as eliminating all bricking risk.

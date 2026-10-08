@@ -64,6 +64,51 @@ class ProbeTests(unittest.TestCase):
             report = probe.collect("adb", "chosen")
             self.assertFalse(report["interpretation"]["bootloader_unlock_proven"])
             self.assertEqual(report["queries"]["graphics"]["returncode"], 1)
+            self.assertEqual(report["storage_geometry"]["devices"], [])
+
+    def test_sysfs_capacity_uses_512_units_for_both_logical_block_sizes(self):
+        for block, sectors in ((512, 1000), (4096, 125)):
+            with self.subTest(block=block):
+                reads = {"size_512_units": {"returncode": 0, "stdout": "1000"},
+                         "logical_block_size": {"returncode": 0, "stdout": str(block)}}
+                result = probe.storage_dimensions(reads)
+                self.assertEqual(result["capacity_bytes"], 512000)
+                self.assertEqual(result["logical_sectors"], sectors)
+                self.assertTrue(result["gpt_inspector_supported"])
+
+    def test_denied_invalid_and_overflowing_geometry_is_not_inferred(self):
+        for size, block in (("0", "4096"), (str(2**64), "4096"), ("1000", "513"),
+                            ("1000", "Permission denied"), ("1001", "4096")):
+            with self.subTest(size=size, block=block):
+                reads = {"size_512_units": {"returncode": 0, "stdout": size},
+                         "logical_block_size": {"returncode": 0, "stdout": block}}
+                result = probe.storage_dimensions(reads)
+                self.assertIsNone(result["logical_sectors"])
+                self.assertFalse(result["gpt_inspector_supported"])
+        reads = {"size_512_units": {"returncode": 1, "stdout": "1000"},
+                 "logical_block_size": {"returncode": 0, "stdout": "4096"}}
+        self.assertIsNone(probe.storage_dimensions(reads)["capacity_bytes"])
+
+    def test_storage_listing_filters_partitions_and_shell_metacharacters(self):
+        calls = []
+        def invoke(adb, serial, args):
+            calls.append(args)
+            output = "sda sda1 dm-0 loop0 sdf sdf1 sda;touch sda sda/../x" if len(calls) == 1 else "4096"
+            return {"returncode": 0, "stdout": output, "stderr": ""}
+        with patch.object(probe, "invoke", side_effect=invoke):
+            result = probe.storage_geometry("adb", "chosen")
+        self.assertEqual([device["name"] for device in result["devices"]], ["sda", "sdf"])
+        self.assertEqual(len(calls), 7)
+        self.assertFalse(result["partition_data_read"])
+        self.assertFalse(result["firehose_lun_mapping_verified"])
+        self.assertTrue(all("/sda/" in args[1] or "/sdf/" in args[1] for args in calls[1:]))
+
+    def test_other_valid_block_size_is_not_supported_by_gpt_inspector(self):
+        reads = {"size_512_units": {"returncode": 0, "stdout": "1000"},
+                 "logical_block_size": {"returncode": 0, "stdout": "2048"}}
+        result = probe.storage_dimensions(reads)
+        self.assertEqual(result["logical_sectors"], 250)
+        self.assertFalse(result["gpt_inspector_supported"])
 
 
 if __name__ == "__main__":

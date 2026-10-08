@@ -91,6 +91,44 @@ def invoke(adb, serial, args):
         return {"returncode": None, "stdout": "", "stderr": "Timed out after 15 seconds"}
 
 
+def storage_dimensions(reads):
+    def integer(key):
+        record = reads[key]
+        text = record.get("stdout", "").strip()
+        if record.get("returncode") != 0 or not re.fullmatch(r"[0-9]{1,20}", text):
+            return None
+        return int(text)
+
+    units = integer("size_512_units")
+    block = integer("logical_block_size")
+    capacity = units * 512 if units and units <= (2**64 - 1) // 512 else None
+    if block is None or not 512 <= block <= 65536 or block & (block - 1):
+        block = None
+    sectors = capacity // block if capacity and block and capacity % block == 0 else None
+    return {"capacity_bytes": capacity, "logical_block_size": block,
+            "logical_sectors": sectors, "gpt_inspector_supported":
+            sectors is not None and block in (512, 4096)}
+
+
+def storage_geometry(adb, serial):
+    listing = invoke(adb, serial, ["shell", "ls /sys/class/block"])
+    devices = []
+    if listing["returncode"] == 0:
+        names = sorted(set(listing["stdout"].split()))
+        for name in names:
+            if not re.fullmatch(r"sd[a-z]{1,3}", name):
+                continue
+            base = f"/sys/class/block/{name}"
+            reads = {key: invoke(adb, serial, ["shell", command]) for key, command in (
+                ("size_512_units", f"cat {base}/size"),
+                ("logical_block_size", f"cat {base}/queue/logical_block_size"),
+                ("scsi_device", f"readlink -f {base}/device"),
+            )}
+            devices.append({"name": name, "reads": reads, **storage_dimensions(reads)})
+    return {"listing": listing, "devices": devices, "partition_data_read": False,
+            "firehose_lun_mapping_verified": False}
+
+
 def collect(adb, serial):
     state = invoke(adb, serial, ["get-state"])
     if state["returncode"] != 0 or state["stdout"] != "device":
@@ -103,11 +141,12 @@ def collect(adb, serial):
         raise RuntimeError("The selected device does not identify as a Quest or Pico headset")
     queries = {name: invoke(adb, serial, ["shell", command]) for name, command in QUERIES.items()}
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "collected_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "mode": "adb-shell-read-only",
         "properties": props,
         "queries": queries,
+        "storage_geometry": storage_geometry(adb, serial),
         "observations": observations(props, queries),
         "interpretation": {
             "bootloader_unlock_proven": False,
