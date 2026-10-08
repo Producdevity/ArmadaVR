@@ -126,8 +126,41 @@ Steam's compatibility tool also rewrites its client configuration with a
 temporary graphics-provider path. Restart tests must regenerate their initial
 configuration from the verified inputs. A separately scoped x86 client now
 authenticates using an explicitly authorized guest-only session copy alongside
-a fresh SteamVR dashboard. Its stock Library websocket remains disconnected;
-authentication alone does not establish Library navigation or scrolling.
+a fresh SteamVR dashboard. In that separately configured profile, its stock
+Library websocket remained disconnected; authentication alone did not establish
+Library navigation or scrolling.
+
+## New profile startup and authenticated client
+
+A new virtual profile previously timed out waiting for the monitor's `Ready`
+state while the monitor requested room setup. The launcher now commits the
+simulated room after compositor initialization and before waiting for the
+monitor. The same previously unconfigured profile reaches `Ready` with the
+corrected launcher. This applies only to the validated virtual headset path.
+All 159 host tests and the rebuilt native bundle's source/artifact checks pass;
+native compositor presentation remains unverified.
+
+The authorized guest-only Steam-session copy authenticates, and the original
+session inputs remain unchanged. Both the delivered client's OpenVR API and
+the pinned runtime API initialize successfully inside the client's actual
+mount/root namespace after backend readiness. Early probes fail before
+initialization or after the backend deadline; those failures remain preserved.
+Autostarting dashboard executables from the API probe's environment also reports
+missing libraries. API initialization alone does not prove Steam's own dashboard
+startup or its authenticated Library connection.
+
+The isolated installation record initially used an obsolete depot section.
+Steam normalized it to an empty `InstalledDepots` section and reported SteamVR
+not installed. A private repair uses the three actual verified depot manifests,
+their file sizes and an installation timestamp; all 3,544 files remain unchanged
+and read-only. Steam still reports installation and update errors for this pinned
+runtime. A matched HOME profile then exchanges SteamVR capabilities,
+initializes actions and establishes the actual Steam websocket connection.
+Steam's VR window reports a first paint, followed by repeated renderer restarts
+and an early client/backend exit. Guest teardown also reports bad page-cache
+entries in a llvmpipe thread; the cause remains unresolved. Library navigation,
+rendered scrolling and reliability are unverified. Raw login/session files
+and their preservation snapshots stay inside the isolated guest.
 
 ## Dashboard interaction, September 11
 

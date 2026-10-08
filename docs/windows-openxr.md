@@ -159,6 +159,16 @@ soak measurement. Explicit backend stop returns 130; the separate FEX daemon
 is contained by systemd's final SIGKILL. Evidence is retained in
 `output/blockers-20261008-v2/cef-cache-v2.tar.gz` and `cef-cache-v3.tar.gz`.
 
+A later repeat with isolated FEX servers passes left-hand interaction on
+backend `library-v3` and right-hand interaction on a fresh `library-v4`.
+Both runs show stereo application pixels, transfer focus to and from the stock
+dashboard, deliver haptics and exit normally through the respective controller's
+menu. They reuse the existing verified Proton prefix. The left run records
+654 presentations, 1,292 dropped frames and 60 haptic calls; the right records
+246 presentations, 1,905 dropped frames and 33 haptic calls. These results remain
+functional acceptance, not performance or a fresh-prefix test. Evidence is in
+`output/library-20261008-v1/`.
+
 ## Launch in the active virtual SteamVR session
 
 `tools/run-steamvr-windows.py` discovers the current compositor's FEX interpreter,

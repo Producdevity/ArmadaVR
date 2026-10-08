@@ -448,17 +448,22 @@ def run(args):
                     print("SteamVR frame probe passed.", flush=True)
                     return 0
                 print("Compositor initialized; starting the SteamVR monitor.", flush=True)
+                if args.virtual_display:
+                    # A new virtual profile cannot reach Ready before room setup.
+                    subprocess.run([str(fex), str(bundle / "steamvr-probe"),
+                                    str(binaries / "libopenvr_api.so"), "--setup-room"],
+                                   env=env, cwd=binaries, stdout=log, stderr=subprocess.STDOUT,
+                                   timeout=190, check=True, restore_signals=False)
                 monitor_log = compositor_log.parent / "vrmonitor.txt"
                 monitor_offset = monitor_log.stat().st_size if monitor_log.exists() else 0
                 monitor = launch("vrmonitor", "-nokillprocess")
                 if args.virtual_display:
                     wait_for_startup(processes, monitor_log, monitor_offset, 60,
                                      marker=b"to 'SteamVRSystemState_Ready'.")
-                    for mode in ("--setup-room", "--dashboard"):
-                        subprocess.run([str(fex), str(bundle / "steamvr-probe"),
-                                        str(binaries / "libopenvr_api.so"), mode],
-                                       env=env, cwd=binaries, stdout=log, stderr=subprocess.STDOUT,
-                                       timeout=190, check=True, restore_signals=False)
+                    subprocess.run([str(fex), str(bundle / "steamvr-probe"),
+                                    str(binaries / "libopenvr_api.so"), "--dashboard"],
+                                   env=env, cwd=binaries, stdout=log, stderr=subprocess.STDOUT,
+                                   timeout=190, check=True, restore_signals=False)
                     print("Virtual SteamVR dashboard is visible.", flush=True)
                 deadline = time.monotonic() + args.session_timeout
                 while time.monotonic() < deadline:
