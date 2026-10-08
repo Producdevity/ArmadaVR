@@ -130,11 +130,51 @@ Native compositor presentation, stock dashboard interaction and Windows
 rendering on this backend remain open.
 The QEMU runtime has no network, host filesystem sharing or passed-through devices.
 
+October 8 tests extend the native graphics evidence without starting a
+compositor: `tests/vulkan-external-image.c` passes real opaque-FD image
+export/import across fresh exec processes, external queue ownership transfer
+and all 65,536 pixel checks in 16 cases. The maintained fixture also passes
+as UID 1000 on the desktop Quest-kernel VM; FD counts return to 3 each time.
+See [image-sharing acceptance](steamvr.md). This does not establish concurrent
+image synchronization, SteamVR image-manager IPC or presentation.
+
+A separate temporary driver exposes OpenVR's driver-direct component and
+reports `HasDriverDirectMode=true`, but Frame's compositor still constructs
+its Vulkan WSI window before invoking the driver's swapchain/presentation
+callbacks. That route does not bypass the demonstrated display/present-wait
+requirements. The original Valve runtime remains unchanged.
+
 The same image supplies host Android graphics overlays but no matching Lepton
 rootfs/sysbake. A separate authenticated Steam installation now supplies that
 payload. [Actual Android boot, Binder services, context persistence, software
 APK rendering and network provisioning pass](android-containers.md#acquired-lepton-and-actual-android-boot)
 on the Quest test kernel. Android OpenXR remains unverified.
+
+## Translated Steam client startup comparison
+
+The public x86 beta client build `1791415817` now reaches its real CEF sign-in
+window in a clean profile on the same Quest-kernel desktop VM. No account or
+session files were copied into that profile. This is client/container startup
+proof; authenticated Library navigation and its SteamVR websocket remain open.
+The native ARM64 client and compositor remain the intended headset architecture.
+
+The initial generic user-namespace dialog was not a missing kernel feature.
+A real translated bubblewrap namespace/bind test passes. The delivered
+pressure-vessel `0.20260824.0` requirements checker fails with its default helper
+but passes with a verified native ARM64 bubblewrap selected through
+[`PRESSURE_VESSEL_BWRAP`](https://gitlab.steamos.cloud/steamrt/steam-runtime-tools/-/blob/9c2a654cbd94ce62aa93de899af92ed11ed36bc2/steam-runtime-tools/bwrap.c#L220).
+Use a distinct absolute native-helper path: FEX can otherwise resolve the same
+`/usr/bin/bwrap` name to the x86 rootfs copy.
+
+The complete delivered `steam.sh` also needs the original Valve FEX
+`emulator.json` selected through
+[`STEAM_COMPAT_EMULATOR`](https://gitlab.steamos.cloud/steamrt/steam-runtime-tools/-/blob/9c2a654cbd94ce62aa93de899af92ed11ed36bc2/pressure-vessel/wrap-context.c#L835).
+Its actual server manager and compatibility launcher establish the FEX server
+and container environment. Direct client execution or relying on the generic
+host binfmt interpreter fails that integration. The successful diagnostic uses
+`STEAM_FORCE_CLIENT=steamrt64` and a private FEX configuration, and does not skip
+the requirements check or alter global namespace policy. Its finite timeout
+ends the client by SIGTERM; normal user exit and performance are unverified.
 
 ## Earlier search results
 

@@ -77,6 +77,14 @@ v20; one intervening unexpected process exit remains unresolved. Results are in
 [Windows OpenXR](windows-openxr.md).
 Evidence is in `output/desktop-backend-20261008/`.
 
+An additional fresh backend v26 passes Windows right/left focus, rendering,
+haptics and normal menu exit. It also reproduces two web-helper zygote SIGTRAPs;
+one attempt fails when a transient core dump exhausts guest storage. The
+available compressed core and both metadata records remain private evidence.
+Resource limits contain future dump growth but do not resolve the browser crash.
+All public-runtime and installed-bundle files still pass integrity checks.
+See [the later repeat and its limits](windows-openxr.md#fresh-backend-repeat-october-8).
+
 ## Dashboard interaction, September 11
 
 The newer backend v17 uses the unchanged maintained launcher from bundle v10,

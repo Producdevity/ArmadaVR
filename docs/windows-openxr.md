@@ -76,6 +76,9 @@ the later runs reuse it, without copying an earlier prefix.
 | v23-right | Right | 316 | 622 | 50 | New backend v20, traced; normal menu exit |
 | v24-left | Left | 446 | 740 | 63 | Backend v20, untraced; normal menu exit |
 | v25-right | Right | 373 | 698 | 58 | Backend v20, untraced; normal menu exit |
+| v27-right | Right | 215 | 372 | 31 | Fresh backend v26; normal menu exit |
+| v28-left | Left | — | — | — | Backend v26; disk full while capturing frame 07 |
+| v29-left | Left | 347 | 684 | 62 | Backend v26; normal menu exit |
 
 The successful runs record `FOCUSED` → `VISIBLE` → `FOCUSED` in the Windows
 sample itself, corresponding to dashboard open/close. Captures show unobstructed
@@ -94,6 +97,25 @@ installed-bundle hashes still pass after the tests.
 Evidence, logs, counters and captures are in `output/desktop-backend-20261008/`.
 These software-rendered samples do not establish game performance or physical
 controller/headset operation.
+
+The later v26 backend starts a new server/compositor with user-mode networking,
+no forwarded ports, host shares or physical devices. Right v27 and left v29 again
+record application focus loss/restoration, matching driver haptic deltas and
+normal controller-menu exits. Each retains 15 desktop captures. They reuse the
+v19 prefix; this is a fresh backend repeat, not another fresh-prefix test.
+The compositor reports 1,598 and 1,308 dropped frames respectively, so these
+functional results are not performance acceptance.
+
+During v28 and shortly after v29, `vrwebhelper --type=zygote` exits with SIGTRAP.
+The first transient uncompressed dump reaches 14,601,592,832 bytes, exhausting
+the 48 GiB guest filesystem until compression completes. v28's result file is
+empty; its journal retains the capture/write failures. Limiting future guest
+dumps contains this storage effect without fixing the browser crash. Both crash
+metadata records and the available second compressed core are preserved privately;
+systemd-coredump no longer retains the first core file. The backend ends at its
+finite lifetime, and all 3,544 runtime files plus installed-bundle hashes still
+match. Evidence is in `output/blockers-20261008-v2/windows-backend-v26-evidence.tar.gz`.
+The earlier v22 exit 247 and browser reliability remain unresolved.
 
 ## Launch in the active virtual SteamVR session
 
