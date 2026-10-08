@@ -469,6 +469,23 @@ loaded and no validation errors. The system driver fails the same test with
 `VK_ERROR_INVALID_EXTERNAL_HANDLE`. These are scoped behavior tests, not CTS
 conformance or proof of every fence/image-sharing operation.
 
+`tests/vulkan-external-image.c`, included in native probe bundles as
+`vulkan-external-image`, separately checks actual image sharing. Sixteen cases
+cover RGBA/BGRA UNORM, optimal/linear tiling, render/sample/input usage with and
+without storage usage, and red/blue content. The exporter finishes its queue
+work and releases ownership to `VK_QUEUE_FAMILY_EXTERNAL`; a fresh exec process
+imports its opaque FD on the same device UUID, acquires ownership, copies the
+image to a buffer and checks all 4,096 pixels. Every case also checks the parent
+FD count returns to its initial value. Run it as the ordinary lab user with the
+selected native Vulkan ICD. Missing format/handle support or a wrong pixel is
+a failure, not a skipped case.
+
+The original fixture passes all 16 cases / 65,536 pixels on the Quest QEMU
+kernel and pinned Mesa 26.1.8, with no leaked parent FDs. It serializes export
+and import through queue completion and process lifetime; it does not test
+concurrent producer/consumer synchronization, SteamVR's image-manager IPC,
+compositor rendering, display scanout or physical GPU behavior.
+
 The same test was also cross-compiled against the VM's existing x86-64 rootfs
 and passed both round trips through Valve FEX with native Vulkan thunks. Its
 ELF architecture and source/binary hashes were checked separately. That rules
