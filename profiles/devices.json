@@ -42,7 +42,7 @@
       "rocknix_abl_compatibility_verified": false
     },
     "pico-neo3-pro-eye": {
-      "role": "later hardware target; preserve eye calibration",
+      "role": "hardware bring-up target; preserve eye calibration",
       "soc": "Snapdragon XR2, first generation",
       "ram_gb": 8,
       "storage_gb": 256,

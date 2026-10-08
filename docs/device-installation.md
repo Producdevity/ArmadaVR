@@ -94,11 +94,17 @@ Steam's Android game builds and controller remapping. Neither demonstrates a
 replacement Quest OS. Stock-runtime tests could establish useful controller and
 performance baselines before replacing tracking and display services.
 
-**Pico remains a separate target.** The current
+**Pico Neo 3 Pro Eye remains a separate hardware bring-up target.** The current
 [more-picohaxx-tool device list](https://github.com/chaixshot/more-picohaxx-tool/blob/c182399937107dd290cbc1ec2fdb06116af83a9d/README.md)
 now reports Neo3 support on firmware 5.11.2 and below. That improves the consumer
 Neo3 lead; it does not identify a validated Pro/Pro Eye configuration or establish
 matching recovery hardware and firmware for those devices.
+The public Neo3 kernel is 4.19.81 and lacks the vendor board DTS. Frame's actual
+systemd 257.7 package is a userspace compatibility candidate for that kernel;
+see the [firmware comparison](steam-frame.md#october-8-firmware-comparison).
+Identify the Pro Eye firmware, stock device trees and calibration before choosing
+its kernel or boot path. Consumer Neo3 or Pico4 unlock reports do not establish
+enterprise-SKU compatibility.
 
 ## Work required before installation
 

@@ -1,8 +1,43 @@
 # Steam Frame software reuse in Armada VR
 
-For the October 7 update and current implementation priorities, see
+For the October 8 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
 retain their original investigation dates.
+
+## October 8 firmware comparison
+
+The existing official recovery image is `20260922.5153644-0.3.0`; its native
+SteamVR binaries are already the inputs used by the ARM64 tests. Avoid downloading
+another copy when researching the public firmware.
+
+Valve's [stable VR metadata](https://steamdeck-atomupd.steamos.cloud/meta/holo/steamos/aarch64/vr/stable.json)
+now names `20260922.6101926`, also version `0.3.0`. The recovery image's updater
+configuration joins its `update_path` to `https://steamdeck-images.steamos.cloud/`,
+not the metadata server. The resulting 2,275,426-byte RAUC bundle contains a
+signed manifest and a casync index for a 10 GiB root filesystem. Offline CMS
+verification succeeds against the certificate in the recovery image's
+`/etc/rauc/trusted_keys/`. That establishes consistency with this trust anchor;
+the recovery image itself was acquired over official HTTPS and has not received
+independent manufacturer-signature authentication. No update installer ran.
+
+The image actually packages systemd `257.7-2.2`. Its
+[upstream requirements](https://github.com/systemd/systemd/blob/v257/README)
+have a minimum kernel version of 3.15 and recommend 5.4. This makes Frame userspace
+a candidate to test with Pico's 4.19 vendor source; the current Fedora/systemd 259
+combination has an [upstream minimum of 5.4](https://github.com/systemd/systemd/blob/v259/README).
+Selected systemd features may still need backports, and
+neither the nominal version floor nor the Frame image proves Pro Eye boot or
+driver compatibility. Preserve the Pico board, eye calibration and firmware
+requirements.
+
+[SteamOS-ARM-Port](https://github.com/hashtagbasit/SteamOS-ARM-Port/blob/aab5fea4bd153e54dc76d4ae17c4ff871a66b506/docs/HOW-IT-WORKS.md)
+combines Frame userspace with device-specific ROCKNIX/kernel/display support.
+That separation is applicable here. Its handheld ABL, display setup and controller
+integration are not Quest or Pro Eye boot and 6DoF implementations. Maintain
+matching Mesa Vulkan and OpenGL components when testing Turnip/Zink; replacing
+one library can break applications using the other API.
+
+## Earlier runtime investigation
 
 Since that investigation, original Lepton v3.0.5 source and official Frame
 repair images became public. October 7 offline inspection obtained native
