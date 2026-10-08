@@ -1,0 +1,21 @@
+Subject: [PATCH] arm64: place retained CFI unwind data before the Image end
+
+The vendor linker defines EH_FRAME for CONFIG_CFI_CLANG but does not use it
+in the ARM64 layout. LLD places the allocated orphan section after _end,
+so the raw Image extends beyond the size advertised in its boot header.
+
+Keep the existing conditional section in the read-only region and restore
+page alignment before the early page tables. This avoids copying the BSS
+gap into the raw Image. No unwind data or CFI checking is removed.
+
+--- a/arch/arm64/kernel/vmlinux.lds.S
++++ b/arch/arm64/kernel/vmlinux.lds.S
+@@ -181,6 +181,8 @@
+ 
+ 	/* everything from this point to __init_begin will be marked RO NX */
+ 	RO_DATA(PAGE_SIZE)
++	EH_FRAME
++	. = ALIGN(PAGE_SIZE);
+ 
+ 	HYPERVISOR_DATA_SECTIONS
+ 

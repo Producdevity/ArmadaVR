@@ -97,13 +97,19 @@ python3 -B tools/inspect-boot.py KERNEL_BUILD/Image --arm64
 ```
 
 `--load-address ADDRESS` optionally checks that arithmetic and extent overflow;
-it does not establish available RAM. Both inspected physical and QEMU Images
-have 2,404 file bytes beyond their declared image size, matching the cached
-ELF's orphan `.eh_frame` section at `_end`. The current compiler configuration
-retains Clang CFI, and the source defines an `EH_FRAME` macro for that option;
-do not truncate those bytes without resolving their linker placement. The
-public loader's current preparation checks reject these Images. Its geometry
-and bounded-copy assumptions need a Quest-specific implementation.
+it does not establish available RAM. The prior physical and QEMU Images have
+2,404 file bytes beyond their declared image size, matching the cached ELF's
+orphan `.eh_frame` section at `_end`. The public loader's preparation checks
+reject those Images. The maintained [linker patch](../patches/kernel/linux-userspace/0003-arm64-place-cfi-unwind-data.patch)
+retains that section in read-only memory and preserves alignment of the early
+page tables. An isolated QEMU kernel relink passes both thermal shutdown cases
+and all 11 DMA-buffer synchronization checks, including 256 mapping-lifetime
+cycles. Clang CFI remains enabled and the thermal test module loads successfully.
+The file is now 39,358,976 bytes, with the same 41,025,536-byte declared RAM
+requirement and no trailing section. Prior artifacts are preserved; a complete
+new physical kernel package and Quest boot acceptance remain unverified. The
+loader's geometry and bounded-copy assumptions still need a Quest-specific
+implementation.
 
 **The current build has a matching public root target.**
 [Fuguquest's target file](https://github.com/Henry1887/fuguquest/blob/2324ce262e674504ad41ec82abcda3bf09dd01e6/targets/q3_52083180032000520.json)
