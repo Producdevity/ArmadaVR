@@ -1,0 +1,30 @@
+--- a/liblepton/liblepton.sh
++++ b/liblepton/liblepton.sh
+@@ -490,7 +490,7 @@
+                 fi
+             fi
+         fi
+-        if ! "$ADB" -P "${TEMP_PORT}" -s localhost:"${ADB_PORT}" install -g "${APK_PATH}"; then
++        if ! "$ADB" -P "${TEMP_PORT}" -s localhost:"${ADB_PORT}" install --no-streaming -g "${APK_PATH}"; then
+             println "App installation failed!"
+             # We dump logcat if the container exits in less than <30s but just to
+             # be safe (in case the startup took longer for some reason), we set
+--- a/images/rootfs_overlay/system/bin/cmd
++++ b/images/rootfs_overlay/system/bin/cmd
+@@ -75,7 +75,15 @@
+ fi
+ 
+ 
+-if [ "$?" = "0" ] && [ "$1" = "package" ] && { [ "$2" = "install" ] || [ "$2" = "install-commit" ] || [ "$2" = "install-existing" ]; }; then
++COMMAND_STATUS=$?
++if [ "${COMMAND_STATUS}" != "0" ]; then
++    if [ "$1" = "package" ] && { [ "$2" = "install" ] || [ "$2" = "install-commit" ] || [ "$2" = "install-existing" ]; }; then
++        mount_vulkan_layers
++    fi
++    exit "${COMMAND_STATUS}"
++fi
++
++if [ "$1" = "package" ] && { [ "$2" = "install" ] || [ "$2" = "install-commit" ] || [ "$2" = "install-existing" ]; }; then
+     local APP_ID="$(getprop lepton.active_app_id)"
+ 
+     # When installing via adb, the property might not have been set.

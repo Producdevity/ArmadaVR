@@ -17,7 +17,7 @@ virtual target for functional tests.
 | Graphics | KGSL Turnip and native Monado builds; offline synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
 | SteamVR | Translated runtime presents stereo samples and receives both virtual controllers' input; native Frame ARM64 server passes virtual-device input/haptic checks on the Quest QEMU kernel | Reliable stock dashboard navigation, a complete reproducible image and native compositor presentation |
-| Android container | Acquired Lepton boots Android 11 in rootless Podman on the Quest test kernel; Binder services, context isolation/persistence, APK rendering/input and network provisioning pass | Application lifecycle, clean init shutdown, Android XR, hardware graphics, games and performance |
+| Android container | Acquired Lepton boots Android 11 in rootless Podman on the Quest test kernel; Binder, isolation, APK launch/input, retained save restart and networking pass | Default Steam game saves, clean init shutdown, Android XR, hardware graphics, games and performance |
 | Installation | Authenticated current-build stock OTA, boot-container assembly and integrity checks | Accepted custom boot, exact stock recovery and a tested installation/rollback procedure |
 
 VM results do not establish hardware compatibility or flash readiness. Read the

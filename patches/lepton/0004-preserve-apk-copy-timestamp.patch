@@ -1,0 +1,11 @@
+--- a/liblepton/liblepton.sh
++++ b/liblepton/liblepton.sh
+@@ -829,7 +829,7 @@
+             create_prefix
+             local LEPTON_APK_TMPDIR="${LEPTON_PREFIX}/tmp"
+             mkdir -p "${LEPTON_APK_TMPDIR}"
+-            cp "${APK_FULL_PATH}" "${LEPTON_APK_TMPDIR}/"
++            cp --preserve=timestamps -- "${APK_FULL_PATH}" "${LEPTON_APK_TMPDIR}/"
+             cp "$(dirname "${APK_FULL_PATH}")"/steam_appid.txt "${LEPTON_APK_TMPDIR}/" 2>/dev/null || true
+             cp "$(dirname "${APK_FULL_PATH}")"/UECommandLine.txt "${LEPTON_APK_TMPDIR}/" 2>/dev/null || true
+ 

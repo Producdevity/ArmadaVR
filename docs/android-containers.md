@@ -129,7 +129,7 @@ uses a real headless Weston socket, SwiftShader and the original Android
 Fossilize layer/manifest extracted from Frame. A narrow `steamvr` metadata
 adapter supplies private mount directories; it provides no XR runtime.
 
-Two [version-specific launcher patches](../patches/lepton/README.md) resolve
+Four [version-specific integration patches](../patches/lepton/README.md) resolve
 reproduced failures without changing the kernel, Android init or vendor version:
 
 - The host ashmem node exists but the container never mounts it. Enable memfd
@@ -137,6 +137,11 @@ reproduced failures without changing the kernel, Android init or vendor version:
 - Podman's default read-only `/proc/sys` prevents Android's netd from
   configuring IPv6 in its private network namespace. Selectively unmask that
   entry; retain the other default restrictions and rootless credentials.
+- Use ADB's supported nonstreaming shell-v2 installation and preserve the real
+  package-command status in Lepton's overlay hook, including layer restoration
+  after failure. The old hook hides failed installations behind exit zero.
+- Preserve the source APK timestamp in temporary copies so the baked-app
+  decision stays consistent between mount setup and the post-boot launch.
 
 A finite user service also needs enough tasks: a 512-task cap caused real
 `pthread_create` failures and killed system_server. A 2,048-task cap passes;
@@ -159,13 +164,35 @@ the normal ADB shell supplies that environment. This was a test-harness issue,
 not an Android touch failure. The VM's ADB server and serial are explicit and
 separate from any physical-device ADB session.
 
-Application installation/persistence across the normal compatibility-tool
-lifecycle remains separate: the manually installed APK was absent after the
-developer context restarted. The `/data` marker alone does not prove persistent
-installed packages or application saves.
+The normal `lepton start <apk>` path now also passes in `v21` and an exact
+packaged-patch repeat `v22` under `output/blockers-20261008-v2`.
+The launcher installs and auto-focuses the APK;
+two taps save and render counter 2. A second normal launch selects the baked
+package, reads counter 2 before input, then saves and renders counter 4.
+Both launchers return zero after deliberate Android force-stop. Back leaves
+this fixture's process alive and is not counted as a launcher exit. These
+standalone runs use `LEPTON_NO_CLEANUP` and `LEPTON_KEEP_CONTEXT`; they do not
+establish default Steam compatibility-tool save behavior. The earlier manually
+installed package disappearing from a developer context remains preserved.
+
+The actual host ADB is android-tools 37.0.0 and the guest advertises `shell_v2`.
+Invalid APK installation returns 255, an unknown `cmd` service returns 20,
+and a shell that prints to stderr and exits 7 returns 7. The old Android linker
+still warns about the kernel vDSO's known BTI dynamic tag. Streaming ADB treats
+those warnings before `Success` as failure; nonstreaming returns the real
+shell-v2 exit status. The flag alone fails the invalid-APK test with the old
+hook and must not be applied without its status repair. Neither Android BTI
+nor the kernel is weakened. Capture screenshots to a guest file before reading
+their bytes: `adb exec-out` combines these warnings with PNG output.
+The exact-patch repeat also confirms the same two Fossilize layer bind targets
+before and after the deliberately failed installation.
 
 Normal Android `sys.powerctl=shutdown` stops the context and the launcher returns
-zero. The private init log also records a shutdown-time abort after service
-teardown; a clean init shutdown remains unverified. All earlier failures and
+zero. After service stop, synchronization and unmount, init aborts through
+`exit` → static C++ finalization → `std::thread` destruction. The delivered
+binary's non-reboot-capable branch calls `exit(0)`, consistent with
+[Android 11's source](https://android.googlesource.com/platform/system/core/+/refs/tags/android-11.0.0_r48/init/reboot_utils.cpp#82).
+A source-only `_exit` candidate has no matching resolved product build or
+runtime validation; clean init shutdown remains open. All earlier failures and
 original inputs are retained. Physical devices, shared host filesystems and USB
 passthrough were absent from this VM.
