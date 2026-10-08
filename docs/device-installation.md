@@ -86,6 +86,25 @@ handoff work. Audit and port the loader for Quest 3 before considering execution
 Separate its RAM-only boot path from installation helpers that write storage.
 This route does not unlock the bootloader or establish persistent flash safety.
 
+The compiled Quest Linux Image also differs from that loader's assumed geometry:
+its ARM64 header declares a zero text offset, little-endian execution and 4 KiB
+pages. The loader assumes `0x80000`. Under the [ARM64 boot ABI](https://www.kernel.org/doc/html/v5.10/arm64/booting.html),
+the entry address is the declared offset plus a 2 MiB aligned base. Inspect the
+actual Image independently of its Android container:
+
+```sh
+python3 -B tools/inspect-boot.py KERNEL_BUILD/Image --arm64
+```
+
+`--load-address ADDRESS` optionally checks that arithmetic and extent overflow;
+it does not establish available RAM. Both inspected physical and QEMU Images
+have 2,404 file bytes beyond their declared image size, matching the cached
+ELF's orphan `.eh_frame` section at `_end`. The current compiler configuration
+retains Clang CFI, and the source defines an `EH_FRAME` macro for that option;
+do not truncate those bytes without resolving their linker placement. The
+public loader's current preparation checks reject these Images. Its geometry
+and bounded-copy assumptions need a Quest-specific implementation.
+
 **The current build has a matching public root target.**
 [Fuguquest's target file](https://github.com/Henry1887/fuguquest/blob/2324ce262e674504ad41ec82abcda3bf09dd01e6/targets/q3_52083180032000520.json)
 names `52083180032000520` and its kernel release. This replaces the earlier

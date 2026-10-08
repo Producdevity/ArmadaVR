@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect an offline Android boot/vendor_boot file without unpacking or modifying it."""
+"""Inspect an offline Android boot container or raw ARM64 Linux Image."""
 import argparse
 import hashlib
 import json
@@ -7,6 +7,44 @@ import os
 from pathlib import Path
 import stat
 import struct
+
+
+def arm64_layout(header, file_size, load_address=None):
+    if len(header) < 64 or file_size < 64 or header[56:60] != b"ARM\x64":
+        raise ValueError("Expected a complete raw ARM64 Linux Image header")
+    offset, image_size, flags, *reserved = struct.unpack_from("<6Q", header, 8)
+    if any(reserved) or flags >> 4:
+        raise ValueError("Unsupported reserved ARM64 header fields")
+    if image_size and image_size < 64:
+        raise ValueError("Declared ARM64 image size is smaller than its header")
+    # Pre-v3.17 headers do not specify the offset's byte order or RAM size.
+    effective_offset = offset if image_size else 0x80000
+    if load_address is not None:
+        if (not 0 <= load_address < 2**64 or load_address < effective_offset or
+                (load_address - effective_offset) % (2 * 1024**2)):
+            raise ValueError("ARM64 load address must equal text_offset plus a 2 MiB aligned base")
+        if load_address + max(image_size, file_size) > 2**64:
+            raise ValueError("ARM64 load extent overflows 64 bits")
+    page_size = (None, 4096, 16384, 65536)[(flags >> 1) & 3]
+    trailing = max(0, file_size - image_size) if image_size else None
+    warnings = []
+    if not image_size:
+        warnings.append("Legacy header has no bounded RAM-size requirement")
+    elif trailing:
+        warnings.append("File extends beyond declared image_size; inspect its linker sections or appended data")
+    return {"format": "arm64-image", "header_size": 64,
+            "text_offset": offset, "effective_text_offset": effective_offset,
+            "image_size": image_size, "page_size": page_size, "flags": flags,
+            "endianness": "big" if flags & 1 else "little",
+            "placement_anywhere_in_ram": bool(flags & 8),
+            "pe_header_offset": struct.unpack_from("<I", header, 60)[0],
+            "bytes_beyond_declared_image": trailing,
+            "minimum_ram_bytes": image_size or None,
+            "load_address": load_address,
+            "aligned_base_address": load_address - effective_offset if load_address is not None else None,
+            "sections": [{"name": "Image", "offset": 0, "size": file_size}],
+            "warnings": warnings, "ram_ownership_verified": False,
+            "signature_verification": "not performed", "headset_compatibility": "not established"}
 
 
 def layout(header, file_size):
@@ -83,7 +121,7 @@ def layout(header, file_size):
             "signature_verification": "not performed", "headset_compatibility": "not established"}
 
 
-def inspect(path):
+def inspect(path, *, arm64=False, load_address=None):
     # Device files are excluded: this command accepts local copies only.
     if not stat.S_ISREG(path.stat().st_mode):
         raise ValueError("Input must be a regular file, not a device")
@@ -92,7 +130,9 @@ def inspect(path):
         if not stat.S_ISREG(info.st_mode):
             raise ValueError("Input must be a regular file")
         header = stream.read(4096)
-        report = layout(header, info.st_size)
+        if load_address is not None and not arm64:
+            raise ValueError("Load-address checking requires raw ARM64 Image mode")
+        report = arm64_layout(header, info.st_size, load_address) if arm64 else layout(header, info.st_size)
         for section in report["sections"]:
             stream.seek(section["offset"])
             remaining = section["size"]
@@ -143,9 +183,11 @@ def ramdisk_fragments(table, count, entry_size, ramdisk_size):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("image", type=Path)
+    parser.add_argument("--arm64", action="store_true", help="inspect a raw Linux Image instead of an Android container")
+    parser.add_argument("--load-address", type=lambda value: int(value, 0), help="optional ARM64 address alignment/overflow check; does not prove RAM ownership")
     args = parser.parse_args()
     try:
-        print(json.dumps(inspect(args.image), indent=2))
+        print(json.dumps(inspect(args.image, arm64=args.arm64, load_address=args.load_address), indent=2))
     except (OSError, ValueError) as error:
         parser.exit(1, f"{error}\n")
 
