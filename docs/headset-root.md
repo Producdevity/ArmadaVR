@@ -18,17 +18,42 @@ mounts or formats a host block device. `rootfs.tar` preserves the exported input
 previous output directories are refused.
 
 Before creating or exporting a container, the builder checks available output
-space against the requested filesystem size, the Docker image size when an export
-is needed, and 512 MiB of headroom. This is a minimum for output storage; it does
-not include Docker's separate filesystem extraction and verification scratch
-space. A failed preflight retains its report without starting a large export.
+space against the requested filesystem size, a new export when needed, estimated
+unpacked container scratch space and 1 GiB of headroom. On Docker Desktop these
+usually share the host disk. The scratch estimate includes verification work and
+four times the optional RPM download size; unusually large package expansion can
+still exceed it. A failed preflight retains its report without starting a large
+export.
 
 With `--reuse-export PREVIOUS_ROOT_DIRECTORY`, the builder instead reads that
-successful build's retained `rootfs.tar`. The immutable userspace image must
-match, and the export's checksum must match before and after construction.
+successful build's retained `rootfs.tar` or `rootfs.tar.zst`. The immutable
+userspace image must match, and the export's checksum must match before and
+after construction. Compressed exports must reproduce the original uncompressed
+checksum; streaming verification and extraction avoid an extra expanded archive.
 The archive is mounted read-only; `manifest.json` records its source path,
 source manifest hash and archive hash. The new output does not duplicate the
 archive. Preserve the source directory alongside the new root.
+
+If the original Docker image was removed, use `--userspace-export
+PREVIOUS_ROOT_DIRECTORY` instead. This keeps the archived userspace's original
+image identity in `container_image`; `--image` supplies Linux ARM64 build tools
+and is recorded separately as `build_container_image`. The source must still
+have a successful root-build manifest and a matching export checksum. The
+builder never relabels a replacement image as the deleted one.
+
+Use `--runtime-rpms DIRECTORY` to add missing dependencies offline. The directory
+must contain only the RPMs and a `manifest.json` of this form:
+
+```json
+{"schema_version": 1, "packages": [{"path": "PACKAGE.aarch64.rpm", "sha256": "SHA256"}]}
+```
+
+Supply the dependency closure for the archived userspace. The builder checks
+file hashes, requires successful package signatures against that userspace's
+trusted RPM keys, and runs an RPM transaction test before installation. It does
+not fetch packages, import new keys or disable signature/dependency checks.
+Installation logs and the package manifest are retained; the manifest is also
+included in the root image.
 
 The root includes the selected vendor module set, the verified 48-file ADSP
 bundle, their build records, and the exact startup service used in the initramfs.
@@ -52,11 +77,13 @@ service is enabled. See [Monado build and runtime checks](monado.md).
 
 A small, read-only container first checks the new service's dependencies and
 immediately loads both client libraries against the chosen immutable userspace
-image. Missing libraries or symbols stop the build before export. The assembled
+image. Missing libraries or symbols stop the build before export. With a detached
+userspace export or additional RPMs, this image-only probe is inapplicable and
+the required check runs against the staged userspace before formatting. The assembled
 root repeats these checks in a chroot, then the files, modes, links and build
 record extracted from ext4 must match the validated bundle exactly. The userspace
-image must supply its dependencies, including `opencv-videoio` for the current
-build; `--monado` does not install distribution packages.
+userspace must supply its dependencies, including `opencv-videoio` for the current
+build; use an already complete image or explicitly provide signed runtime RPMs.
 
 `--gpu-firmware VERIFIED_GPU_BUNDLE` adds the five KGSL firmware files selected
 by the [firmware preparer](quest-firmware.md#gpu-firmware). The GPU and ADSP
@@ -100,7 +127,10 @@ records. It attaches the image read-only and exercises root discovery by its
 actual label. Before switch-root, the fixture compares the unit already in the
 image with the initramfs copy; it does not install a substitute. Only test tools
 and their dependencies are copied into RAM, and the existing VR lab is enabled
-there for the successful root case.
+there for the successful root case. The QMI probe uses a private library
+directory, validates linkage with the root's dynamic loader, and must exchange
+real QMI requests after handoff. Identical libc package revisions are not
+required, and the fixture does not overwrite the root's global QRTR library.
 
 The successful root case requires the mapper's original PID and real QRTR/QMI
 responses across handoff, manual restart refusal, native and Windows VR lab
@@ -186,7 +216,35 @@ verification reproduces the original 6,902,722,560-byte export and its SHA-256
 Evidence: `output/headset-root-archive-audit-20261008-v1/`.
 This avoids reacquiring the older userspace contents; it does not restore the
 missing immutable Docker image or supply the newer Monado dependencies. The
-builder currently requires an uncompressed export and matching image for
-`--reuse-export`. Plan storage for restoration and assembly before expanding the
-archive. No complete root yet combines the current kernel/initramfs, exact-build
-firmware and newer graphics/runtime inputs.
+builder at the time required an uncompressed export and matching image for
+`--reuse-export`. The newer export and RPM options above remove those restoration
+requirements. Keep the original archive and its manifest as provenance.
+
+October 9: `output/headset-root-quest-current-20261009-v1/` and
+`output/headset-root-qemu-current-20261009-v1/` restore complete roots from that
+archive using the new options. Each contains its matching 272-module kernel set,
+the current build's 48 ADSP and five GPU firmware files, `turnip-display-v2` and
+`monado/build-v3`. All 85 Monado files and two library links pass extraction
+checks. The missing videoio dependency is supplied by 41 signed Fedora RPMs
+(31,107,139 bytes), including their dependency closure. Package signatures and
+transaction checks pass against the archived userspace, native dependency and
+loader checks pass, and both ext4 filesystems pass read-only checks.
+
+The immutable build-tool image and archived userspace identity remain separate
+in each manifest. The compressed source archive is unchanged. Dependency
+download and verification evidence is retained under
+`output/headset-root-restore-20261008-v1/`. The physical-kernel root has not booted
+on a headset and is not an installation image.
+
+`output/quest-startup-root-current-20261009-v2/` passes normal root handoff and
+the existing native/Windows VR lab in 110.810 seconds. Mapper failure after
+handoff produces orderly poweroff in 5.558 seconds. The mapper PID survives
+switch-root, QMI requests succeed before and after the refused manual restart,
+and the complete backing-image hash remains unchanged. The preceding v1 failure
+is preserved: its fixture required byte-identical libc files across initramfs
+and root. The revised fixture validates the probe's actual dependencies and
+isolates its library in RAM instead of replacing a global runtime library.
+
+These are the existing software-rendered lab tests. They do not establish
+native SteamVR compositor presentation, stock Library interaction or physical
+KGSL rendering. The complete host suite passes 207 tests.

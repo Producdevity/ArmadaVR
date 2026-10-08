@@ -42,7 +42,7 @@ import re,shutil,subprocess
 from pathlib import Path
 root=Path('/output/extra')
 binaries=['/usr/bin/cp','/usr/bin/ln','/usr/bin/systemctl','/usr/bin/mount','/usr/bin/sleep',
-          '/usr/bin/cmp','/usr/bin/chmod','/usr/bin/stat']
+          '/usr/bin/cmp','/usr/bin/chmod','/usr/bin/stat','/usr/bin/chroot']
 for binary in binaries:
     dest=root/binary.lstrip('/');dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(binary,dest)
 for binary in binaries+['/output/qmi-probe']:
@@ -190,7 +190,7 @@ def run(args):
             elif "startup ready:" in log:
                 raise RuntimeError("Unexpected readiness in failed case: " + name)
             if root_case:
-                markers += ["ARMADA_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
+                markers += ["ARMADA_QUEST_ROOT_PROBE_LINKS_PASS", "ARMADA_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
                 if packaged:
                     markers += ["ARMADA_QUEST_PACKAGED_ROOT_PASS"]
                 markers += ["ARMADA_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]

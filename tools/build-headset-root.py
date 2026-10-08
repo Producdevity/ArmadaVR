@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Build an offline ext4 root from pinned ARM64 userspace and matching headset inputs."""
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
+import tempfile
+import threading
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +31,25 @@ SCRIPT = r'''
 set -eu
 mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
 tar -xpf /rootfs.tar -C /tmp/root
+if test -d /runtime-rpms; then
+    test -x /tmp/root/usr/lib/systemd/systemd
+    test ! -e /tmp/root/tmp/armada-vr-rpms
+    mkdir /tmp/root/tmp/armada-vr-rpms
+    cp /runtime-rpms/*.rpm /tmp/root/tmp/armada-vr-rpms/
+    chroot /tmp/root /bin/sh -ec '
+        export LC_ALL=C
+        for package in /tmp/armada-vr-rpms/*.rpm; do
+            rpmkeys --checksig --verbose "$package" > /tmp/armada-vr-rpms/signature.txt
+            cat /tmp/armada-vr-rpms/signature.txt
+            grep -Ei "signature.*: OK$" /tmp/armada-vr-rpms/signature.txt >/dev/null
+        done
+        rpm --upgrade --test /tmp/armada-vr-rpms/*.rpm
+        rpm --upgrade /tmp/armada-vr-rpms/*.rpm
+        ldconfig
+        rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n" /tmp/armada-vr-rpms/*.rpm
+    ' > /output/runtime-rpms-install.txt 2>&1
+    rm -rf /tmp/root/tmp/armada-vr-rpms
+fi
 tar -xzf /kernel/modules.tar.gz -C /tmp/modules --no-same-owner
 python3 - "$1" <<'PYROOT'
 import hashlib,importlib.util,json,shutil,sys
@@ -67,6 +90,8 @@ shutil.copy2('/quest.service',root/unit)
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
 shutil.copy2('/firmware/manifest.json',metadata/'quest-firmware.json')
+if Path('/output/runtime-rpms.json').exists():
+    shutil.copy2('/output/runtime-rpms.json',metadata/'runtime-rpms.json')
 if gpu:shutil.copy2('/gpu-firmware/manifest.json',metadata/'quest-gpu-firmware.json')
 turnip=None
 if Path('/output/turnip.json').is_file():
@@ -160,6 +185,103 @@ rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
 
 
+def export_digest(path, compressed=False, limit=32 * 1024**3):
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Expected a regular file: " + str(path))
+    process = watchdog = None
+    with tempfile.TemporaryFile() as errors:
+        if compressed:
+            process = subprocess.Popen(["zstd", "-dc", "--memory=128MB", "--", str(path)],
+                                       stdout=subprocess.PIPE, stderr=errors)
+            watchdog = threading.Timer(120, process.kill)
+            watchdog.daemon = True
+            watchdog.start()
+            stream = process.stdout
+        else:
+            stream = path.open("rb")
+        try:
+            digest, size = hashlib.sha256(), 0
+            while block := stream.read(1024**2):
+                size += len(block)
+                if size > limit:
+                    raise ValueError("Userspace export exceeds the 32 GiB expanded-size limit")
+                digest.update(block)
+            if process and process.wait(timeout=5):
+                errors.seek(0)
+                raise ValueError("Cannot decompress userspace export: " + errors.read(4096).decode(errors="replace"))
+            return digest.hexdigest(), size
+        finally:
+            stream.close()
+            if watchdog:
+                watchdog.cancel()
+            if process and process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+
+
+def read_export(directory, expected_image=None):
+    manifest_path = directory / "manifest.json"
+    manifest_sha = builder.digest(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError("Requires a root export manifest object")
+    image = manifest.get("container_image", "")
+    expected = manifest.get("export_sha256", "")
+    if (manifest.get("target") != "headset-root-offline" or manifest.get("status") != "built" or
+            not isinstance(image, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image) or
+            not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{64}", expected)):
+        raise ValueError("Requires a successful root build with immutable userspace and export identities")
+    if expected_image is not None and image != expected_image:
+        raise ValueError("Reused export must have the same immutable userspace image")
+    archive = directory / "rootfs.tar"
+    if not archive.exists() and not archive.is_symlink():
+        archive = directory / "rootfs.tar.zst"
+    archive_sha = builder.digest(archive)
+    compressed = archive.name.endswith(".zst")
+    digest, size = export_digest(archive, compressed)
+    if digest != expected or not size:
+        raise ValueError("Reused userspace export checksum mismatch")
+    if builder.digest(archive) != archive_sha or builder.digest(manifest_path) != manifest_sha:
+        raise ValueError("Userspace export changed during validation")
+    return {"path": str(archive), "manifest_sha256": manifest_sha, "sha256": digest,
+            "archive_sha256": archive_sha, "expanded_bytes": size, "compressed": compressed,
+            "container_image": image}
+
+
+def read_rpms(directory):
+    manifest_path = directory / "manifest.json"
+    manifest_sha = builder.digest(manifest_path)
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict):
+        raise ValueError("Requires a runtime RPM manifest object")
+    packages = manifest.get("packages")
+    if manifest.get("schema_version") != 1 or not isinstance(packages, list) or not 1 <= len(packages) <= 128:
+        raise ValueError("Requires a version 1 runtime RPM manifest with 1–128 packages")
+    names, size = set(), 0
+    for item in packages:
+        if not isinstance(item, dict):
+            raise ValueError("Invalid runtime RPM identity")
+        name, sha = item.get("path", ""), item.get("sha256", "")
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_+.-]+\.rpm", name) or
+                name in names or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha)):
+            raise ValueError("Invalid or duplicate runtime RPM identity")
+        path = directory / name
+        if builder.digest(path) != sha:
+            raise ValueError("Runtime RPM checksum mismatch: " + name)
+        size += path.stat().st_size
+        names.add(name)
+    if size > 1024**3 or {p.name for p in directory.iterdir()} != names | {"manifest.json"}:
+        raise ValueError("Runtime RPM directory has extra files or exceeds 1 GiB")
+    return {"manifest_sha256": manifest_sha, "packages": packages, "bytes": size}
+
+
+def storage_required(size_gib, userspace_bytes, new_export, rpm_bytes=0):
+    return {"root_bytes": size_gib * 1024**3,
+            "export_bytes": userspace_bytes if new_export else 0,
+            "scratch_bytes": userspace_bytes + 4 * rpm_bytes + 1024**3,
+            "headroom_bytes": 1024**3}
+
+
 def run(args):
     kernel, initramfs, firmware, output = (p.absolute() for p in (args.kernel, args.initramfs, args.firmware, args.output))
     if output.exists() or output.is_symlink() or any(c in str(p) for p in (kernel, initramfs, firmware, output, ROOT) for c in (",", ":")):
@@ -173,9 +295,14 @@ def run(args):
         raise ValueError("Choose a Monado path without commas or colons")
     monado = monado_artifact.package(monado_dir) if monado_dir else None
     gpu_dir = args.gpu_firmware.absolute() if args.gpu_firmware else None
-    export_dir = args.reuse_export.absolute() if args.reuse_export else None
-    if any(c in str(p) for p in (gpu_dir, export_dir) if p for c in (",", ":")):
-        raise ValueError("Choose GPU firmware and export paths without commas or colons")
+    if args.reuse_export and args.userspace_export:
+        raise ValueError("Choose one export source")
+    export_dir = (args.reuse_export or args.userspace_export)
+    export_dir = export_dir.absolute() if export_dir else None
+    rpm_dir = args.runtime_rpms.absolute() if args.runtime_rpms else None
+    if any(c in str(p) for p in (gpu_dir, export_dir, rpm_dir) if p for c in (",", ":")):
+        raise ValueError("Choose firmware, export and RPM paths without commas or colons")
+    rpms = read_rpms(rpm_dir) if rpm_dir else None
     gpu = builder.firmware.validate(gpu_dir, "gpu") if gpu_dir else None
     assembly.root_arguments(args.root_label)
     if not 6 <= args.size_gib <= 32:
@@ -201,31 +328,27 @@ def run(args):
     inputs["tools/prepare-quest-firmware.py"] = builder.digest(ROOT / "tools/prepare-quest-firmware.py")
     image = json.loads(subprocess.check_output([args.engine, "image", "inspect", args.image], text=True))[0]
     if image["Architecture"] != "arm64" or image["Os"] != "linux":
-        raise ValueError("Root userspace must be Linux ARM64")
+        raise ValueError("Root build image must be Linux ARM64")
     export_source = None
     if export_dir:
-        export_manifest = json.loads((export_dir / "manifest.json").read_text())
-        archive = export_dir / "rootfs.tar"
-        if (export_manifest.get("target") != "headset-root-offline" or export_manifest.get("status") != "built" or
-                export_manifest.get("container_image") != image["Id"]):
-            raise ValueError("Reused export must come from a successful root build with the same immutable userspace image")
-        if archive.is_symlink() or not archive.is_file() or builder.digest(archive) != export_manifest.get("export_sha256"):
-            raise ValueError("Reused userspace export checksum mismatch")
-        export_source = {"path": str(archive), "manifest_sha256": builder.digest(export_dir / "manifest.json"),
-                         "sha256": export_manifest["export_sha256"]}
+        export_source = read_export(export_dir, image["Id"] if args.reuse_export else None)
     output.mkdir(parents=True)
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
     if monado:
         (output / "monado.json").write_text(json.dumps(monado, indent=2) + "\n")
+    if rpms:
+        (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
     report = {"status": "started", "turnip": turnip, "monado": monado, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
-              "initramfs_sha256": expected, "firmware": fw, "container_image": image["Id"], "inputs_sha256": inputs,
+              "initramfs_sha256": expected, "firmware": fw,
+              "container_image": export_source["container_image"] if export_source else image["Id"],
+              "build_container_image": image["Id"], "runtime_rpms": rpms, "inputs_sha256": inputs,
               "root_label": args.root_label, "size_gib": args.size_gib, "commands": []}
     container = None; started = time.monotonic()
     try:
-        if monado_dir:
+        if monado_dir and not args.userspace_export and not rpms:
             probe = """import ctypes, os, subprocess
 prefix='/opt/armada-vr/monado'
 data=subprocess.check_output(['ldd','-r',prefix+'/bin/monado-service'],text=True,stderr=subprocess.STDOUT)
@@ -244,12 +367,14 @@ print('Monado runtime image preflight: passed')
             report["commands"].append(command)
             with (output / "monado-preflight.txt").open("wb") as log:
                 subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=30)
-        required = args.size_gib * 1024**3 + (0 if export_source else image["Size"]) + 512 * 1024**2
+        storage = storage_required(args.size_gib, export_source["expanded_bytes"] if export_source else image["Size"],
+                                   not export_source, rpms["bytes"] if rpms else 0)
+        required = sum(storage.values())
         available = shutil.disk_usage(output).free
-        report["storage_preflight"] = {"available_bytes": available, "required_output_bytes": required,
-                                       "container_scratch_included": False}
+        report["storage_preflight"] = {"available_bytes": available, "required_working_bytes": required,
+                                       "container_scratch_included": True, "estimates": storage}
         if available < required:
-            raise ValueError(f"Root export requires at least {required / 1024**3:.2f} GiB free in the output filesystem; "
+            raise ValueError(f"Root assembly requires at least {required / 1024**3:.2f} GiB free including estimated scratch; "
                              f"only {available / 1024**3:.2f} GiB is available")
         if export_source:
             archive = Path(export_source["path"])
@@ -267,6 +392,7 @@ print('Monado runtime image preflight: passed')
                    "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{archive}:/rootfs.tar:ro", "-v", f"{kernel}:/kernel:ro",
                    "-v", f"{firmware}:/firmware:ro", "-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro",
                    *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
+                   *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
@@ -276,7 +402,7 @@ print('Monado runtime image preflight: passed')
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=320, check=True)
         if builder.inputs(kernel)[1] != hashes or builder.firmware.validate(firmware) != fw:
             raise ValueError("Kernel or firmware changed during root construction")
-        if builder.digest(archive) != report["export_sha256"]:
+        if builder.digest(archive) != (export_source["archive_sha256"] if export_source else report["export_sha256"]):
             raise ValueError("Userspace export changed during construction")
         if export_source and builder.digest(export_dir / "manifest.json") != export_source["manifest_sha256"]:
             raise ValueError("Source export manifest changed during construction")
@@ -286,13 +412,19 @@ print('Monado runtime image preflight: passed')
             raise ValueError("Turnip changed during root construction")
         if monado_dir and monado_artifact.package(monado_dir) != monado:
             raise ValueError("Monado changed during root construction")
+        if rpm_dir and read_rpms(rpm_dir) != rpms:
+            raise ValueError("Runtime RPMs changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
             raise ValueError("Root build sources changed during construction")
         names = ["rootfs.ext4", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
         if turnip:
             names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
         if monado:
-            names += ["monado.json", "monado-preflight.txt", "monado-dependencies.txt", "monado-loader.txt"]
+            names += ["monado.json", "monado-dependencies.txt", "monado-loader.txt"]
+            if (output / "monado-preflight.txt").exists():
+                names.append("monado-preflight.txt")
+        if rpms:
+            names += ["runtime-rpms.json", "runtime-rpms-install.txt"]
         report["artifacts"] = [{"path": n, "bytes": (output / n).stat().st_size, "sha256": builder.digest(output / n)}
                                for n in names]
         contents = json.loads((output / "contents.json").read_text())
@@ -319,6 +451,8 @@ if __name__ == "__main__":
     parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
     parser.add_argument("--gpu-firmware", type=Path, help="Verified GPU bundle from the same Quest reference image")
     parser.add_argument("--reuse-export", type=Path, help="Reuse rootfs.tar from a successful root build with the same userspace image")
+    parser.add_argument("--userspace-export", type=Path, help="Use a verified prior root export (tar or tar.zst); --image supplies only build tools")
+    parser.add_argument("--runtime-rpms", type=Path, help="Manifest-pinned RPMs; signatures and dependencies must validate inside the selected userspace")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--root-label", default="armada-vr-root")
     parser.add_argument("--size-gib", type=int, default=8)

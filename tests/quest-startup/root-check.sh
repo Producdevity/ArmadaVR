@@ -8,7 +8,7 @@ before=$(< /run/quest-before-pid)
 after=$(systemctl show -p MainPID --value armada-quest-boot.service)
 [[ $before != 0 && $before == "$after" ]]
 systemctl is-active --quiet armada-quest-boot.service
-/usr/bin/quest-qmi-probe
+LD_LIBRARY_PATH=/usr/libexec/armada-quest-fixture /usr/libexec/armada-quest-fixture/qmi-probe
 echo "ARMADA_QUEST_ROOT_HANDOFF_PASS pid=$after"
 if systemctl restart armada-quest-boot.service; then
     echo ARMADA_QUEST_UNEXPECTED_RESTART >&2
@@ -16,7 +16,7 @@ if systemctl restart armada-quest-boot.service; then
 fi
 [[ $(systemctl show -p MainPID --value armada-quest-boot.service) == "$before" ]]
 systemctl is-active --quiet armada-quest-boot.service
-/usr/bin/quest-qmi-probe
+LD_LIBRARY_PATH=/usr/libexec/armada-quest-fixture /usr/libexec/armada-quest-fixture/qmi-probe
 echo ARMADA_QUEST_ROOT_RESTART_REFUSED
 
 if [[ ${ARMADA_QUEST_CASE:-root} == root-fault ]]; then
