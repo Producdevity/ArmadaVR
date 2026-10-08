@@ -74,9 +74,11 @@ Quest portability remain unverified. The
 unchanged Quest test kernel. A separate authenticated Steam installation now
 supplies Lepton's matching payload; [Android boot, Binder services, context
 persistence, software APK rendering and network provisioning](android-containers.md#acquired-lepton-and-actual-android-boot)
-pass with two small launcher patches. Android APK input also passes; application
-lifecycle, clean init shutdown, Android XR and hardware graphics
-remain unverified. Frame images and its
+pass with four version-specific integration patches. Normal APK launch and baked
+restart also pass with retained data, including a saved counter of 2 that becomes
+4 after further input. A synthetic Steam compatibility launch also preserves
+that data through default cleanup without retention flags. Actual games, clean
+init shutdown, Android XR and hardware graphics remain unverified. Frame images and its
 QDL programmer target Frame hardware.
 
 **Standalone game compatibility can be studied on stock Android.**
@@ -127,8 +129,8 @@ matching recovery hardware and firmware for those devices.
 6. **Complete Lepton integration offline.** Matching rootfs, sysbake and xattrs
    are now preserved. Android boot, framework Binder services, context isolation,
    data persistence, APK installation/rendering/input and network provisioning
-   pass. Verify application saves and package retention through the normal
-   compatibility-tool lifecycle, clean init shutdown, Android OpenXR and
+   pass. A test APK now retains saves and its package through the default
+   compatibility-tool lifecycle. Verify actual game saves, clean init shutdown, Android OpenXR and
    Android/Linux graphics buffer and fence sharing. FUSE handles the writable
    views; native kernel rootless OverlayFS remains unsupported.
 7. **Finish repeatable VR acceptance.** Build a complete fresh image, repeat

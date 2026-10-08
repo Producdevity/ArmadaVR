@@ -78,11 +78,18 @@ the later runs reuse it, without copying an earlier prefix.
 | v25-right | Right | 373 | 698 | 58 | Backend v20, untraced; normal menu exit |
 | v27-right | Right | 215 | 372 | 31 | Fresh backend v26; normal menu exit |
 | v28-left | Left | — | — | — | Backend v26; disk full while capturing frame 07 |
-| v29-left | Left | 347 | 684 | 62 | Backend v26; normal menu exit |
+| v29-left | Left | 347 | 684 | 62 | Backend v26; normal menu exit, partly obscured captures |
+| v30-left | Left | 381 | 743 | 67 | Fresh backend v27; unobstructed stereo capture and normal menu exit |
+| v34-left | Left | 350 | 686 | 62 | Fresh cache-test backend v2; normal menu exit |
+| v35-right | Right | 346 | 675 | 61 | Cache-test backend v2; normal menu exit |
+| v36-left | Left | 251 | 492 | 55 | Failed: backend deadline interrupts stimulus after focus returns |
+| v37-left | Left | 234 | 450 | 34 | Fresh backend with maintained cache guard; normal menu exit |
+| v38-right | Right | 446 | 775 | 67 | Same fresh backend after 120 seconds idle; normal menu exit |
 
 The successful runs record `FOCUSED` → `VISIBLE` → `FOCUSED` in the Windows
-sample itself, corresponding to dashboard open/close. Captures show unobstructed
-stereo cubes. The left-hand pass uses 250 ms system-button presses; the earlier
+sample itself, corresponding to dashboard open/close. The earlier v19/v20 series
+and the corrected v30 repeat retain unobstructed stereo cubes. The left-hand pass
+uses 250 ms system-button presses; the earlier
 one-second stimulus triggers recentering and fails the dashboard transition.
 The initial left-hand rendering and both failed stimuli remain preserved.
 
@@ -106,6 +113,14 @@ v19 prefix; this is a fresh backend repeat, not another fresh-prefix test.
 The compositor reports 1,598 and 1,308 dropped frames respectively, so these
 functional results are not performance acceptance.
 
+The v29 Settings window covers much of its headset mirror, limiting visual proof
+despite passing frame, focus and exit counters. A new backend v27 repeats the
+left-hand test with other private-display windows moved below the screen. Its
+15 unedited captures show the mirror unobstructed before and after dashboard
+focus transfer; v30 exits zero through the controller menu. The compositor records
+1,222 dropped frames. Evidence is in
+`output/blockers-20261008-v2/windows-backend-v27-evidence.tar.gz`.
+
 During v28 and shortly after v29, `vrwebhelper --type=zygote` exits with SIGTRAP.
 The first transient uncompressed dump reaches 14,601,592,832 bytes, exhausting
 the 48 GiB guest filesystem until compression completes. v28's result file is
@@ -116,6 +131,33 @@ systemd-coredump no longer retains the first core file. The backend ends at its
 finite lifetime, and all 3,544 runtime files plus installed-bundle hashes still
 match. Evidence is in `output/blockers-20261008-v2/windows-backend-v26-evidence.tar.gz`.
 The earlier v22 exit 247 and browser reliability remain unresolved.
+
+Bounded inspection of the second core confirms that its native breakpoint is
+FEX's guest-SIGTRAP dispatcher. The saved guest instruction points to an actual
+`INT3` in the verified CEF library, following a zero-count feedback-metadata
+bounds guard. This corrects the generic loader-address attribution; it does not
+identify whether CEF or translated execution produced the invalid metadata.
+The compressed core, exact register/frame layout and small original-library
+code slices are retained. No full uncompressed core or patched Valve binary is
+needed for that diagnosis.
+
+The [verified FEX browser-cache guard](steamvr.md#fresh-backend-and-stock-input-october-8)
+also passes real stale-code regression testing. Two fresh translated backends
+then pass four Windows interaction runs, including one after a measured
+120.28-second idle interval. The failed v36 run overlaps the backend's configured
+deadline and is preserved alongside the passes. These short runs do not prove
+the CEF failure's cause or long-term reliability.
+
+The latest session uses the maintained launcher source with the exact-build
+guard. Unedited left/right captures show stereo cubes and the actual stock
+dashboard. A small Now Playing card remains in the left-hand captures after
+focus returns; the right-hand final capture shows the application alone.
+The two runs record 1,473 and 1,048 dropped frames, so they remain functional
+acceptance, not headset performance results. A final cgroup snapshot reports
+2,758,746,112 bytes and no memory/pid-limit or OOM events; this is not a peak or
+soak measurement. Explicit backend stop returns 130; the separate FEX daemon
+is contained by systemd's final SIGKILL. Evidence is retained in
+`output/blockers-20261008-v2/cef-cache-v2.tar.gz` and `cef-cache-v3.tar.gz`.
 
 ## Launch in the active virtual SteamVR session
 

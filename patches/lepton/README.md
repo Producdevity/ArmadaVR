@@ -60,8 +60,12 @@ The actual two-launch test auto-starts the APK, records two taps, then restarts
 with its saved counter of 2 and records two more taps. Both launchers exit zero
 after deliberate Android force-stop. Invalid installation returns 255, an
 unknown service returns 20 and shell exit 7 remains 7. The standalone test
-retains its context/data with diagnostic flags; default Steam game saves,
-clean Android init shutdown and Android XR remain separate acceptance gates.
+retains its context/data with diagnostic flags. A separate synthetic Steam
+compatibility launch also restores the counter through default cleanup without
+retention flags, removing its temporary prefixes, work directories and settings.
+The normal launcher process-group wrapper also passes save restoration and
+descendant cleanup. Actual game saves, clean Android init shutdown and Android
+XR remain separate acceptance gates.
 
 See [actual Android acceptance](../../docs/android-containers.md#acquired-lepton-and-actual-android-boot)
 for measured results and remaining application, shutdown, XR and hardware limits.

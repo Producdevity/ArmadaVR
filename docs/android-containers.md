@@ -175,6 +175,26 @@ standalone runs use `LEPTON_NO_CLEANUP` and `LEPTON_KEEP_CONTEXT`; they do not
 establish default Steam compatibility-tool save behavior. The earlier manually
 installed package disappearing from a developer context remains preserved.
 
+A separate `v26` test exercises `waitforexitandrun` with a synthetic Steam app
+ID and private install/compatdata directories, without either retention flag.
+Normal cleanup removes each temporary prefix, overlay work directories and
+the three Android settings files. The second launch restores counter 2 and
+saves/renders counter 4; both launcher exits are zero after deliberate app
+force-stop. The delivered cleanup retains an exited Podman record, which the
+next launch replaces. An earlier fixture incorrectly required that record to
+be removed; its failed result is preserved.
+
+This passes the default compatibility-tool save lifecycle for the test APK.
+An actual Steam game, cloud saves and version/depot migration remain untested.
+Both containers exit 137 through the launcher's forced stop, so graceful
+Android shutdown remains unproven. The earlier harness bypasses Lepton's normal
+process-group wrapper and leaves Avahi publishers for systemd to contain.
+A `v27` run uses that wrapper, verifies the launcher's own process group,
+restores counter 4 and saves/renders counter 6. It exits zero and cleans its
+publishers without a systemd kill. The pre-test data snapshot and failures are
+retained in `output/blockers-20261008-v2/lepton-default-lifecycle-v2.tar.gz`;
+the normal-wrapper result is in `blockers-final-v3.tar.gz`.
+
 The actual host ADB is android-tools 37.0.0 and the guest advertises `shell_v2`.
 Invalid APK installation returns 255, an unknown `cmd` service returns 20,
 and a shell that prints to stderr and exits 7 returns 7. The old Android linker
