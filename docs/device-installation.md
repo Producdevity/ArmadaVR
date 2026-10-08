@@ -173,7 +173,8 @@ Quest boot route. See [board support](headset-bringup.md) and
 [boot-container assembly](quest-boot-assembly.md). Moving to Holo Core is optional;
 a distro change does not remove the device-driver or boot requirements.
 
-The useful next development milestone is a reviewed Quest 3 temporary-boot
-design plus native-runtime and Android startup tests. Flashing cannot currently
+The initial physical development milestone is a Neo3 Pro Eye Linux USB/console
+boot with demonstrated stock return and recovery; see the [Pico firmware baseline](pico-firmware.md).
+Quest 3 temporary boot, native-runtime and Android startup work remain in scope. Flashing cannot currently
 be recommended, and no installation can be described as eliminating all bricking
 risk.

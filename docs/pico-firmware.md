@@ -1,8 +1,47 @@
 # Pico Neo3 Pro and Pro Eye firmware and boot access
 
-Checked October 8, 2026. Both enterprise models are development targets; Quest 3
-remains the priority. Per-unit installed builds, board revisions, firmware
-regions and secure-boot variants have not been inventoried.
+Checked October 8, 2026. Neo3 Pro Eye is the initial hardware bring-up target,
+followed by Quest 3. The connected unit was identified physically as Pro Eye;
+its generic Android model alone does not distinguish enterprise variants. Neo3
+Pro requires its own inventory and calibration backups.
+
+## Current Pro Eye baseline
+
+The connected Pro Eye reports global/overseas 5.8.4.0, internal build
+`c000_rf01_bv1.0.1_sv5.8.4.0_202310092224_neo3_b1977_user`, incremental
+`smartcm.1696861506`, Android 10 and Linux `4.19.81-perf+`. It has about 8 GB
+RAM, Adreno 650 v3, a `SHARP493` panel property and eye-tracking support property.
+These are inventory observations, not physical driver acceptance.
+
+The exact [global b1977 stock OTA](https://static.us-pui.picovr.com/5.8.4.0-202310092224-RELEASE-user-neo3-b1977-e4688d78c8.zip)
+was authenticated against the public OTA certificate copied independently from
+the running headset. Its SHA-256 is
+`88669fe996510a879305d980ed4ba626c908ccc06ecead466393c3eadb58a8b6`.
+The maintained verifier now supports its legacy `BLOCK` format and nonnumeric
+incremental without weakening the default Quest A/B checks:
+
+```sh
+python3 -B tools/verify-ota.py STOCK_OTA.zip \
+    --device-certificates STOCK_OTACERTS.zip \
+    --expected-device PICOA7H10 --expected-build smartcm.1696861506 \
+    --ota-type BLOCK \
+    --expected-fingerprint 'Pico/A7H10/PICOA7H10:10/5.8.4.0/smartcm.1696861506:user/test-keys' \
+    --expected-secure-boot-tag SE
+```
+
+This authenticates the archive and selected metadata. It does not execute or
+validate the block updater, establish rollback acceptance, or prove restoration.
+The package has an Android v2 boot image, six SoC base DTBs plus an RTIC data FDT,
+and sixteen board overlays. Its signed VBMeta matches the boot and DTBO hashes;
+the images' own `NONE` authentication headers do not authorize unsigned boot.
+There is no standalone recovery image in this OTA, although VBMeta chains to
+recovery. Per-unit recovery and calibration backups remain required.
+
+Stock config enables KGSL, Binder, FUSE and OverlayFS, but omits SysV IPC,
+user/PID/UTS namespaces, `binfmt_misc` and `devtmpfs`. It enforces module
+signatures and has module versioning. A compatible custom kernel is needed for
+the Linux userspace; stock modules cannot simply be reused with a changed ABI.
+The stock boot chain and software version remain unchanged.
 
 ## Update decision
 
@@ -85,9 +124,9 @@ into ArmadaVR's installer, or run its rollback flow merely to test access.
 
 | Workstream | Quest 3 | Neo3 Pro / Pro Eye |
 |---|---|---|
-| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Per-unit inventory, authentic stock package, matching programmer, partition/calibration backups and independent recovery all remain |
+| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Connected Pro Eye inventoried and exact stock OTA authenticated; matching programmer, partition/calibration backups and independent recovery remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
-| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Official 4.19.81 source is pinned, but its vendor board DTS is missing; no exact enterprise board build exists |
+| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Official 4.19.81 source is pinned and stock DTB/DTBO acquired; vendor board DTS is missing and source/build compatibility is unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
 | Tracking and controllers | Syncboss/IMU protocol research and virtual actions exist; calibrated camera/IMU 6DoF, pairing and physical input/haptics remain | Camera/IMU transport, calibration, 6DoF and controller integration remain; Pro Eye adds eye cameras, calibration and runtime support |
 | Installation | No accepted boot/recovery or persistent installer | No accepted boot/recovery or persistent installer |
@@ -95,7 +134,9 @@ into ArmadaVR's installer, or run its rollback flow merely to test access.
 The [official Neo3 kernel](https://github.com/bytedance/neo3-kernel/tree/9cacc1c1356dd32a048f4cb13bc84af402bd3326)
 includes vendor graphics and platform code but omits the board DTS directory;
 the [source profile](../profiles/kernel/pico-neo3.json) refuses that incomplete
-DT build. Frame's actual systemd 257.7 is a userspace candidate for 4.19;
+source DT build. Authenticated stock trees provide board inputs, but do not
+establish compatibility with the older public source. Frame's actual systemd
+257.7 is a userspace candidate for 4.19;
 the current Fedora/systemd 259 environment needs a newer kernel or a different
 userspace baseline. See the [Frame firmware comparison](steam-frame.md#october-8-firmware-comparison).
 
@@ -105,9 +146,9 @@ shutdown, complete-image, game, audio and sustained-performance work. Existing
 virtual acceptance is retained in [VR milestones](vr-milestones.md).
 
 A minimal Linux USB/console boot with a demonstrated return to stock could be
-an earlier Pico milestone if recovery and unlock checks pass. Prefer the ordinary
-Pro for that experiment because it excludes the Pro Eye's extra eye-tracking
-dependency; verify its separate memory and calibration assumptions. A usable
+an earlier Pico milestone if recovery and unlock checks pass. The connected Pro
+Eye is the selected development unit; preserve its eye calibration even before
+eye tracking is integrated. A usable
 standalone VR system still needs the large display/tracking/controller port.
 Public unlock access alone does not establish that Pico reaches that milestone
 sooner. Estimate further implementation only after actual boot and sensor/display

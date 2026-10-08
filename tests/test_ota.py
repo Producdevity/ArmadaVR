@@ -42,7 +42,8 @@ class OtaTests(unittest.TestCase):
     def tearDown(self):
         self.case.cleanup()
 
-    def package(self, signer="device", build="12345", device="eureka", bad_hash=False, duplicate=False, bad_header=False, attributes=False):
+    def package(self, signer="device", build="12345", device="eureka", bad_hash=False, duplicate=False, bad_header=False, attributes=False,
+                ota_type="AB", fingerprint=None, secure_boot_tag=None):
         manifest = b"manifest fixture"
         header = struct.pack(">4sQQI", b"CrAU", 2, len(manifest) + int(bad_header), 0)
         metadata = header + manifest
@@ -52,9 +53,17 @@ class OtaTests(unittest.TestCase):
                       f"METADATA_HASH={base64.b64encode(hashlib.sha256(metadata).digest()).decode()}\n")
         data = io.BytesIO()
         with zipfile.ZipFile(data, "w") as archive:
-            archive.writestr("META-INF/com/android/metadata", f"ota-type=AB\npre-device={device}\npost-build-incremental={build}\n")
-            archive.writestr("payload_properties.txt", properties)
-            archive.writestr("payload.bin", payload)
+            fields = f"ota-type={ota_type}\npre-device={device}\npost-build-incremental={build}\n"
+            if fingerprint is not None:
+                fields += f"post-build={fingerprint}\n"
+            if secure_boot_tag is not None:
+                fields += f"secure_boot_tag={secure_boot_tag}\n"
+            archive.writestr("META-INF/com/android/metadata", fields)
+            if ota_type == "AB":
+                archive.writestr("payload_properties.txt", properties)
+                archive.writestr("payload.bin", payload)
+            else:
+                archive.writestr("boot.img", b"block OTA boot fixture")
             archive.writestr("META-INF/com/android/otacert", (self.base / (signer + ".pem")).read_bytes())
             if duplicate:
                 import warnings
@@ -149,6 +158,39 @@ class OtaTests(unittest.TestCase):
         for data in (b"\x30\x80", b"\x30\x81\x01\0", b"\x30\x82\0\x80", b"\x30\x08\0", b"\x1f\0"):
             with self.subTest(data=data), self.assertRaises(ValueError):
                 ota.check_signature_format(data)
+
+    def test_block_ota_authentication_does_not_claim_payload_or_recovery_validation(self):
+        self.package(ota_type="BLOCK", device="PICOA7H10", build="smartcm.1696861506",
+                     fingerprint="Pico/fixture:10/5.8.4.0", secure_boot_tag="SE")
+        original = self.path.read_bytes()
+        report = ota.verify(self.path, self.base / "device.zip", "PICOA7H10", "smartcm.1696861506",
+                            ota_type="BLOCK", expected_fingerprint="Pico/fixture:10/5.8.4.0", expected_secure_boot_tag="SE")
+        self.assertTrue(report["ota_signature_verified_with_supplied_device_certificates"])
+        for key in ("payload_hash_verified", "block_images_validated", "updater_script_executed",
+                    "recovery_restore_verified", "headset_boot_acceptance_verified", "flash_ready"):
+            self.assertFalse(report[key])
+        self.assertIsNone(report["payload_sha256"])
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_trusted_block_ota_with_wrong_identity_or_variant_is_rejected(self):
+        self.package(ota_type="BLOCK", device="PICOA7H10", build="smartcm.1696861506",
+                     fingerprint="Pico/fixture", secure_boot_tag="SE")
+        cases = ({"expected_fingerprint": "Pico/other"}, {"expected_secure_boot_tag": "K"})
+        for case in cases:
+            with self.subTest(case=case), self.assertRaisesRegex(ValueError, "variant mismatch"):
+                ota.verify(self.path, self.base / "device.zip", "PICOA7H10", "smartcm.1696861506",
+                           ota_type="BLOCK", **case)
+        with self.assertRaisesRegex(ValueError, "type or build mismatch"):
+            ota.verify(self.path, self.base / "device.zip", "PICOA7H10", "smartcm.1696861507", ota_type="BLOCK")
+        with self.assertRaisesRegex(ValueError, "type or build mismatch"):
+            ota.verify(self.path, self.base / "device.zip", "other", "smartcm.1696861506", ota_type="BLOCK")
+        with self.assertRaisesRegex(ValueError, "type or build mismatch"):
+            self.verify()
+
+    def test_block_ota_cannot_authenticate_with_package_supplied_key(self):
+        self.package(ota_type="BLOCK", signer="other", device="PICOA7H10", build="smartcm.1696861506")
+        with self.assertRaisesRegex(ValueError, "signature does not verify"):
+            ota.verify(self.path, self.base / "device.zip", "PICOA7H10", "smartcm.1696861506", ota_type="BLOCK")
 
 
 if __name__ == "__main__":

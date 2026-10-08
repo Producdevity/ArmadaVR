@@ -1,8 +1,8 @@
 # ArmadaVR
 
 An experimental ARM64 Linux VR environment and headset board-support project.
-The primary hardware target is Quest 3. Pico Neo3 Pro and Pro Eye are additional
-bring-up targets, with their own firmware, recovery and calibration requirements.
+The initial hardware bring-up target is Pico Neo3 Pro Eye. Quest 3 is the next
+porting target; Neo3 Pro requires separate board and calibration checks.
 There is no validated headset installation image.
 
 The development environment uses Fedora, Armada's FEX packaging, native Monado

@@ -190,9 +190,16 @@ def key_values(data):
     return result
 
 
-def verify(path, trust_path, expected_device, expected_build, openssl="openssl"):
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", expected_device) or not re.fullmatch(r"[0-9]+", expected_build):
-        raise ValueError("Expected an explicit device codename and numeric incremental build")
+def verify(path, trust_path, expected_device, expected_build, openssl="openssl", *,
+           ota_type="AB", expected_fingerprint=None, expected_secure_boot_tag=None):
+    build_pattern = r"[0-9]+" if ota_type == "AB" else r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}"
+    if (ota_type not in ("AB", "BLOCK") or not re.fullmatch(r"[A-Za-z0-9_-]+", expected_device) or
+            not re.fullmatch(build_pattern, expected_build)):
+        raise ValueError("Expected an explicit device, incremental build and AB or BLOCK OTA type")
+    for value in (expected_fingerprint, expected_secure_boot_tag):
+        if value is not None and (not value or len(value) > 512 or any(ord(c) < 32 for c in value)):
+            raise ValueError("Invalid expected metadata value")
+    payload_hash = None
     with open_regular(path, 16 * 1024**3) as stream, open_regular(trust_path, 4 * 1024**2) as anchors:
         before = os.fstat(stream.fileno())
         trust, identities = certificates(anchors, openssl)
@@ -208,32 +215,37 @@ def verify(path, trust_path, expected_device, expected_build, openssl="openssl")
                     raise ValueError("OTA metadata size limit")
                 return archive.read(item)
             metadata = key_values(small("META-INF/com/android/metadata"))
-            if (metadata.get("ota-type") != "AB" or metadata.get("pre-device") != expected_device or
+            if (metadata.get("ota-type") != ota_type or metadata.get("pre-device") != expected_device or
                     metadata.get("post-build-incremental") != expected_build):
                 raise ValueError("Authenticated OTA device, type or build mismatch")
-            properties = key_values(small("payload_properties.txt"))
-            payload = archive.getinfo("payload.bin")
-            if (payload.compress_type != zipfile.ZIP_STORED or payload.flag_bits & 1 or
-                    payload.file_size != int(properties["FILE_SIZE"]) or not 24 <= payload.file_size <= 16 * 1024**3):
-                raise ValueError("Unsupported payload encoding or size mismatch")
-            metadata_size = int(properties["METADATA_SIZE"])
-            if not 24 <= metadata_size <= min(payload.file_size, 8 * 1024**2):
-                raise ValueError("Payload metadata size limit")
-            with archive.open(payload) as data:
-                header = read_exact(data, 24)
-                magic, version, manifest_length, signature_length = struct.unpack(">4sQQI", header)
-                if (magic != b"CrAU" or version != 2 or 24 + manifest_length != metadata_size or
-                        signature_length > 1024**2 or metadata_size + signature_length > payload.file_size):
-                    raise ValueError("Payload header disagrees with authenticated metadata")
-                manifest = header + read_exact(data, manifest_length)
-                metadata_digest = base64.b64encode(hashlib.sha256(manifest).digest()).decode()
-                if metadata_digest != properties["METADATA_HASH"]:
-                    raise ValueError("Payload metadata hash mismatch")
-                digest = hashlib.sha256(manifest)
-                while chunk := data.read(4 * 1024**2):
-                    digest.update(chunk)
-            if base64.b64encode(digest.digest()).decode() != properties["FILE_HASH"]:
-                raise ValueError("Payload hash mismatch")
+            if ((expected_fingerprint is not None and metadata.get("post-build") != expected_fingerprint) or
+                    (expected_secure_boot_tag is not None and metadata.get("secure_boot_tag") != expected_secure_boot_tag)):
+                raise ValueError("Authenticated OTA fingerprint or secure-boot variant mismatch")
+            if ota_type == "AB":
+                properties = key_values(small("payload_properties.txt"))
+                payload = archive.getinfo("payload.bin")
+                if (payload.compress_type != zipfile.ZIP_STORED or payload.flag_bits & 1 or
+                        payload.file_size != int(properties["FILE_SIZE"]) or not 24 <= payload.file_size <= 16 * 1024**3):
+                    raise ValueError("Unsupported payload encoding or size mismatch")
+                metadata_size = int(properties["METADATA_SIZE"])
+                if not 24 <= metadata_size <= min(payload.file_size, 8 * 1024**2):
+                    raise ValueError("Payload metadata size limit")
+                with archive.open(payload) as data:
+                    header = read_exact(data, 24)
+                    magic, version, manifest_length, signature_length = struct.unpack(">4sQQI", header)
+                    if (magic != b"CrAU" or version != 2 or 24 + manifest_length != metadata_size or
+                            signature_length > 1024**2 or metadata_size + signature_length > payload.file_size):
+                        raise ValueError("Payload header disagrees with authenticated metadata")
+                    manifest = header + read_exact(data, manifest_length)
+                    metadata_digest = base64.b64encode(hashlib.sha256(manifest).digest()).decode()
+                    if metadata_digest != properties["METADATA_HASH"]:
+                        raise ValueError("Payload metadata hash mismatch")
+                    digest = hashlib.sha256(manifest)
+                    while chunk := data.read(4 * 1024**2):
+                        digest.update(chunk)
+                if base64.b64encode(digest.digest()).decode() != properties["FILE_HASH"]:
+                    raise ValueError("Payload hash mismatch")
+                payload_hash = digest.hexdigest()
         stream.seek(0)
         archive_hash = hashlib.file_digest(stream, "sha256").hexdigest()
         after = os.fstat(stream.fileno())
@@ -243,8 +255,10 @@ def verify(path, trust_path, expected_device, expected_build, openssl="openssl")
             "trust_certificate_source": "caller-supplied; must be obtained independently of this OTA",
             "certificates": identities, "signature_format": "detached_PKCS7_SHA256_RSA_without_attributes",
             "archive_bytes": before.st_size, "archive_sha256": archive_hash,
-            "authenticated_metadata": metadata, "payload_sha256": digest.hexdigest(), "payload_metadata_hash_verified": True,
-            "payload_hash_verified": True, "signed_bytes": signed_length, "device_rollback_acceptance_verified": False,
+            "authenticated_metadata": metadata, "ota_type": ota_type, "payload_sha256": payload_hash,
+            "payload_metadata_hash_verified": payload_hash is not None, "payload_hash_verified": payload_hash is not None,
+            "block_images_validated": False, "updater_script_executed": False,
+            "signed_bytes": signed_length, "device_rollback_acceptance_verified": False,
             "headset_boot_acceptance_verified": False, "recovery_restore_verified": False, "flash_ready": False}
 
 
@@ -254,10 +268,15 @@ def main():
     parser.add_argument("--device-certificates", type=Path, required=True, help="Independently obtained stock otacerts.zip")
     parser.add_argument("--expected-device", required=True)
     parser.add_argument("--expected-build", required=True)
+    parser.add_argument("--ota-type", choices=("AB", "BLOCK"), default="AB")
+    parser.add_argument("--expected-fingerprint")
+    parser.add_argument("--expected-secure-boot-tag")
     parser.add_argument("--openssl", default="openssl")
     args = parser.parse_args()
     try:
-        report = verify(args.ota, args.device_certificates, args.expected_device, args.expected_build, args.openssl)
+        report = verify(args.ota, args.device_certificates, args.expected_device, args.expected_build, args.openssl,
+                        ota_type=args.ota_type, expected_fingerprint=args.expected_fingerprint,
+                        expected_secure_boot_tag=args.expected_secure_boot_tag)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, subprocess.SubprocessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(report, indent=2))
