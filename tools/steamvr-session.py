@@ -18,6 +18,26 @@ import tempfile
 FEX_BROWSER_CACHE_SHA256 = "f9cbb7a70e804b9930fed02fd9d1349d49d7808faace703063a9b4944bc3568e"
 
 
+def prepare_fex_server(config, rootfs):
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    if runtime.is_symlink() or not runtime.is_dir() or runtime.stat().st_uid != os.getuid():
+        raise ValueError("FEX isolation requires an owned runtime directory")
+    identity = hashlib.sha256(os.fsencode(str(config.resolve()) + "\0" + str(rootfs.resolve()))).hexdigest()[:16]
+    parent = runtime / "armada-vr-fex"
+    data = parent / identity
+    socket = data / "Server" / f"{os.getuid()}.FEXServer.Socket"
+    if len(os.fsencode(socket)) > 107:
+        raise ValueError("FEX server socket path exceeds the Unix socket limit")
+    for directory in (parent, data):
+        if directory.is_symlink():
+            raise ValueError("FEX server directories must be regular owned paths")
+        directory.mkdir(mode=0o700, exist_ok=True)
+        if directory.stat().st_uid != os.getuid() or directory.stat().st_mode & 0o077:
+            raise ValueError("FEX server directories must be private and owned")
+    return {"FEX_APP_DATA_LOCATION": str(data) + "/",
+            "FEX_SERVERSOCKETPATH": f"armada-vr-{os.getuid()}-{identity}"}
+
+
 def prepare_browser_config(config, interpreter_sha256):
     if interpreter_sha256 != FEX_BROWSER_CACHE_SHA256:
         return False
@@ -360,6 +380,7 @@ def run(args):
         env = os.environ | {"FEX_APP_CONFIG_LOCATION": str(config) + "/", "FEX_PORTABLE": "1",
                            "VK_DRIVER_FILES": str(args.icd), "LVP_DRM_SYNC": str(args.render_node),
                            "LP_NUM_THREADS": "2"}
+        env.update(prepare_fex_server(config, args.rootfs))
         env.pop("LD_LIBRARY_PATH", None)
         # SteamVR dereferences a null GPU when enumeration fails on older kernels.
         subprocess.run(["/usr/local/bin/vulkan-interop"], env=env, check=True, timeout=20)

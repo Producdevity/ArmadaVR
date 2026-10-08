@@ -17,6 +17,48 @@ spec.loader.exec_module(session)
 
 
 class SessionTests(unittest.TestCase):
+    def test_fex_server_isolates_sessions_and_changed_rootfs(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary, mock.patch.dict(
+                os.environ, {"XDG_RUNTIME_DIR": temporary}):
+            root = Path(temporary)
+            first = session.prepare_fex_server(root / "session-a", root / "rootfs-a")
+            self.assertEqual(first, session.prepare_fex_server(root / "session-a", root / "rootfs-a"))
+            for config, rootfs in (("session-b", "rootfs-a"), ("session-a", "rootfs-b")):
+                other = session.prepare_fex_server(root / config, root / rootfs)
+                for key in first:
+                    self.assertNotEqual(first[key], other[key])
+            self.assertEqual(Path(first["FEX_APP_DATA_LOCATION"]).stat().st_mode & 0o777, 0o700)
+
+    def test_fex_server_refuses_linked_or_shared_runtime_paths(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            linked = root / "linked"
+            linked.symlink_to(runtime, target_is_directory=True)
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(linked)}):
+                with self.assertRaisesRegex(ValueError, "owned runtime"):
+                    session.prepare_fex_server(root / "config", root / "rootfs")
+            parent = runtime / "armada-vr-fex"
+            parent.mkdir(mode=0o755)
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
+                with self.assertRaisesRegex(ValueError, "private and owned"):
+                    session.prepare_fex_server(root / "config", root / "rootfs")
+            parent.rmdir()
+            parent.symlink_to(root, target_is_directory=True)
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
+                with self.assertRaisesRegex(ValueError, "regular owned"):
+                    session.prepare_fex_server(root / "config", root / "rootfs")
+
+    def test_fex_server_refuses_socket_path_fallback(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            runtime = Path(temporary) / ("x" * 100)
+            runtime.mkdir()
+            with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
+                with self.assertRaisesRegex(ValueError, "socket limit"):
+                    session.prepare_fex_server(runtime / "config", runtime / "rootfs")
+            self.assertEqual(list(runtime.iterdir()), [])
+
     def test_browser_cache_guard_only_targets_the_verified_interpreter(self):
         with tempfile.TemporaryDirectory() as temporary:
             config = Path(temporary)
@@ -83,6 +125,7 @@ class SessionTests(unittest.TestCase):
                           + ("sys.exit(0)" if early_exit else "time.sleep(30)"))
                 process = subprocess.Popen([sys.executable, "-c", parent, child], start_new_session=True,
                                            stdout=subprocess.PIPE, text=True)
+                cleaned = False
                 try:
                     self.assertTrue(select.select([process.stdout], [], [], 5)[0])
                     self.assertEqual(process.stdout.readline(), "ready\n")
@@ -92,11 +135,13 @@ class SessionTests(unittest.TestCase):
                     self.assertIsNotNone(process.poll())
                     self.assertTrue(select.select([process.stdout], [], [], 2)[0], "Descendant kept the pipe open")
                     self.assertEqual(process.stdout.read(), "")
+                    cleaned = True
                 finally:
-                    try:
-                        os.killpg(process.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                    if not cleaned:
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
                     process.wait(timeout=5)
                     process.stdout.close()
 

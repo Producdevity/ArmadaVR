@@ -111,6 +111,24 @@ failure is preserved. No new core dump is recorded during that session.
 The cache comparison and all three results are retained in
 `output/blockers-20261008-v2/cef-cache-v2.tar.gz`.
 
+## FEX session isolation
+
+The translated launcher now gives each configuration/rootfs pair its own FEX
+server data directory and socket namespace under the user's runtime directory.
+An existing FEX server supplies its rootfs to connecting clients, even when
+their configuration selects another rootfs. A real VM regression reproduces
+that interference with a live translated process; the maintained isolation
+helper rejects the deliberately missing rootfs while the valid session keeps
+working. Linked/shared directories and paths exceeding the Unix socket limit
+are refused, avoiding FEX's fallback to a shared socket.
+
+Steam's compatibility tool also rewrites its client configuration with a
+temporary graphics-provider path. Restart tests must regenerate their initial
+configuration from the verified inputs. A separately scoped x86 client now
+authenticates using an explicitly authorized guest-only session copy alongside
+a fresh SteamVR dashboard. Its stock Library websocket remains disconnected;
+authentication alone does not establish Library navigation or scrolling.
+
 ## Dashboard interaction, September 11
 
 The newer backend v17 uses the unchanged maintained launcher from bundle v10,
