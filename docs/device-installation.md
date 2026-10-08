@@ -199,13 +199,23 @@ and distinguishes normal signed upgrades from EDL downgrade and recovery.
 The October 8 offline module audit found a concrete stock-ABI mismatch: all
 twenty dependencies of the passing VM inventory fixture exist in the current
 stock kernel, but eleven version CRCs differ, including `module_layout`. The
-fixture therefore cannot be treated as a stock-compatible module. The stock
+fixture therefore cannot be treated as a stock-compatible module. On October 9,
+isolated genuine Kbuild compilations reproduce all twenty stock CRCs when given
+the stock configuration, while the VM configuration reproduces all twenty
+original fixture CRCs. The same cached source and compiler are used in both
+arms, with CFI and module versioning retained. This explains the eleven checksum
+differences through configuration, without altering any version records.
+Evidence: `output/quest-stock-abi-compile-20261009-v4/`; the preceding failed
+assembly-target invocation and narrower experiments are preserved.
+
+This is interface-checksum agreement, not a stock-compatible module or a full
+stock kernel reproduction. The stock
 compiler's named Android Clang 14.0.7/r450784e build is
 [publicly available](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/5538393cf30cb39da6d53730a9b85f36958230da).
 Meta's public 5.10.237 source candidate still lacks a proven mapping to this
-stock build. A genuine source/configuration/toolchain rebuild and ABI comparison
-are required; editing version records or disabling CFI would not establish
-compatibility.
+stock build. Exact-toolchain CFI and loader-lifecycle checks, relevant inline
+layouts and source-semantic comparisons remain necessary before any stock
+module acceptance claim.
 
 1. **Establish exact-device boot and restoration.** Retain the authenticated
    stock OTA and verified boot artifacts matching the current build. Preserve
@@ -238,8 +248,9 @@ compatibility.
    compatibility-tool lifecycle. Verify actual game saves, clean init shutdown, Android OpenXR and
    Android/Linux graphics buffer and fence sharing. FUSE handles the writable
    views; native kernel rootless OverlayFS remains unsupported.
-7. **Finish repeatable VR acceptance.** Build a complete fresh image, repeat
-   Windows rendering on a fresh backend, and verify both-hand stock dashboard
+7. **Finish repeatable VR acceptance.** The [complete current root](headset-root.md)
+   and its QEMU handoff tests now pass. Repeat Windows rendering on a fresh
+   SteamVR backend, and verify both-hand stock dashboard
    selection, scrolling, navigation, menu, close/reopen and focus transfer.
    Diagnose renderer exits and allocation failures; test game launch, audio,
    runtime restart and bounded soak. Measure sustained frame times and power on
