@@ -1,7 +1,10 @@
 import importlib.util
 import hashlib
 import json
+import os
 from pathlib import Path
+import select
+import signal
 import subprocess
 import sys
 import tempfile
@@ -13,6 +16,31 @@ spec.loader.exec_module(session)
 
 
 class SessionTests(unittest.TestCase):
+    def test_stop_removes_descendants_after_the_group_leader_exits(self):
+        for early_exit in (False, True):
+            with self.subTest(early_exit=early_exit):
+                child = "import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); print('ready',flush=True); time.sleep(30)"
+                parent = ("import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[1]]); "
+                          + ("sys.exit(0)" if early_exit else "time.sleep(30)"))
+                process = subprocess.Popen([sys.executable, "-c", parent, child], start_new_session=True,
+                                           stdout=subprocess.PIPE, text=True)
+                try:
+                    self.assertTrue(select.select([process.stdout], [], [], 5)[0])
+                    self.assertEqual(process.stdout.readline(), "ready\n")
+                    if early_exit:
+                        self.assertEqual(process.wait(timeout=5), 0)
+                    session.stop(process)
+                    self.assertIsNotNone(process.poll())
+                    self.assertTrue(select.select([process.stdout], [], [], 2)[0], "Descendant kept the pipe open")
+                    self.assertEqual(process.stdout.read(), "")
+                finally:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait(timeout=5)
+                    process.stdout.close()
+
     def native_fixture(self, root):
         runtime, bundle = root / "runtime", root / "bundle"
         binaries = runtime / "bin/linuxarm64"

@@ -18,12 +18,25 @@ def stop(process):
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
+        process.poll()
         return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        process.poll()
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            process.wait(timeout=5)
+            return
+        except PermissionError:
+            # macOS can return EPERM while a signaled process is exiting.
+            pass
+        time.sleep(0.05)
     try:
-        process.wait(timeout=5)
-    except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=5)
+    except ProcessLookupError:
+        pass
+    process.wait(timeout=5)
 
 
 def wait_for_startup(processes, logfile, offset, timeout, marker=b"Startup Complete ("):
