@@ -18,6 +18,7 @@ PROPERTIES = (
     "ro.boot.bootloader", "ro.boot.hardware.sku", "ro.boot.hwrev",
     "ro.boot.dtbo_idx", "ro.boot.veritymode", "ro.boot.vbmeta.avb_version",
     "ro.product.vendor.device", "ro.vendor.build.fingerprint",
+    "ro.pico.tag", "ro.secure.boot.tag", "ro.oem.state",
 )
 QUERIES = {
     "kernel": "uname -a",
@@ -69,6 +70,9 @@ def observations(properties, queries):
         "su_path": value(queries, "root_binary"),
         "selinux_reported_state": value(queries, "selinux"),
         "selected_dtbo_indices": value(properties, "ro.boot.dtbo_idx"),
+        "pico_firmware_tag": value(properties, "ro.pico.tag"),
+        "pico_secure_boot_tag": value(properties, "ro.secure.boot.tag"),
+        "pico_oem_state": value(properties, "ro.oem.state"),
         "limitations": [
             "Android properties may be absent or spoofed; they do not prove unsigned boot or recovery.",
             "A non-root ADB shell does not rule out root through another service; su is not invoked.",

@@ -65,9 +65,11 @@ build. Its source overlay order puts PVT1.1 at index 11; this is a candidate
 mapping until the unit's installed table is obtained. The newer reference OTA
 below is not this headset's recovery image.
 
-The current upstream Singularity README still names Quest 3 incremental
+The September inspection of the upstream Singularity README names Quest 3 incremental
 `52345320035400520`; it does not validate our newer reference OTA or establish a
-retail bootloader unlock. The Pico tool still explicitly leaves Neo3 unconfirmed.
+retail bootloader unlock. At that inspection the Pico tool left Neo3 unconfirmed;
+its October source now claims Neo3 support. See the [current Pico assessment](pico-firmware.md)
+for the remaining Pro/Pro Eye evidence and recovery requirements.
 Pico4 recovery instructions using a Neo3 Pro engineering ABL are tested on
 Pico4-family hardware, and cannot serve as a verified Pro/Pro Eye restore route.
 Sources: [Singularity](https://github.com/Lumince/singularity),
@@ -451,8 +453,9 @@ camera wiring, PM8009 power hardware and 72/90 Hz display behaviour. It supplies
 no identified Neo3 Pro or Pro Eye DTS in that missing directory. Neither the
 release nor the community unlock documentation establishes exact enterprise-SKU
 compatibility. The new source profile therefore refuses a Pico DT build.
-The [unlock tool's current status](https://github.com/chaixshot/more-picohaxx-tool#status)
-still explicitly lists Neo 3 as unconfirmed, while confirming Pico 4/4 Pro.
+The [current unlock-tool assessment](pico-firmware.md) supersedes the earlier
+Neo3-unconfirmed status. Its generic Neo3 support claim does not validate either
+enterprise SKU or this project's custom Linux image.
 
 The old kernel also needs a userspace compatibility strategy. For comparison,
 [current systemd upstream](https://github.com/systemd/systemd/blob/main/README)

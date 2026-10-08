@@ -1,6 +1,6 @@
 # Quest / Pico SteamOS feasibility
 
-For the October 7 update and current implementation priorities, see
+For the October 8 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
 retain their original investigation dates.
 
@@ -15,11 +15,11 @@ retail Quest 3 remains blocked first by its boot chain, then by hardware bring-u
 and tracking. Root access alone does not remove either problem. A headset port is
 more than compiling SteamOS for a related Snapdragon chip.
 
-The first hardware candidate is the **Neo3 Pro**, subject to checking its exact
-firmware and a recoverable unlock method. The Pro Eye should follow once basic
-boot, display, controller and thermal behaviour work, because eye tracking adds
-another calibration and runtime dependency. Neither has been proven safe to
-flash in this project.
+Quest 3 remains the primary hardware target. Neo3 Pro is a candidate for an
+earlier minimal Linux boot experiment if its exact firmware and recovery checks
+establish a shorter path. Pro Eye needs separate eye calibration and runtime
+support. Neither Pico has been proven safe to flash in this project; see the
+[current firmware and boot-access assessment](pico-firmware.md).
 
 ## Hardware and the Snapdragon comparison
 
@@ -78,8 +78,9 @@ a claim that an unlock can never be developed.
 [more-picohaxx](https://github.com/264312431/more-picohaxx) and the
 [documented tool fork](https://github.com/chaixshot/more-picohaxx-tool) describe a
 route involving EDL, an engineering ABL/devinfo, and an unlock token. The fork
-confirms Pico4/Pico4 Pro but explicitly leaves Neo3 unconfirmed. It also
-specifies different programmers for different memory hardware. These are
+now claims generic Neo3 support on firmware 5.11.2 and below. This supersedes its
+earlier Neo3-unconfirmed status, without establishing Pro/Pro Eye compatibility.
+It also specifies different programmers for different memory hardware. These are
 community tools, not a vendor promise that either of these two enterprise
 headsets can always be recovered.
 

@@ -1,7 +1,8 @@
 # ArmadaVR
 
 An experimental ARM64 Linux VR environment and headset board-support project.
-The primary hardware target is Quest 3; Pico Neo3 family support is exploratory.
+The primary hardware target is Quest 3. Pico Neo3 Pro and Pro Eye are additional
+bring-up targets, with their own firmware, recovery and calibration requirements.
 There is no validated headset installation image.
 
 The development environment uses Fedora, Armada's FEX packaging, native Monado
@@ -61,6 +62,7 @@ used by the recorded SteamVR tests.
 - [Turnip](docs/turnip.md), [Monado](docs/monado.md), and [DMA-buffer synchronization](docs/dma-buf-sync.md)
 - [SteamVR](docs/steamvr.md), [native ARM64 runtime](docs/steamvr-arm64.md), [Windows OpenXR](docs/windows-openxr.md), and [controller acceptance](docs/controller-tests.md)
 - [VR acceptance milestones](docs/vr-milestones.md), [Steam Frame components](docs/steam-frame.md), and [Android container checks](docs/android-containers.md)
+- [Pico firmware and boot access](docs/pico-firmware.md)
 
 Source revisions, archive hashes and build profiles are recorded under
 `profiles/`. Build tooling retains upstream license files. Firmware, calibration,
