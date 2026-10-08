@@ -65,6 +65,17 @@ and service-mapper integration now have separate virtual acceptance. DSP authent
 charging, USB role negotiation, physical root discovery and exact-device
 recovery remain unverified. These images are not flash-ready.
 
+October 8, current build `52083180032000520`: the independently authenticated OTA
+and verified payload identify vendor image SHA-256
+`6d126f9a3db39a7f8bed2268b7fbd3e2f6acb35a4ae768c83c8690f97f7c25d6`.
+`output/quest-adsp-firmware-52083180032000520-v1/` contains 48 files totaling
+13,448,003 bytes; its source-image hash is unchanged after extraction.
+Twenty-eight files differ from the earlier reference bundle, while all four
+ADSP service declarations are unchanged. The matching physical-kernel
+[initramfs](headset-initramfs.md) includes this bundle. Outer OTA authentication
+and payload integrity do not establish direct firmware authentication,
+secure-world acceptance or physical operation.
+
 
 ## GPU firmware
 
@@ -113,3 +124,10 @@ The QEMU root also passes the native/Windows VR lab and mapper-failure poweroff
 with an unchanged backing image (`output/quest-startup-gpu-firmware-v1/`).
 The lab uses software rendering. Real panel scanout, GPU completion, firmware
 acceptance and exact-device recovery remain open.
+
+The exact-current vendor image also supplies
+`output/quest-gpu-firmware-52083180032000520-v1/`: five files totaling 157,952
+bytes. The ZAP MDT and `.b02` differ from the older reference; the SQE version
+and file set are unchanged. Structural checks pass, but this new bundle has
+not been executed or packaged into a newly validated root filesystem. The
+older reference bundles and root images remain preserved.

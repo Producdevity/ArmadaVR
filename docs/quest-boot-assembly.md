@@ -107,3 +107,21 @@ extent in those kernel builds. The Linux-userspace linker patch now retains that
 data inside the read-only kernel sections and preserves page alignment. The
 current assembler refuses those earlier Images; their recorded container results
 remain historical evidence, not acceptance of the kernel's boot geometry.
+
+October 8: `output/quest3-boot-assembly-current-linker-20261008-v1/` uses the
+complete `linux-image-layout-20261008-v1` build, its matching
+`headset-initramfs-quest-current-20261008-v1`, and current reference
+`52083180032000520`. This initramfs includes all 272 matching modules, 48
+exact-current ADSP firmware files and the bounded Quest startup service.
+The new Image passes the extent guard with zero trailing bytes. Both stock
+payload roundtrips, Linux payload extraction, all 13 overlay matches, partition
+headroom and unchanged reference inputs pass.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| boot | 73,736,192 | `8baf8ac8f7ec2d9f340668d2aa2dcba606f7c400411c44fda4af59120e7147fe` |
+| vendor_boot | 716,800 | `6f0ac21d29ccae115f2dedecc2d4e728fbbe7c41734fa4a142888389ab2842d4` |
+| dtbo | 12,564 | `227b03c7b0bf2f052ec65fb97b6991c2e3135ab513d41c6908c3abb574beff9b` |
+
+These remain unsigned offline artifacts. No physical load address, custom boot,
+recovery, peripheral handoff or driver operation was verified by this assembly.

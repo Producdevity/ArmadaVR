@@ -107,9 +107,14 @@ and all 11 DMA-buffer synchronization checks, including 256 mapping-lifetime
 cycles. Clang CFI remains enabled and the thermal test module loads successfully.
 The file is now 39,358,976 bytes, with the same 41,025,536-byte declared RAM
 requirement and no trailing section. Prior artifacts are preserved; a complete
-new physical kernel package and Quest boot acceptance remain unverified. The
-loader's geometry and bounded-copy assumptions still need a Quest-specific
-implementation.
+physical build now also passes: `linux-image-layout-20261008-v1` exports the
+5.10.246 kernel, 272 AArch64 modules and 14 device trees. Its Image is 38,947,328
+bytes within the declared 40,566,784-byte RAM extent, with retained unwind data
+and aligned early page tables. The matching initramfs contains ADSP firmware
+from the authenticated current-build OTA; unsigned current-reference container
+roundtrips pass. See [boot assembly](quest-boot-assembly.md). Quest boot acceptance
+remains unverified. The loader's geometry and bounded-copy assumptions still
+need a Quest-specific implementation.
 
 **The current build has a matching public root target.**
 [Fuguquest's target file](https://github.com/Henry1887/fuguquest/blob/2324ce262e674504ad41ec82abcda3bf09dd01e6/targets/q3_52083180032000520.json)

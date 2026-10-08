@@ -127,3 +127,28 @@ installer or updater. It uses reference firmware `52433670036000520`, which
 differs from the recorded headset. Boot acceptance, authenticated recovery,
 physical drivers, firmware/calibration, display, tracking and full VR interaction
 remain unverified. These artifacts are not flash-ready.
+
+October 8: the complete physical-kernel rebuild
+`output/kernel/quest3/linux-image-layout-20261008-v1/` retains Clang CFI, moves
+the 2,404-byte unwind section inside the read-only kernel extent, and preserves
+all seven early page-table boundaries on 4 KiB alignment. All 28 exported
+artifact hashes, 272 AArch64 module payloads and 14 device trees pass independent
+package checks. The corrected Image is 38,947,328 bytes, SHA-256
+`082ed1a0f4225f98f1303cbeab0a92d20449f7d5839d3b7a8ddd44aecec5bb23`.
+
+`output/headset-initramfs-quest-current-20261008-v1/` packages that build's modules
+and all 48 ADSP files from the authenticated `52083180032000520` vendor payload.
+It is 34,782,677 bytes, SHA-256
+`9956f57327a91e2dd9db05a1918e81b3c77e7caaf529d58858c4284a1b57fea7`.
+The unpacked modules, firmware and startup helpers match their source hashes.
+The thermal, root and startup QEMU runners refuse these physical artifacts
+before creating outputs.
+
+The restored builder uses dracut 108 and systemd 259.9. Its companion initramfs
+was tested against the previously verified `qemu-udmabuf-v1` kernel: six modeled
+Quest startup cases and both root-overlay/missing-root cases pass, with unchanged
+writable test disks. These checks validate the changed userspace dependencies
+and exact-current firmware packaging; they do not boot the new physical Image
+or execute DSP firmware. The corrected linker has separate diskless QEMU
+thermal and DMA-buffer acceptance. The earlier outputs and failures remain
+preserved.
