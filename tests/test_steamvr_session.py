@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("steamvr_session", Path(__file__).parents[1] / "tools/steamvr-session.py")
 session = importlib.util.module_from_spec(spec)
@@ -16,6 +17,64 @@ spec.loader.exec_module(session)
 
 
 class SessionTests(unittest.TestCase):
+    def test_browser_cache_guard_only_targets_the_verified_interpreter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary)
+            self.assertFalse(session.prepare_browser_config(config, "another-build"))
+            self.assertEqual(list(config.iterdir()), [])
+            self.assertTrue(session.prepare_browser_config(config, session.FEX_BROWSER_CACHE_SHA256))
+            path = config / "AppConfig/vrwebhelper.json"
+            self.assertEqual(json.loads(path.read_text()), {
+                "Config": {"DynamicL1CacheDecreaseCountHeuristic": "0"}})
+            self.assertEqual([p.name for p in path.parent.iterdir()], ["vrwebhelper.json"])
+
+    def test_browser_cache_guard_preserves_compatible_existing_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary)
+            (config / "AppConfig").mkdir()
+            path = config / "AppConfig/vrwebhelper.json"
+            original = b'{"ThunksDB":{"GL":0},"Config":{"DynamicL1CacheDecreaseCountHeuristic":"0","Multiblock":"1"}}\n'
+            path.write_bytes(original)
+            before = path.stat()
+            self.assertTrue(session.prepare_browser_config(config, session.FEX_BROWSER_CACHE_SHA256))
+            self.assertEqual(path.read_bytes(), original)
+            self.assertEqual(path.stat().st_mtime_ns, before.st_mtime_ns)
+
+    def test_browser_cache_guard_refuses_conflicts_without_rewriting_files(self):
+        for settings in ({"Config": {"DynamicL1CacheDecreaseCountHeuristic": "50"}},
+                         {"Config": []}, [], {"ThunksDB": {"GL": 0}}):
+            with self.subTest(settings=settings), tempfile.TemporaryDirectory() as temporary:
+                config = Path(temporary)
+                (config / "AppConfig").mkdir()
+                path = config / "AppConfig/vrwebhelper.json"
+                path.write_text(json.dumps(settings))
+                original = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "conflicts"):
+                    session.prepare_browser_config(config, session.FEX_BROWSER_CACHE_SHA256)
+                self.assertEqual(path.read_bytes(), original)
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.dict(
+                os.environ, {"FEX_DYNAMICL1CACHEDECREASECOUNTHEURISTIC": "50"}):
+            config = Path(temporary)
+            with self.assertRaisesRegex(ValueError, "Inherited"):
+                session.prepare_browser_config(config, session.FEX_BROWSER_CACHE_SHA256)
+            self.assertEqual(list(config.iterdir()), [])
+
+    def test_browser_cache_guard_refuses_linked_config_paths(self):
+        for linked in ("directory", "file"):
+            with self.subTest(linked=linked), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                config, external = root / "config", root / "external"
+                config.mkdir()
+                external.mkdir()
+                if linked == "directory":
+                    (config / "AppConfig").symlink_to(external, target_is_directory=True)
+                else:
+                    (config / "AppConfig").mkdir()
+                    (config / "AppConfig/vrwebhelper.json").symlink_to(external / "untouched.json")
+                with self.assertRaisesRegex(ValueError, "regular paths"):
+                    session.prepare_browser_config(config, session.FEX_BROWSER_CACHE_SHA256)
+                self.assertEqual(list(external.iterdir()), [])
+
     def test_stop_removes_descendants_after_the_group_leader_exits(self):
         for early_exit in (False, True):
             with self.subTest(early_exit=early_exit):

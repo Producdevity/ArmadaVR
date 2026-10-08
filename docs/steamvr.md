@@ -85,6 +85,32 @@ Resource limits contain future dump growth but do not resolve the browser crash.
 All public-runtime and installed-bundle files still pass integrity checks.
 See [the later repeat and its limits](windows-openxr.md#fresh-backend-repeat-october-8).
 
+The packaged interpreter is `FEX-2607-76-g37265b1`, with SHA-256
+`f9cbb7a70e804b9930fed02fd9d1349d49d7808faace703063a9b4944bc3568e`.
+It predates [FEX's L1 cache invalidation fix](https://github.com/FEX-Emu/FEX/pull/5856).
+A real growth/rewrite/shrink regression executes stale code with its default
+settings and executes the rewritten code with cache shrinking disabled. The
+same regression passes using the maintained launcher's private per-application
+configuration, with the test executable named `vrwebhelper`.
+
+For this exact interpreter hash, `steamvr-session.py` creates
+`fex-session/AppConfig/vrwebhelper.json` with
+`DynamicL1CacheDecreaseCountHeuristic` set to `"0"`. Compatible existing files
+are preserved; conflicting files, symbolic links and inherited conflicting
+environment settings are refused. Other interpreter builds are left alone.
+The setting applies to the translated browser helper; games and the compositor
+retain their existing configuration. Disabling shrinking can retain more cache
+memory, and headset performance is untested.
+
+This proves the stale-code guard, not the cause or resolution of the CEF failure.
+[Upstream reports](https://github.com/FEX-Emu/FEX/issues/5336) retain browser
+failures after the invalidation fix alone. Fresh cache-test backend v2 passes
+left- and right-hand Windows focus/haptic/menu exits. A later left-hand run
+fails when the backend's configured deadline interrupts its stimulus; the
+failure is preserved. No new core dump is recorded during that session.
+The cache comparison and all three results are retained in
+`output/blockers-20261008-v2/cef-cache-v2.tar.gz`.
+
 ## Dashboard interaction, September 11
 
 The newer backend v17 uses the unchanged maintained launcher from bundle v10,

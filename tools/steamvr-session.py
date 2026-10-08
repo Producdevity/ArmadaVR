@@ -14,6 +14,34 @@ import time
 import tempfile
 
 
+# This verified build predates FEX #5856 and executes stale code after cache resizing.
+FEX_BROWSER_CACHE_SHA256 = "f9cbb7a70e804b9930fed02fd9d1349d49d7808faace703063a9b4944bc3568e"
+
+
+def prepare_browser_config(config, interpreter_sha256):
+    if interpreter_sha256 != FEX_BROWSER_CACHE_SHA256:
+        return False
+    key = "DynamicL1CacheDecreaseCountHeuristic"
+    if os.environ.get("FEX_DYNAMICL1CACHEDECREASECOUNTHEURISTIC") not in (None, "0"):
+        raise ValueError("Inherited FEX cache-shrink setting overrides the verified browser guard")
+    directory = config / "AppConfig"
+    path = directory / "vrwebhelper.json"
+    if config.is_symlink() or directory.is_symlink() or path.is_symlink():
+        raise ValueError("Browser AppConfig must use regular paths inside the private session")
+    if path.exists():
+        if not path.is_file() or path.stat().st_size > 65536:
+            raise ValueError("Invalid existing browser AppConfig")
+        settings = json.loads(path.read_text())
+        values = settings.get("Config") if isinstance(settings, dict) else None
+        if not isinstance(values, dict) or values.get(key) != "0":
+            raise ValueError("Existing browser AppConfig conflicts with the verified cache guard")
+    else:
+        directory.mkdir(mode=0o700, exist_ok=True)
+        with path.open("x") as stream:
+            stream.write(json.dumps({"Config": {key: "0"}}, indent=2) + "\n")
+    return True
+
+
 def stop(process):
     try:
         os.killpg(process.pid, signal.SIGTERM)
@@ -315,6 +343,10 @@ def run(args):
                 args.resolver = bundle / "libvulkan-procaddr.so"
         config = state / "fex-session"
         config.mkdir(exist_ok=True)
+        with fex.open("rb") as stream:
+            fex_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+        if prepare_browser_config(config, fex_sha256):
+            print("Applied browser-only cache-shrink guard for verified FEX-2607-76.", flush=True)
         (config / "Config.json").write_text(json.dumps({
             "Config": {"RootFS": str(args.rootfs),
                        "ThunkHostLibs": str(fex_root / "lib/aarch64-linux-gnu/fex-emu/HostThunks"),
