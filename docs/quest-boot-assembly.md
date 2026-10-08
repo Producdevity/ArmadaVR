@@ -29,6 +29,12 @@ it is not a certificate of device compatibility. The assembler refuses QEMU
 kernels, mixed kernel/initramfs builds, changed artifacts, altered AOSP tools,
 unexpected tool dependencies and existing outputs.
 
+It also inspects the raw ARM64 Image before creating an output directory. The
+header must declare its RAM extent and the file must fit within that extent;
+appended bytes are refused rather than stripped. The report records the kernel's
+text offset, page size and RAM requirement without selecting a physical load
+address or establishing memory ownership.
+
 Before assembling Linux containers it unpacks and rebuilds the original boot
 and vendor_boot payloads with AOSP's tools. Both must match the original unsigned
 payload byte-for-byte. It preserves empty arguments from the unpacker's NUL
@@ -94,3 +100,10 @@ peripheral handoff or bootloader acceptance. Authenticated recovery, an accepted
 custom boot route, firmware/calibration and physical driver operation remain
 missing. These unsigned files are not flash-ready. The QEMU initramfs/runtime
 results exercise Linux userspace and archive handling, not the Quest bootloader.
+
+The earlier container roundtrips did not check the raw ARM64 Image's RAM extent.
+Subsequent inspection found 2,404 bytes of CFI unwind data beyond the declared
+extent in those kernel builds. The Linux-userspace linker patch now retains that
+data inside the read-only kernel sections and preserves page alignment. The
+current assembler refuses those earlier Images; their recorded container results
+remain historical evidence, not acceptance of the kernel's boot geometry.

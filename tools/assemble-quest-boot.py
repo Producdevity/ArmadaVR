@@ -104,6 +104,17 @@ def root_arguments(label, *, quest_services=False):
             + (" armada.quest=usb-root" if quest_services else ""))
 
 
+def checked_kernel_image(path, expected_sha256):
+    report = boot.inspect(path, arm64=True)
+    if report["sha256"] != expected_sha256:
+        raise ValueError("ARM64 kernel Image checksum mismatch")
+    if report["minimum_ram_bytes"] is None:
+        raise ValueError("ARM64 kernel Image must declare its RAM extent")
+    if report["bytes_beyond_declared_image"]:
+        raise ValueError("ARM64 kernel Image extends beyond its declared RAM extent")
+    return report
+
+
 def run(args):
     reference, kernel, initramfs = args.reference.resolve(), args.kernel.resolve(), args.initramfs.resolve()
     tool, output = args.mkbootimg.absolute(), args.output.absolute()
@@ -115,6 +126,7 @@ def run(args):
     kernel_report, kernel_hashes, _, _ = builder.inputs(kernel)
     if kernel_report["qemu_transports"] is not False:
         raise ValueError("Quest container assembly refuses QEMU transport kernels")
+    kernel_image = checked_kernel_image(kernel / "Image", kernel_hashes["Image"])
     initrd_report = json.loads((initramfs / "build.json").read_text())
     if (initrd_report.get("status") != "built" or initrd_report.get("qemu_transports") is not False or
             initrd_report.get("kernel_build_sha256") != builder.digest(kernel / "build.json")):
@@ -158,6 +170,7 @@ def run(args):
               "device_compatibility_verified": False, "signatures_created": False,
               "reference_build": args.reference_build, "reference_integrity": integrity,
               "kernel_build_sha256": builder.digest(kernel / "build.json"),
+              "kernel_image": kernel_image,
               "initramfs_build_sha256": builder.digest(initramfs / "build.json"),
               "firmware": firmware_manifest, "quest_services": quest_services, "cmdline": cmdline,
               "assembler_sha256": builder.digest(Path(__file__)), "aosp_profile": profile,
@@ -231,7 +244,8 @@ def run(args):
             if builder.digest(reference / (name + ".img")) != item["sha256"]:
                 raise ValueError("Reference inputs changed during assembly")
         if (builder.digest(kernel / "build.json") != report["kernel_build_sha256"] or
-                builder.digest(initramfs / "build.json") != report["initramfs_build_sha256"]):
+                builder.digest(initramfs / "build.json") != report["initramfs_build_sha256"] or
+                builder.digest(kernel / "Image") != kernel_image["sha256"]):
             raise ValueError("Build inputs changed during assembly")
         report.update(status="assembled-and-roundtrip-verified", linux_payload_roundtrip_verified=True,
                       reference_inputs_unchanged=True)

@@ -154,3 +154,49 @@ class ToolIntegrityTests(unittest.TestCase):
         self.tool.symlink_to(self.root / "original")
         with self.assertRaisesRegex(ValueError, "symlinks"):
             assembly.checked_tools(self.directory)
+
+
+class KernelImageTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.path = Path(self.temp.name) / "Image"
+        self.addCleanup(self.temp.cleanup)
+
+    def image(self, ram_bytes, payload_bytes=4096):
+        data = bytearray(payload_bytes)
+        struct.pack_into("<3Q", data, 8, 0, ram_bytes, 10)
+        data[56:60] = b"ARM\x64"
+        self.path.write_bytes(data)
+        return hashlib.sha256(data).hexdigest()
+
+    def test_bss_ram_extent_is_retained_without_selecting_a_load_address(self):
+        sha = self.image(8192)
+        report = assembly.checked_kernel_image(self.path, sha)
+        self.assertEqual(report["size"], 4096)
+        self.assertEqual(report["minimum_ram_bytes"], 8192)
+        self.assertEqual(report["effective_text_offset"], 0)
+        self.assertIsNone(report["load_address"])
+        self.assertFalse(report["ram_ownership_verified"])
+
+    def test_orphan_section_or_appended_padding_is_not_silently_truncated(self):
+        for tail in (bytes(2404), bytes([0xA5]) * 2404):
+            self.image(4096)
+            original = self.path.read_bytes() + tail
+            self.path.write_bytes(original)
+            sha = hashlib.sha256(original).hexdigest()
+            with self.subTest(tail=tail[:1]), self.assertRaisesRegex(ValueError, "beyond"):
+                assembly.checked_kernel_image(self.path, sha)
+            self.assertEqual(self.path.read_bytes(), original)
+
+    def test_legacy_unbounded_image_is_refused(self):
+        sha = self.image(0)
+        with self.assertRaisesRegex(ValueError, "declare its RAM extent"):
+            assembly.checked_kernel_image(self.path, sha)
+
+    def test_wrong_image_identity_and_non_arm64_payload_are_refused(self):
+        self.image(8192)
+        with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+            assembly.checked_kernel_image(self.path, "0" * 64)
+        self.path.write_bytes(bytes(4096))
+        with self.assertRaisesRegex(ValueError, "ARM64"):
+            assembly.checked_kernel_image(self.path, hashlib.sha256(bytes(4096)).hexdigest())
