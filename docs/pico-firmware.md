@@ -41,7 +41,54 @@ Stock config enables KGSL, Binder, FUSE and OverlayFS, but omits SysV IPC,
 user/PID/UTS namespaces, `binfmt_misc` and `devtmpfs`. It enforces module
 signatures and has module versioning. A compatible custom kernel is needed for
 the Linux userspace; stock modules cannot simply be reused with a changed ABI.
-The stock boot chain and software version remain unchanged.
+No storage mutation commands have been sent to the unit.
+
+## EDL identity and partition backups
+
+A serial- and USB-port-guarded software EDL entry and Sahara query succeeded on
+the b1977 Pro Eye. The ROM reports MSM ID `0x000ce0e1`, OEM ID `0x013a` and
+model ID `0x0ae8`. Its full 48-byte root-key hash matches the Pico root
+certificate in the official engineering programmer. That root and attestation
+certificate also match the authenticated stock XBL, XBL configuration and ABL.
+
+The programmer was acquired from the
+[official Neo3 engineering package](https://static.us-pui.picovr.com/SEKSA-pico_rls_neo3-mol-tob-pui-4.8.0-20220622-falconcv3-user-20221017-225305-32g-b1981.zip).
+Its size is 675,320 bytes and SHA-256 is
+`d05711c81d07e426ab44a25dd9f4a391c0ddcbe251a935babb2532ca84ebdce1`.
+Signature, certificate-chain and segment hashes pass offline checks. ROM identity
+matching does not prove programmer execution, storage reads, restore capability,
+or acceptance of a custom boot image. No successful programmer transfer has
+been observed yet.
+
+The tested Sahara reset acknowledged the request but did not leave EDL, and
+subsequent USB descriptor reads failed. Do not rely on this command as a proven
+return-to-stock path. PICO documents a hardware reboot by holding Power for
+[more than ten seconds](https://www.picoxr.com/cn/neo3/pdf/PicoNeo3UserGuide.pdf).
+Independent cold EDL entry and restoration still need validation on this unit.
+macOS also requires approval when the Pico first changes to its Qualcomm USB
+identity; a pending accessory decision prevents libusb enumeration.
+
+Validate acquired primary and backup GPT headers and entry arrays before using
+their extents for partition acquisition:
+
+```sh
+python3 -B tools/inspect-gpt.py primary-header.bin primary-entries.bin \
+    backup-header.bin backup-entries.bin \
+    --sector-size LOGICAL_BLOCK_BYTES --total-sectors ACTUAL_LUN_LOGICAL_SECTORS
+```
+
+These are regular host files: each header occupies one logical sector; each
+array contains all its complete sectors. The tool checks header/array CRCs,
+locations, capacity, matching tables, partition GUIDs, bounds and overlap. It
+reports duplicate labels as ambiguous rather than selecting one. It never
+opens a device or repairs a table. Entry arrays are capped at 1 MiB.
+The format follows the [UEFI GPT specification](https://uefi.org/sites/default/files/resources/UEFI_Spec_2_8_final.pdf).
+
+Use independently observed LUN geometry. Linux sysfs `size` counts 512-byte
+units; Firehose counts logical sectors. Convert through bytes before comparing
+them. Synthetic 512/4096-byte-sector validation does not establish this unit's
+geometry or a restorable backup. Per-unit recovery, persist, picocfg, sensor/eye
+calibration and boot-chain acquisition remain necessary before persistent changes.
 
 ## Update decision
 
