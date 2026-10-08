@@ -45,6 +45,38 @@ from `profiles/vr-runtime.json`, mounted read-only at
 and the guest swap file currently live in the development overlay. A fresh
 desktop build does not yet reproduce all these additions.
 
+## Fresh backend and stock input, October 8
+
+The archived desktop disks were restored with their original lengths and hashes;
+a new child overlay holds every new guest write. A reconstructed, archive-verified
+x86 Proton disk is mounted read-only. No network, USB or host shares are attached.
+The installed bundle and all 3,544 public-runtime files pass integrity checks.
+
+Fresh backend v18 did not reach headset readiness. An experimental Frame 2.17.10
+ARM64 client also fails path-manager initialization against this 2.16.7 server;
+these versions must not be mixed. Backend v19, without that mixed client, reaches
+compositor readiness and the stock dashboard. The failed run remains preserved;
+this comparison does not establish its startup failure's cause.
+
+Both controllers now intersect the actual `system.systemui` overlay, select the
+primary pointer with their triggers, and close/reopen the stock dashboard using
+250 ms system-button presses. The earlier one-second stimulus overlaps the stock
+binding's one-second recenter threshold: a failed left-hand Windows run records
+`Recenter action triggered` without the requested dashboard transition. A separate
+stock test also coincides with a system UI renderer restart. Short presses pass
+for both hands without changing the controller driver or Valve bindings.
+
+The actual overlay uses an atlas: its measured pixel-coordinate transform and
+Vive pointer-tip transform determine the tested controller pose. Frontend scene
+keys such as `system.dashboard.quicklaunch` are not public overlay handles.
+The stock Library still displays the launch-Steam welcome panel and reports its
+separate Steam websocket disconnected. Successful pointer/toggle tests do not
+establish Library navigation or rendered scrolling; renderer reliability remains
+open. Windows rendering and focus pass for both hands on v19 and another fresh backend
+v20; one intervening unexpected process exit remains unresolved. Results are in
+[Windows OpenXR](windows-openxr.md).
+Evidence is in `output/desktop-backend-20261008/`.
+
 ## Dashboard interaction, September 11
 
 The newer backend v17 uses the unchanged maintained launcher from bundle v10,

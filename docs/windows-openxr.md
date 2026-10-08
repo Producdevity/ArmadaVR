@@ -61,6 +61,40 @@ Evidence is in `output/proton-x86-v1/openxr-v10-*` through `openxr-v15-*`.
 Windows game compatibility, a complete reproducible SteamVR image, sustained
 reliability and physical controller output remain unverified.
 
+## Fresh backend repeat, October 8
+
+A restored desktop baseline uses a new writable overlay and a read-only Proton
+disk. Backend v19 starts a new compositor session with the unchanged installed
+bundle. A new prefix is initialized once during the first left-hand attempt;
+the later runs reuse it, without copying an earlier prefix.
+
+| Run | Hand | OpenXR submissions | Compositor presentations | Matching virtual haptics | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| v19-right | Right | 409 | 820 | 69 | Focus transfer and normal menu exit |
+| v21-left | Left | 358 | 716 | 64 | Focus transfer and normal menu exit |
+| v22-right | Right | 457 | 768 | 64 | Focus and menu sequence pass; launcher exits 247 |
+| v23-right | Right | 316 | 622 | 50 | New backend v20, traced; normal menu exit |
+| v24-left | Left | 446 | 740 | 63 | Backend v20, untraced; normal menu exit |
+| v25-right | Right | 373 | 698 | 58 | Backend v20, untraced; normal menu exit |
+
+The successful runs record `FOCUSED` → `VISIBLE` → `FOCUSED` in the Windows
+sample itself, corresponding to dashboard open/close. Captures show unobstructed
+stereo cubes. The left-hand pass uses 250 ms system-button presses; the earlier
+one-second stimulus triggers recentering and fails the dashboard transition.
+The initial left-hand rendering and both failed stimuli remain preserved.
+
+The v22 sample reaches `EXITING` and destroys its OpenXR objects, but the launcher
+returns 247. It remains a failed repeat; the successful input sequence does not
+establish normal process exit or resolve the renderer restart near that run.
+A new backend v20 passes the traced right-hand repeat and an untraced left/right
+pair with the same corrected short presses. The process trace records normal
+launcher/sample exit; it does not reproduce or explain v22's failure. No new system
+UI restart appears during these three tests. All 3,544 runtime files and
+installed-bundle hashes still pass after the tests.
+Evidence, logs, counters and captures are in `output/desktop-backend-20261008/`.
+These software-rendered samples do not establish game performance or physical
+controller/headset operation.
+
 ## Launch in the active virtual SteamVR session
 
 `tools/run-steamvr-windows.py` discovers the current compositor's FEX interpreter,
