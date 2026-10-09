@@ -1,6 +1,6 @@
 # Device installation requirements
 
-Updated October 8, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
+Updated October 9, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
 tests, but no validated Quest installation or recovery procedure.
 
 ## Current Quest 3
@@ -74,8 +74,9 @@ during replacement and restoration. File readback alone does not prove code
 quiescence or instruction-cache visibility. That gap blocks running the trigger
 on the headset even though the isolated inventory callback now passes.
 
-Exact loader source/config/toolchain/CFI compatibility, the live reserved-memory
-map, independently usable recovery and custom-boot acceptance remain open.
+The inventory callback now passes on the unchanged stock kernel in QEMU, as
+described below. Full loader compatibility, the live reserved-memory map,
+independently usable recovery and custom-boot acceptance remain open.
 The signed stock package is not a backup of both slots or unit calibration.
 
 The read-only device probe records whole-disk sysfs capacity, logical block size
@@ -110,6 +111,10 @@ requires device-specific memory staging, interrupt, SMMU, USB and firmware
 handoff work. Audit and port the loader for Quest 3 before considering execution.
 Separate its RAM-only boot path from installation helpers that write storage.
 This route does not unlock the bootloader or establish persistent flash safety.
+Its [return script](https://github.com/YusufOzmen01/quest-kexec/blob/e61edbd7fbdf6dc4976a979c61cc545e04738422/tools/return-android.sh)
+depends on the target kernel's `/proc/qkx_bootdone`; the uninstaller requires
+working rooted stock Android. Neither establishes independent recovery from a
+failed Quest 3 handoff. Verify return on this unit before executing a new kernel.
 
 The compiled Quest Linux Image also differs from that loader's assumed geometry:
 its ARM64 header declares a zero text offset, little-endian execution and 4 KiB
@@ -235,8 +240,43 @@ Evidence: `output/quest-inventory-exact-compiler-20261009-v3/`,
 `output/quest-stock-layout-exact-compiler-20261009-v2/`. Earlier failed fixtures
 are preserved. These results establish the tested compiler/VM combination and
 selected layouts. Meta's public 5.10.237 source candidate still lacks a proven
-mapping to this stock build; exact stock loader behavior, source semantics and
-physical recovery remain unverified.
+mapping to this stock build.
+
+### Exact stock-kernel execution
+
+The authenticated, unchanged `5.10.237-g16c343ceed81` Image now boots in an
+isolated diskless QEMU guest. Its complete loaded image is hashed before guest
+execution. A small initramfs and host-side QMP log capture avoid the stock
+kernel's lack of QEMU serial and virtio disk drivers; no kernel patch is needed.
+The initial userspace boot and guest-initiated shutdown pass.
+
+The inventory module is also built with the captured stock configuration,
+normalized for the public source tree, and the matching Android compiler.
+Kbuild compiles twelve real exporter objects; a relocatable
+LTO link and unmodified `modpost` generate their version records. All twenty
+module imports match the stock audit without edited CRCs or forced loading.
+The module still uses newer public headers and explicitly accepts only the
+QEMU device tree, so it is not a headset deployment artifact.
+
+On the actual stock kernel, sixteen module loads now pass with the unchanged
+stock SELinux policy enforcing: four each for bounded memory inventory,
+allocation failure, missing property and denied output access. Each returns its
+expected error, leaves no resident module and preserves caller credentials.
+The protected output bytes remain unchanged, and the guest shuts down normally.
+A separate wrong-type callback test reaches its armed marker and then panics
+with a CFI failure before the target executes. The kernel's CFI protections
+remain enabled.
+
+Evidence: `output/quest-stock-qemu-20261009-v3/`,
+`output/quest-stock-inventory-build-20261009-v1/`,
+`output/quest-stock-inventory-vm-20261009-v3/` and
+`output/quest-stock-cfi-vm-20261009-v1/`, each with independent validation.
+Earlier harness failures are retained. These tests establish the inventory
+callback's stock-loader execution and cleanup in a VM. Safe privileged entry,
+live memory and DMA ownership, complete handoff-module compatibility, hardware
+drivers, accepted Quest boot and independent recovery remain unverified.
+
+### Remaining installation gates
 
 1. **Establish exact-device boot and restoration.** Retain the authenticated
    stock OTA and verified boot artifacts matching the current build. Preserve
