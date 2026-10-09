@@ -130,7 +130,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("action", choices=("status", "screenshot", "poweroff", "exec", "put"))
-    parser.add_argument("command", nargs="?", help="Shell command inside this VM, executed as root")
+    parser.add_argument("command", nargs="?", help="Guest shell command, put source, or screenshot output path")
     parser.add_argument("destination", nargs="?", help="Absolute guest destination for put; existing files are refused")
     args = parser.parse_args()
     try:
@@ -144,7 +144,12 @@ def main():
                 parser.error("exec requires a guest command")
             return guest_exec(args.directory, args.command)
         if args.action == "screenshot":
-            path = args.directory.resolve() / "desktop.png"
+            if args.destination is not None:
+                parser.error("screenshot accepts one optional output path")
+            path = (Path(args.command) if args.command else args.directory /
+                    f"desktop-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.png").absolute()
+            if path.exists() or path.is_symlink():
+                raise ValueError(f"Screenshot already exists: {path}")
             request(args.directory, "screendump", {"filename": str(path), "format": "png"})
             print(path)
         elif args.action == "poweroff":

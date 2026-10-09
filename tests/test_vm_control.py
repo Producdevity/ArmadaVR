@@ -1,11 +1,47 @@
 import sys
 import socket
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "tools"))
 import vm_control
+
+
+class ScreenshotTests(unittest.TestCase):
+    def test_explicit_existing_capture_is_preserved_without_contacting_vm(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            original = Path(temporary) / "evidence.png"
+            original.write_bytes(b"previous capture")
+            linked = Path(temporary) / "linked.png"
+            linked.symlink_to(original)
+            dangling = Path(temporary) / "dangling.png"
+            dangling.symlink_to(Path(temporary) / "missing.png")
+            for target in (original, linked, dangling):
+                with self.subTest(target=target.name), \
+                        patch.object(sys, "argv", ["vm_control.py", temporary, "screenshot", str(target)]), \
+                        patch.object(vm_control, "request") as request, \
+                        patch("sys.stderr"):
+                    with self.assertRaises(SystemExit) as error:
+                        vm_control.main()
+                    self.assertEqual(error.exception.code, 1)
+                    request.assert_not_called()
+            self.assertEqual(original.read_bytes(), b"previous capture")
+
+    def test_repeated_default_captures_do_not_overwrite_previous_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            original = Path(temporary) / "desktop.png"
+            original.write_bytes(b"previous capture")
+            def capture(_directory, _command, arguments):
+                with Path(arguments["filename"]).open("xb") as stream:
+                    stream.write(b"new capture")
+            with patch.object(sys, "argv", ["vm_control.py", temporary, "screenshot"]), \
+                    patch.object(vm_control, "request", side_effect=capture), patch("builtins.print"):
+                self.assertEqual(vm_control.main(), 0)
+                self.assertEqual(vm_control.main(), 0)
+            self.assertEqual(original.read_bytes(), b"previous capture")
+            self.assertEqual(len(list(Path(temporary).glob("*.png"))), 3)
 
 
 class Stream:
