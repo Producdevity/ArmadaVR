@@ -41,7 +41,8 @@ def kernel_inputs(kernel):
 
 def check_log(log):
     markers = ['ANDROID_PIDNS_PASS container_pid=1', 'ANDROID_USERNS_PASS host_uid=1000 container_uid=0', 'ANDROID_BINDER_ISOLATION_PASS',
-               'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
+               'ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1',
+               'ANDROID_BINDER_POLLFREE_PASS iterations=32', 'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
                'ANDROID_CONTAINER_KERNEL_PASS', 'reboot: Power down']
     markers += [f'ANDROID_BINDER_PASS name={name} protocol=8 independent_contexts=2'
                 for name in ('anbox-binder', 'anbox-hwbinder', 'anbox-vndbinder')]
@@ -55,6 +56,7 @@ def check_log(log):
     if overlay_pass + overlay_unavailable != 1:
         raise RuntimeError('Missing or inconsistent rootless OverlayFS result')
     return {'rootless_binderfs': True, 'independent_binder_contexts': 6,
+            'binder_transaction_and_fd_passing': True, 'binder_pollfree_iterations': 32,
             'pid_namespace_and_procfs': True, 'memfd_sharing_and_seals': True, 'seccomp_filter': True,
             'native_rootless_overlayfs': bool(overlay_pass)}
 

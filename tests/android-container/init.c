@@ -9,6 +9,8 @@
 #include <sched.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <stdint.h>
+#include <sys/epoll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -59,6 +61,165 @@ static int binder_device(const char *directory, const char *name, dev_t *device_
     return fd;
 }
 
+static void binder_write(int fd, uint32_t command, const void *data, size_t size)
+{
+    unsigned char buffer[4 + sizeof(struct binder_transaction_data)];
+    require(size <= sizeof(buffer) - 4, "binder_command_size");
+    memcpy(buffer, &command, 4);
+    if (size)
+        memcpy(buffer + 4, data, size);
+    struct binder_write_read io = {
+        .write_size = 4 + size,
+        .write_buffer = (uintptr_t)buffer,
+    };
+    require(ioctl(fd, BINDER_WRITE_READ, &io) == 0 && io.write_consumed == io.write_size,
+            "binder_command_written");
+}
+
+static struct binder_transaction_data binder_read(int fd, uint32_t expected)
+{
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        unsigned char buffer[1024];
+        struct binder_write_read io = {.read_size = sizeof(buffer), .read_buffer = (uintptr_t)buffer};
+        require(ioctl(fd, BINDER_WRITE_READ, &io) == 0 && io.read_consumed <= sizeof(buffer),
+                "binder_response_read");
+        size_t cursor = 0;
+        int found = 0;
+        struct binder_transaction_data result = {0};
+        while (cursor < io.read_consumed) {
+            uint32_t command;
+            require(io.read_consumed - cursor >= sizeof(command), "binder_response_header");
+            memcpy(&command, buffer + cursor, sizeof(command));
+            cursor += sizeof(command);
+            size_t size = _IOC_SIZE(command);
+            require(size <= io.read_consumed - cursor, "binder_response_size");
+            if (command == expected) {
+                require(!found && size == sizeof(result), "single_binder_response");
+                memcpy(&result, buffer + cursor, sizeof(result));
+                found = 1;
+            } else {
+                require(command == BR_NOOP || command == BR_TRANSACTION_COMPLETE,
+                        "unexpected_binder_response");
+            }
+            cursor += size;
+        }
+        if (found)
+            return result;
+    }
+    require(0, "binder_response_limit");
+    return (struct binder_transaction_data){0};
+}
+
+static void *binder_mapping(int fd)
+{
+    void *mapping = mmap(NULL, 128 * 1024, PROT_READ, MAP_PRIVATE, fd, 0);
+    require(mapping != MAP_FAILED, "binder_transaction_mapping");
+    return mapping;
+}
+
+static void binder_buffer(void *mapping, binder_uintptr_t address, size_t size)
+{
+    uintptr_t base = (uintptr_t)mapping;
+    require(address >= base && size <= 128 * 1024 && address - base <= 128 * 1024 - size,
+            "binder_mapped_buffer_bounds");
+}
+
+static void binder_transaction_test(void)
+{
+    const char *path = "/work/binder-a/transaction-binder";
+    dev_t id;
+    int server = binder_device("/work/binder-a", "transaction-binder", &id);
+    void *server_map = binder_mapping(server);
+    struct flat_binder_object manager = {.flags = FLAT_BINDER_FLAG_ACCEPTS_FDS};
+    require(ioctl(server, BINDER_SET_CONTEXT_MGR_EXT, &manager) == 0, "transaction_context_manager");
+    pid_t client = fork();
+    require(client >= 0, "transaction_client_fork");
+    struct payload {
+        uint64_t value;
+        struct binder_fd_object file;
+    };
+    if (!client) {
+        close(server);
+        munmap(server_map, 128 * 1024);
+        int fd = open(path, O_RDWR | O_CLOEXEC);
+        require(fd >= 0, "transaction_client_open");
+        void *mapping = binder_mapping(fd);
+        int memory = memfd_create("binder-payload", MFD_CLOEXEC);
+        require(memory >= 0 && write(memory, "binder-fd-payload", 17) == 17, "transaction_memfd");
+        struct payload payload = {.value = UINT64_C(0x41524d4144415652),
+                                  .file = {.hdr = {.type = BINDER_TYPE_FD}, .fd = memory}};
+        binder_size_t offset = offsetof(struct payload, file);
+        struct binder_transaction_data request = {
+            .target.handle = 0, .code = 0x4152, .flags = TF_ACCEPT_FDS,
+            .data_size = sizeof(payload), .offsets_size = sizeof(offset),
+            .data.ptr = {.buffer = (uintptr_t)&payload, .offsets = (uintptr_t)&offset},
+        };
+        binder_write(fd, BC_TRANSACTION, &request, sizeof(request));
+        struct binder_transaction_data reply = binder_read(fd, BR_REPLY);
+        require(reply.data_size == sizeof(uint64_t) && reply.offsets_size == 0 && !(reply.flags & TF_STATUS_CODE),
+                "transaction_reply_shape");
+        binder_buffer(mapping, reply.data.ptr.buffer, reply.data_size);
+        uint64_t value;
+        memcpy(&value, (void *)(uintptr_t)reply.data.ptr.buffer, sizeof(value));
+        require(value == (payload.value ^ UINT64_C(0xf0f0f0f0f0f0f0f0)), "transaction_reply_value");
+        binder_write(fd, BC_FREE_BUFFER, &reply.data.ptr.buffer, sizeof(binder_uintptr_t));
+        close(memory);
+        munmap(mapping, 128 * 1024);
+        close(fd);
+        _exit(0);
+    }
+    binder_write(server, BC_ENTER_LOOPER, NULL, 0);
+    struct binder_transaction_data request = binder_read(server, BR_TRANSACTION);
+    require(request.code == 0x4152 && request.sender_pid == client && request.sender_euid == getuid()
+            && request.data_size == sizeof(struct payload) && request.offsets_size == sizeof(binder_size_t),
+            "transaction_sender_and_shape");
+    binder_buffer(server_map, request.data.ptr.buffer, request.data_size);
+    binder_buffer(server_map, request.data.ptr.offsets, request.offsets_size);
+    struct payload received;
+    binder_size_t offset;
+    memcpy(&received, (void *)(uintptr_t)request.data.ptr.buffer, sizeof(received));
+    memcpy(&offset, (void *)(uintptr_t)request.data.ptr.offsets, sizeof(offset));
+    require(received.value == UINT64_C(0x41524d4144415652) && offset == offsetof(struct payload, file)
+            && received.file.hdr.type == BINDER_TYPE_FD, "transaction_received_payload");
+    char contents[17];
+    require(pread(received.file.fd, contents, sizeof(contents), 0) == sizeof(contents)
+            && !memcmp(contents, "binder-fd-payload", sizeof(contents)), "transaction_received_fd");
+    close(received.file.fd);
+    uint64_t value = received.value ^ UINT64_C(0xf0f0f0f0f0f0f0f0);
+    struct binder_transaction_data reply = {.data_size = sizeof(value), .data.ptr.buffer = (uintptr_t)&value};
+    binder_write(server, BC_REPLY, &reply, sizeof(reply));
+    binder_write(server, BC_FREE_BUFFER, &request.data.ptr.buffer, sizeof(binder_uintptr_t));
+    int status;
+    require(waitpid(client, &status, 0) == client && WIFEXITED(status) && WEXITSTATUS(status) == 0,
+            "transaction_client_passed");
+    munmap(server_map, 128 * 1024);
+    close(server);
+    require(unlink(path) == 0, "transaction_device_removed");
+    puts("ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1");
+}
+
+static void binder_pollfree_test(void)
+{
+    dev_t id;
+    int device = binder_device("/work/binder-a", "poll-binder", &id);
+    close(device);
+    for (int round = 0; round < 32; ++round) {
+        int fd = open("/work/binder-a/poll-binder", O_RDWR | O_CLOEXEC);
+        int epoll = epoll_create1(EPOLL_CLOEXEC);
+        require(fd >= 0 && epoll >= 0, "pollfree_open");
+        struct epoll_event event = {.events = EPOLLIN, .data.fd = fd};
+        require(epoll_ctl(epoll, EPOLL_CTL_ADD, fd, &event) == 0, "pollfree_register");
+        require(epoll_wait(epoll, &event, 1, 0) >= 0, "pollfree_initial_wait");
+        int zero = 0;
+        require(ioctl(fd, BINDER_THREAD_EXIT, &zero) == 0, "pollfree_thread_exit");
+        require(epoll_wait(epoll, &event, 1, 0) >= 0, "pollfree_wait_after_exit");
+        close(fd);
+        close(epoll);
+    }
+    require(unlink("/work/binder-a/poll-binder") == 0, "pollfree_device_removed");
+    puts("ANDROID_BINDER_POLLFREE_PASS iterations=32");
+}
+
 static void binder_test(void)
 {
     require(mkdir("/work/binder-a", 0700) == 0 && mkdir("/work/binder-b", 0700) == 0, "binder_directories");
@@ -89,6 +250,8 @@ static void binder_test(void)
         close(b);
         printf("ANDROID_BINDER_PASS name=%s protocol=8 independent_contexts=2\n", names[i]);
     }
+    binder_transaction_test();
+    binder_pollfree_test();
     errno = 0;
     require(unlink("/work/binder-a/binder-control") == -1 && errno == EPERM, "binder_control_protected");
     require(umount("/work/binder-a") == 0 && umount("/work/binder-b") == 0, "unmount_binder");
