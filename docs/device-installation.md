@@ -329,7 +329,10 @@ a distro change does not remove the device-driver or boot requirements.
 
 Quest 3 is the current physical development priority. Its first boot milestone
 is a RAM-only Linux USB/console boot with demonstrated return to stock Android.
-Pico development is paused while the Pro Eye's return from EDL remains unresolved;
-see the [Pico firmware baseline](pico-firmware.md). Native-runtime and Android
+Pico development has resumed: its authenticated RAM programmer reads storage and
+resets to unchanged stock Android. Both GPT copies on all six LUNs and 21
+boot/calibration partitions are backed up and verified. Independent cold recovery,
+restoration and custom boot acceptance remain unproved; see the
+[Pico firmware baseline](pico-firmware.md). Native-runtime and Android
 startup work remain in scope. Flashing cannot currently be recommended, and no
 installation can be described as eliminating all bricking risk.

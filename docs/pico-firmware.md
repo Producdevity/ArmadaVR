@@ -1,9 +1,9 @@
 # Pico Neo3 Pro and Pro Eye firmware and boot access
 
-Checked October 8, 2026. Neo3 Pro Eye is the initial hardware bring-up target,
-followed by Quest 3. The connected unit was identified physically as Pro Eye;
-its generic Android model alone does not distinguish enterprise variants. Neo3
-Pro requires its own inventory and calibration backups.
+Checked October 9, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
+bring-up is active on the connected development unit. It was identified
+physically as Pro Eye; its generic Android model alone does not distinguish
+enterprise variants. Neo3 Pro requires its own inventory and calibration backups.
 
 ## Current Pro Eye baseline
 
@@ -35,7 +35,8 @@ The package has an Android v2 boot image, six SoC base DTBs plus an RTIC data FD
 and sixteen board overlays. Its signed VBMeta matches the boot and DTBO hashes;
 the images' own `NONE` authentication headers do not authorize unsigned boot.
 There is no standalone recovery image in this OTA, although VBMeta chains to
-recovery. Per-unit recovery and calibration backups remain required.
+recovery. The unit's recovery and calibration partitions have now been acquired
+separately, as described below.
 
 Stock config enables KGSL, Binder, FUSE and OverlayFS, but omits SysV IPC,
 user/PID/UTS namespaces, `binfmt_misc` and `devtmpfs`. It enforces module
@@ -55,18 +56,47 @@ The programmer was acquired from the
 [official Neo3 engineering package](https://static.us-pui.picovr.com/SEKSA-pico_rls_neo3-mol-tob-pui-4.8.0-20220622-falconcv3-user-20221017-225305-32g-b1981.zip).
 Its size is 675,320 bytes and SHA-256 is
 `d05711c81d07e426ab44a25dd9f4a391c0ddcbe251a935babb2532ca84ebdce1`.
-Signature, certificate-chain and segment hashes pass offline checks. ROM identity
-matching does not prove programmer execution, storage reads, restore capability,
-or acceptance of a custom boot image. No successful programmer transfer has
-been observed yet.
+Signature, certificate-chain and segment hashes pass offline checks. On October
+9 the exact programmer was also accepted and executed in RAM on this unit.
+Fresh ROM identity checks preceded each transfer. Firehose initialized UFS,
+read geometry and bounded partition ranges, then acknowledged a reset. Stock
+Android returned with the same firmware, locked boot state and enforcing SELinux.
+No program, erase, patch, provisioning, unlock or slot-change command was sent.
 
-The tested Sahara reset acknowledged the request but did not leave EDL, and
-subsequent USB descriptor reads failed. Do not rely on this command as a proven
-return-to-stock path. PICO documents a hardware reboot by holding Power for
+All six UFS LUNs use 4,096-byte logical sectors. Both GPT copies passed header
+and entry-array CRC, capacity, GUID and nonoverlap checks. Their 93 partitions
+matched all 93 distinct Android by-name links. Boot, recovery, verification
+metadata, early bootloaders, `persist`, `picocfg`, DDR configuration and their
+selected backups were acquired: 21 partitions totaling 403,316,736 bytes.
+Each partition matched two device reads and an independent host SHA-256 check.
+These private backups are a subset of the device, not a complete storage image.
+
+The current boot image matches the authenticated OTA exactly; DTBO and VBMeta
+match their package payloads with additional partition padding. Recovery's
+RSA4096 signature and image hash verify, and its key matches the signed VBMeta
+chain. The preserved `persist` filesystem contains Tobii calibration, camera/IMU
+calibration and sensor registry data. These files must remain private and
+specific to this unit.
+
+The `bootbak` bytes differ from current boot and fail the boot hash in
+`vbmetabak`, which contains the current metadata. Preserve this original state;
+do not assume the backup-named partitions form a working fallback. Verified
+reads and a successful programmer reset do not establish restoration, unsigned
+kernel acceptance or recovery after a failed boot-chain write.
+
+The earlier Sahara reset acknowledged the request but did not leave EDL, and
+subsequent USB descriptor reads failed. The owner subsequently returned to
+Android by holding Power + Volume Down. The later Firehose reset round trips
+succeeded; do not substitute the failed Sahara command. PICO documents a
+hardware reboot by holding Power for
 [more than ten seconds](https://www.picoxr.com/cn/neo3/pdf/PicoNeo3UserGuide.pdf).
 Independent cold EDL entry and restoration still need validation on this unit.
 macOS also requires approval when the Pico first changes to its Qualcomm USB
 identity; a pending accessory decision prevents libusb enumeration.
+
+When multiple ADB servers are running, the Pico can reconnect to a different
+server after reset. Check the existing servers for its exact serial before
+diagnosing a failed return to Android.
 
 Validate acquired primary and backup GPT headers and entry arrays before using
 their extents for partition acquisition:
@@ -86,9 +116,9 @@ The format follows the [UEFI GPT specification](https://uefi.org/sites/default/f
 
 Use independently observed LUN geometry. Linux sysfs `size` counts 512-byte
 units; Firehose counts logical sectors. Convert through bytes before comparing
-them. Synthetic 512/4096-byte-sector validation does not establish this unit's
-geometry or a restorable backup. Per-unit recovery, persist, picocfg, sensor/eye
-calibration and boot-chain acquisition remain necessary before persistent changes.
+them. The physical reads above establish this unit's geometry and the recorded
+backup subset. Independent recovery entry, remaining restoration inputs and an
+actual restore procedure remain necessary before persistent changes.
 
 ## Update decision
 
@@ -167,13 +197,62 @@ Reuse the documented protocol and backup lessons after verifying their exact
 device assumptions. Do not import its Windows automation or bundled firmware
 into ArmadaVR's installer, or run its rollback flow merely to test access.
 
+## Kernel build and stock driver dependencies
+
+The pinned public source now builds an ARM64 `Image` and 11 modules with Debian
+Clang 14.0.6. The build uses the published `kona-perf_defconfig`, not the captured
+stock configuration. It takes about ten minutes on two host cores, with a
+measured peak of 4.50 GiB under a 6 GiB limit. Reproduce it in a new output
+directory after building the kernel tools image:
+
+```sh
+just build-vendor-kernel output/kernel/pico-neo3/vendor-build pico-neo3
+```
+
+The build verifies the source archive, applies 18 portability/correctness
+patches, checks that source files stay unchanged, and records image, module,
+configuration and toolchain hashes. The patches include Python 3 compiler-wrapper
+support, driver error cleanup, packed-type symbol-version generation and
+freestanding compilation. Module versioning and the vendor warning guard remain
+enabled. Fault-injection checks cover LED registration and fan GPIO cleanup.
+
+This configuration differs from the captured stock configuration at 80 requested
+symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
+resolution; stock instead has `DISPLAY_VXR7200_I2C`, whose implementation is also
+absent. Stock controller-station and Pico RTT support are missing too. The
+published board DTS is absent, so this build deliberately produces no device
+trees. Pico Linux-userspace and QEMU variants are refused until their patches and
+configuration have been ported. None of these artifacts has booted on the headset.
+
+A separate configuration-only check starts from the captured stock `.config`.
+Kconfig changes 18 requested symbols, including the missing stock features and
+compiler version. Adding the Linux-userspace fragment resolves every requested
+option, but does not supply BinderFS, missing driver implementations or runtime
+validation. This narrower configuration has not yet been compiled.
+
+Read-only stock observations narrow the hardware work:
+
+| Component | Observed on this Pro Eye | Remaining integration |
+|---|---|---|
+| Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound | Resolve the missing bridge implementation and actual panel/mode ownership; driver binding alone does not prove a replacement display path |
+| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice` | Preserve the transport and reconstruct the missing station interface, pairing, input and haptics |
+| IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
+| Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
+| Audio/WLAN | 29 loaded stock modules, mostly external audio modules plus WLAN | Build compatible external modules or retain the exact stock kernel/module combination; the 11 baseline modules do not cover these dependencies |
+
+Camera HAL advertises five logical devices while six camera sensor nodes are
+bound. Do not infer a one-to-one physical camera mapping from those counts.
+The current shell cannot read the live FDT or DRM status/modes; exact tree
+selection and display topology remain unresolved. Vendor runtime files and
+per-unit calibration stay outside the public repository.
+
 ## Work remaining compared with Quest
 
 | Workstream | Quest 3 | Neo3 Pro / Pro Eye |
 |---|---|---|
-| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Connected Pro Eye inventoried and exact stock OTA authenticated; matching programmer, partition/calibration backups and independent recovery remain. Pro needs separate inventory |
+| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified; stock return after reads passes. Independent cold recovery and restoration remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
-| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Official 4.19.81 source is pinned and stock DTB/DTBO acquired; vendor board DTS is missing and source/build compatibility is unverified |
+| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Public 4.19.81 Image and 11 modules compile; stock DTB/DTBO acquired. Vendor board DTS and several stock drivers are missing; stock compatibility and Linux userspace support remain unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
 | Tracking and controllers | Syncboss/IMU protocol research and virtual actions exist; calibrated camera/IMU 6DoF, pairing and physical input/haptics remain | Camera/IMU transport, calibration, 6DoF and controller integration remain; Pro Eye adds eye cameras, calibration and runtime support |
 | Installation | No accepted boot/recovery or persistent installer | No accepted boot/recovery or persistent installer |
