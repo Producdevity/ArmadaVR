@@ -209,13 +209,34 @@ Evidence: `output/quest-stock-abi-compile-20261009-v4/`; the preceding failed
 assembly-target invocation and narrower experiments are preserved.
 
 This is interface-checksum agreement, not a stock-compatible module or a full
-stock kernel reproduction. The stock
-compiler's named Android Clang 14.0.7/r450784e build is
-[publicly available](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/5538393cf30cb39da6d53730a9b85f36958230da).
-Meta's public 5.10.237 source candidate still lacks a proven mapping to this
-stock build. Exact-toolchain CFI and loader-lifecycle checks, relevant inline
-layouts and source-semantic comparisons remain necessary before any stock
-module acceptance claim.
+stock kernel reproduction. The matching named Android Clang 14.0.7/r450784e,
+build 8508608, has now been acquired from the
+[pinned AOSP prebuilt](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+/5538393cf30cb39da6d53730a9b85f36958230da).
+All 220 selected files match upstream Git blob identities, and the compiler,
+linker and their runtime dependencies execute in the isolated build environment.
+
+The unchanged inventory fixture built with that compiler passes sixteen real
+module-load cases with ThinLTO and sixteen with full LTO on the source-built
+5.10.246 VM kernel. Each run retains the authenticated stock SELinux policy in
+enforcing mode, unchanged credentials, failed-init cleanup and unchanged
+read-only fixture data. These modules retain the VM's genuine version records;
+they are not stock-compatible modules. A separate wrong-type callback test
+produces the expected CFI panic before its target executes. The bad call must
+be in an ordinary instrumented helper: this vendor tree marks `__init` bodies
+with `__nocfi`, so an indirect call inside initialization is not a CFI rejection
+test. No kernel protection was changed.
+
+With the captured stock configuration and full LTO, the same compiler also
+produces twenty-two selected structure sizes and member offsets matching stock
+BTF, including the module entry/checker fields, task credentials and PID.
+Evidence: `output/quest-inventory-exact-compiler-20261009-v3/`,
+`output/quest-inventory-exact-full-lto-20261009-v1/`,
+`output/quest-cfi-negative-20261009-v2/` and
+`output/quest-stock-layout-exact-compiler-20261009-v2/`. Earlier failed fixtures
+are preserved. These results establish the tested compiler/VM combination and
+selected layouts. Meta's public 5.10.237 source candidate still lacks a proven
+mapping to this stock build; exact stock loader behavior, source semantics and
+physical recovery remain unverified.
 
 1. **Establish exact-device boot and restoration.** Retain the authenticated
    stock OTA and verified boot artifacts matching the current build. Preserve
