@@ -1,18 +1,13 @@
 # SteamVR in the development VM
 
-The Steam-managed copy updated to beta 2.17.9 after the September 10 reboot.
-Its compositor fails the 2.16.7 checksum guard; a separate beta experiment also
-crashed. The successful results below belong to 2.16.7. Use the launcher's
-`--runtime /path/to/verified/SteamVR` option to test a separate pinned runtime
-while `--client` continues to locate Steam's FEX and runtime dependencies.
-The compositor checksum check remains enabled. The restored public runtime also
-crashed during interactive startup after this reboot; the new regression is not
-specific to the beta. An undebugged frame/controller repeat passes with 192
-actual presentations. A subsequent clean session restores native OpenXR and
-Windows sample rendering; repeated Windows session stability remains unresolved.
-The separately restored runtime must keep relative paths inside its own tree;
-symlinking its OpenXR manifest to the managed installation selected the beta
-client unexpectedly. The current interaction and application results are recorded below.
+The translated VM baseline uses SteamVR 2.16.7, build 23791826. Select it
+explicitly with `--runtime /path/to/verified/SteamVR`; `--client` locates Steam's
+FEX and runtime dependencies. The compositor checksum guard remains enabled.
+Keep the OpenXR manifest and its library inside this installation: a manifest
+symlink into another runtime can silently select a different client version.
+Native ARM64 presentation and authenticated Library interaction remain separate
+acceptance requirements; successful virtual rendering does not establish
+headset compatibility.
 
 The isolated public SteamVR 2.16.7 test now passes actual application presentation
 and simulated controller acceptance. Its 120 stereo submissions produce 147
@@ -149,18 +144,45 @@ Autostarting dashboard executables from the API probe's environment also reports
 missing libraries. API initialization alone does not prove Steam's own dashboard
 startup or its authenticated Library connection.
 
-The isolated installation record initially used an obsolete depot section.
-Steam normalized it to an empty `InstalledDepots` section and reported SteamVR
-not installed. A private repair uses the three actual verified depot manifests,
-their file sizes and an installation timestamp; all 3,544 files remain unchanged
-and read-only. Steam still reports installation and update errors for this pinned
-runtime. A matched HOME profile then exchanges SteamVR capabilities,
-initializes actions and establishes the actual Steam websocket connection.
-Steam's VR window reports a first paint, followed by repeated renderer restarts
-and an early client/backend exit. Guest teardown also reports bad page-cache
-entries in a llvmpipe thread; the cause remains unresolved. Library navigation,
-rendered scrolling and reliability are unverified. Raw login/session files
-and their preservation snapshots stay inside the isolated guest.
+A Steam-managed installation needs the complete depot set, not just the server,
+compositor and dashboard files used by the standalone tests. The October 9
+installation check identifies build 23791826 as the `previous` branch and
+requires these Linux depots:
+
+| Depot | Manifest |
+| --- | --- |
+| 250823 | 730365483462960096 |
+| 250824 | 3814264265268227996 |
+| 250827 | 9126840328386630080 |
+| 250828 | 7972087267127211047 |
+| 250829 | 8685571343659696296 |
+| 250830 | 1874458903680892192 |
+| 250832 | 3112697343985428860 |
+
+The complete tree contains 5,785 files totaling 5,532,215,629 bytes. All file
+sizes and SHA-1 hashes match the cached depot manifests. The former three-depot
+subset contains 3,544 files and is insufficient for Steam's installation check.
+Use `InstalledDepots` in the installation record and preserve the branch choice;
+Steam normalizes its key to `BetaKey`. Workshop downloads are separate from
+runtime depot updates.
+
+The private VM installation binds the verified runtime into Steam's expected
+`steamapps/common/SteamVR` path with `ro,nodev,nosuid`. A mount made during one
+session disappears on reboot unless guest provisioning restores it. Check the
+mount table and the actual runtime file before starting the client; Python's
+`os.path.ismount()` does not detect every same-filesystem bind mount. The
+read-only Proton disk also needs its mount restored. These additions are still
+VM provisioning; a fresh desktop image does not yet reproduce them. A new child
+VM boot restores both mounts automatically, rechecks all 5,785 runtime files, and
+confirms that Steam sees the same protected runtime inode.
+
+With the complete installation, the x86 client's VR interface connects to the
+2.16.7 server. Starting with `-vrforce` before login reproduces browser restarts
+and an early client/backend exit. Normal client startup before the backend
+reaches the authenticated desktop and passes one explicitly requested normal
+shutdown with the backend remaining alive. This does not establish Library
+navigation, rendered scrolling or sustained reliability. Raw login/session
+files and their preservation snapshots stay inside the isolated guest.
 
 ## Dashboard interaction, September 11
 
