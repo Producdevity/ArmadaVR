@@ -1,0 +1,30 @@
+Subject: [PATCH] net: preserve internal sockets with Android network restrictions
+
+Creating a network namespace from an unprivileged user namespace invokes
+IGMP setup in that task's context. The Android group check rejects its
+kernel-owned control socket with EACCES, which IGMP reports as ENOMEM.
+Apply this check to userspace sockets only, as the raw-socket capability
+check already does. Keep ordinary IPv4/IPv6 socket restrictions intact.
+
+--- a/net/ipv4/af_inet.c
++++ b/net/ipv4/af_inet.c
+@@ -275,7 +275,7 @@
+ 	if (protocol < 0 || protocol >= IPPROTO_MAX)
+ 		return -EINVAL;
+ 
+-	if (!current_has_network())
++	if (!kern && !current_has_network())
+ 		return -EACCES;
+ 
+ 	sock->state = SS_UNCONNECTED;
+--- a/net/ipv6/af_inet6.c
++++ b/net/ipv6/af_inet6.c
+@@ -136,7 +136,7 @@
+ 	if (protocol < 0 || protocol >= IPPROTO_MAX)
+ 		return -EINVAL;
+ 
+-	if (!current_has_network())
++	if (!kern && !current_has_network())
+ 		return -EACCES;
+ 
+ 	/* Look for the requested type/protocol pair. */

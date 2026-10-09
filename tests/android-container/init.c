@@ -1,4 +1,9 @@
 #define _GNU_SOURCE
+#include <arpa/inet.h>
+#include <net/if.h>
+#include <poll.h>
+#include <sys/socket.h>
+
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
@@ -258,6 +263,50 @@ static void binder_test(void)
     puts("ANDROID_BINDER_ISOLATION_PASS");
 }
 
+static void network_test(void)
+{
+    int control = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+    require(control >= 0, "network_control_socket");
+    struct ifreq interface = {0};
+    snprintf(interface.ifr_name, sizeof(interface.ifr_name), "lo");
+    require(ioctl(control, SIOCGIFFLAGS, &interface) == 0, "loopback_flags");
+    interface.ifr_flags |= IFF_UP;
+    require(ioctl(control, SIOCSIFFLAGS, &interface) == 0, "loopback_up");
+    close(control);
+    for (size_t ipv6 = 0; ipv6 < 2; ++ipv6) {
+        int family = ipv6 ? AF_INET6 : AF_INET;
+        int receiver = socket(family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        int sender = socket(family, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        require(receiver >= 0 && sender >= 0, "loopback_sockets");
+        struct sockaddr_storage address = {0};
+        socklen_t size;
+        if (ipv6) {
+            struct sockaddr_in6 *value = (void *)&address;
+            value->sin6_family = AF_INET6;
+            value->sin6_addr = in6addr_loopback;
+            size = sizeof(*value);
+        } else {
+            struct sockaddr_in *value = (void *)&address;
+            value->sin_family = AF_INET;
+            value->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            size = sizeof(*value);
+        }
+        require(bind(receiver, (struct sockaddr *)&address, size) == 0, "loopback_bind");
+        require(getsockname(receiver, (struct sockaddr *)&address, &size) == 0, "loopback_address");
+        const char message[] = "armada-network-namespace";
+        require(sendto(sender, message, sizeof(message), 0, (struct sockaddr *)&address, size) == sizeof(message),
+                "loopback_send");
+        struct pollfd ready = {.fd = receiver, .events = POLLIN};
+        require(poll(&ready, 1, 2000) == 1 && (ready.revents & POLLIN), "loopback_receive_ready");
+        char buffer[sizeof(message) + 1];
+        require(recv(receiver, buffer, sizeof(buffer), 0) == sizeof(message)
+                && !memcmp(buffer, message, sizeof(message)), "loopback_received_payload");
+        close(receiver);
+        close(sender);
+    }
+    puts("ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1");
+}
+
 static void memory_test(void)
 {
     int fd = memfd_create("android-buffer", MFD_CLOEXEC | MFD_ALLOW_SEALING);
@@ -329,6 +378,16 @@ static void child_test(void)
 {
     require(setgroups(0, NULL) == 0 && setgid(1000) == 0 && setuid(1000) == 0, "drop_host_privileges");
     require(getuid() == 1000 && geteuid() == 1000, "unprivileged_host_identity");
+    for (size_t ipv6 = 0; ipv6 < 2; ++ipv6) {
+        int fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+        require(fd >= 0, "unprivileged_datagram_socket");
+        close(fd);
+        errno = 0;
+        fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_RAW | SOCK_CLOEXEC,
+                    ipv6 ? IPPROTO_ICMPV6 : IPPROTO_ICMP);
+        require(fd == -1 && errno == EPERM, "unprivileged_raw_socket_denied");
+    }
+    puts("ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000");
     /* Dropping uid clears dumpability and would leave our proc id-map files root-owned. */
     require(prctl(PR_SET_DUMPABLE, 1, 0, 0, 0) == 0, "user_owned_proc_files");
     require(unshare(CLONE_NEWUSER) == 0, "unprivileged_user_namespace");
@@ -353,6 +412,7 @@ static void child_test(void)
     require(mount("proc", "/work/proc", "proc", 0, NULL) == 0, "container_proc_mount");
     puts("ANDROID_PIDNS_PASS container_pid=1");
     puts("ANDROID_USERNS_PASS host_uid=1000 container_uid=0");
+    network_test();
     binder_test();
     memory_test();
     overlay_test();

@@ -13,7 +13,7 @@ volume="${KERNEL_BUILD_VOLUME:-armada-vr-$profile-kernel}"
 [[ "$volume" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || { echo "Invalid KERNEL_BUILD_VOLUME" >&2; exit 1; }
 case "$memory" in 4g|6g) ;; *) echo "KERNEL_BUILD_MEMORY must be 4g or 6g" >&2; exit 1 ;; esac
 case "$profile" in quest3|pico-neo3) ;; *) echo "Unknown kernel profile" >&2; exit 1 ;; esac
-[[ "$profile" != pico-neo3 || "$variant" == vendor ]] || { echo "Pico currently supports the vendor compilation baseline only" >&2; exit 1; }
+[[ "$profile" != pico-neo3 || "$variant" != qemu-abi ]] || { echo "Pico QEMU transports have not been ported" >&2; exit 1; }
 args=("$profile")
 case "$variant" in vendor) ;; linux-userspace) args+=(--linux-userspace) ;; qemu-abi) args+=(--qemu-abi) ;; *) echo "Unknown kernel variant" >&2; exit 1 ;; esac
 case "$mode" in build) ;; configure) args+=(--configure-only) ;; *) echo "Unknown kernel mode" >&2; exit 1 ;; esac

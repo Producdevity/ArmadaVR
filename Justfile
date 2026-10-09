@@ -89,12 +89,12 @@ build-vendor-kernel directory="output/kernel/quest3/vendor-build" profile="quest
     CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }}
 
 # Resolve the Linux userspace configuration separately from the vendor baseline.
-configure-headset-kernel directory="output/kernel/quest3/linux-config":
-    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh quest3 {{ quote(directory) }} linux-userspace configure
+configure-headset-kernel directory="output/kernel/quest3/linux-config" profile="quest3":
+    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }} linux-userspace configure
 
 # Compile the vendor kernel with Linux userspace support; still no boot image.
-build-headset-kernel directory="output/kernel/quest3/linux-build":
-    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh quest3 {{ quote(directory) }} linux-userspace
+build-headset-kernel directory="output/kernel/quest3/linux-build" profile="quest3":
+    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }} linux-userspace
 
 # Build the vendor kernel with QEMU transports for userspace ABI testing only.
 build-kernel-abi directory="output/kernel/quest3/qemu-abi":

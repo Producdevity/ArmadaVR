@@ -216,7 +216,7 @@ directory after building the kernel tools image:
 just build-vendor-kernel output/kernel/pico-neo3/vendor-build pico-neo3
 ```
 
-The build verifies the source archive, applies 19 portability/correctness
+The build verifies the source archive, applies platform portability/correctness
 patches, checks that source files stay unchanged, and records image, module,
 configuration and toolchain hashes. The patches include Python 3 compiler-wrapper
 support, driver error cleanup, packed-type symbol-version generation and
@@ -243,40 +243,61 @@ symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
 resolution; stock instead has `DISPLAY_VXR7200_I2C`, whose implementation is also
 absent. Stock controller-station and Pico RTT support are missing too. The
 published board DTS is absent, so this build deliberately produces no device
-trees. Pico Linux-userspace and QEMU variants are refused until their patches and
-configuration have been ported. None of these artifacts has booted on the headset.
+trees. The separate QEMU-transport variant is still refused for Pico.
+None of these artifacts has booted on the headset.
 
-A separate experimental build starts from the captured stock `.config`.
-Kconfig changes 18 requested symbols, including the missing stock features and
-compiler version. Adding the Linux-userspace fragment resolves every requested
-option, but does not supply BinderFS or missing driver implementations.
-This configuration compiles an `Image` and nine in-tree modules.
-All 27 external audio modules also compile against it; their 1,896 imported
-symbol versions match. The combined 36-module set passes signature and dependency
-checks. This experiment is separate from the supported vendor build above.
+The maintained Linux variant adds the common Linux-userspace configuration and
+an Android 4.19 BinderFS backport. Build it with:
 
-Diskless execution exposed a vendor linker defect: a second `.bss` output
+```sh
+just build-headset-kernel output/kernel/pico-neo3/linux-build pico-neo3
+```
+
+This variant also compiles all 38 modules. Signature verification, all 2,715
+imported symbol versions, dependency checks and rejection of a modified signed
+payload pass against its own kernel. All requested Linux configuration options
+resolve. The public source and patched source remain unchanged during the build.
+This is a kernel build with Linux/container interfaces, not a complete headset OS.
+
+The Binder port uses Google's [Android 4.19 source](https://android.googlesource.com/kernel/msm/+/500b3a2059c1eec0fec08ec56add06320ea901a8/drivers/android/),
+with the associated credential-based SELinux hooks and `wake_up_pollfree`
+backports. The Linux variant disables Android's special internet-group check,
+which otherwise rejects ordinary Linux users' sockets. The vendor variant keeps
+that restriction, with a scoped correction for kernel-created IPv4/IPv6 sockets:
+IGMP namespace initialization must not be rejected by the calling user's group
+check. Tests confirm the vendor restriction remains effective for user sockets.
+
+Diskless execution also exposed a vendor linker defect: a second `.bss` output
 placed RTIC's `selinux_state` after `_end`, outside the mapped kernel. The
-Pico patch now uses `BSS_FIRST_SECTIONS` to retain its page alignment and
-`KEEP` while including it in BSS initialization and the Image's memory extent.
-The build also checks all allocated ELF sections against the Image bounds and
+Pico patch uses `BSS_FIRST_SECTIONS` to preserve its page alignment and `KEEP`
+while including the state in BSS initialization and the Image's memory extent.
+The build checks all allocated ELF sections against the Image bounds and
 requires uninitialized sections to fall within the zeroed BSS range. The
-original failing ELF is rejected; the corrected Pico and existing Quest ELF
-pass this check.
+original failing ELF is rejected; corrected Pico and existing Quest kernels pass.
 
-With that correction, the stock-derived Linux kernel reaches a static PID 1
-and powers off normally under QEMU TCG. The fixture needs an emulated secure
-monitor, 2 GiB RAM to cover the vendor's fixed crash-log reservation, and an
-explicit exclusion of `hwinfo_init`, which otherwise dereferences absent
-Qualcomm boot-information memory. WALT topology and missing SoC-information
-warnings remain on this virtual machine. No physical driver acceptance follows
-from this test.
+The actual Linux build boots a static PID 1 and passes the shared container ABI
+fixture under QEMU TCG. An unprivileged user creates independent namespaces;
+IPv4/IPv6 datagrams and isolated loopback traffic work, while raw sockets remain
+denied. Two BinderFS mounts provide independent contexts; real request/reply,
+file-descriptor passing, sender identity and 32 epoll/thread-exit cycles pass.
+Shared-memory seals and seccomp also pass, followed by normal shutdown. Native
+rootless OverlayFS still returns `EPERM`. These tests do not boot Android or
+Lepton on the Pico kernel.
 
-A separate VM test loads the unchanged SELinux policy from the authenticated
-recovery backup. A normal kernel-to-init domain transition succeeds; the
-enforcing policy denies a root write to a DAC-writable tmpfs file with `EACCES`,
-its bytes remain unchanged, and the guest powers off. No policy or enforcement
-setting is relaxed. The corrected kernel has not booted on the headset.
+The fixture needs an emulated secure monitor, 2 GiB RAM to cover the vendor's
+fixed crash-log reservation, and an explicit exclusion of `hwinfo_init`, which
+otherwise dereferences absent Qualcomm boot-information memory. WALT topology
+and missing SoC-information warnings remain. These VM accommodations do not
+establish physical driver compatibility.
+
+A separate test on the same Linux build loads the unchanged recovery SELinux
+policy. A normal kernel-to-init transition succeeds; the enforcing policy denies
+a root write to a DAC-writable tmpfs file, preserves its bytes and powers off.
+A legacy-node build of the Binder port also verifies context-manager denial
+using the current caller and each handle's opening credentials. That fixture
+uses an allowed character-device label to isolate the Binder hook; production
+BinderFS labeling and Android startup under the stock policy remain unverified.
+No policy or enforcement setting is relaxed.
 
 Stock OTA Wi-Fi modules identify version `2.0.81.1H` for QCA6390 and QCA6490,
 matching the version in Pico's published driver source. The public release
@@ -317,7 +338,7 @@ per-unit calibration stay outside the public repository.
 |---|---|---|
 | Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified; stock return after reads passes. Independent cold recovery and restoration remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
-| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Public 4.19.81 Image and 38 modules compile, including external audio. Stock-derived Linux configuration also compiles; stock DTB/DTBO acquired. Board DTS, several stock drivers and BinderFS are missing; physical compatibility and Linux runtime remain unverified |
+| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Vendor and Linux 4.19.81 builds compile 38 modules, including audio. Binder, namespace networking and SELinux denial tests pass in QEMU; stock DTB/DTBO acquired. Board DTS, several stock drivers, physical compatibility and full Linux runtime remain unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
 | Tracking and controllers | Syncboss/IMU protocol research and virtual actions exist; calibrated camera/IMU 6DoF, pairing and physical input/haptics remain | Camera/IMU transport, calibration, 6DoF and controller integration remain; Pro Eye adds eye cameras, calibration and runtime support |
 | Installation | No accepted boot/recovery or persistent installer | No accepted boot/recovery or persistent installer |

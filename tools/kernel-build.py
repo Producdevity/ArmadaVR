@@ -179,8 +179,8 @@ def prepare_pico_audio(source, cache):
 def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
     if sys.platform != "linux":
         raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
-    if profile["repository"] == "bytedance/neo3-kernel" and (linux_userspace or qemu_abi):
-        raise ValueError("Pico Linux userspace patches and QEMU transports have not been ported")
+    if profile["repository"] == "bytedance/neo3-kernel" and qemu_abi:
+        raise ValueError("Pico QEMU transports have not been ported")
     targets = profile.get("build_targets", ["Image", "modules", "dtbs"])
     if targets not in (["Image", "modules"], ["Image", "modules", "dtbs"]):
         raise ValueError("Unsupported kernel build targets")
@@ -245,7 +245,8 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
                 "vendor_warning_guard": "retained",
             }
         extensions = [sources.ROOT / "profiles/kernel" / name for name in
-                      ("linux-userspace.config", "quest3-build.config")] if linux_userspace else []
+                      ("linux-userspace.config", "pico-neo3-linux.config"
+                       if profile["repository"] == "bytedance/neo3-kernel" else "quest3-build.config")] if linux_userspace else []
         if qemu_abi:
             extensions.append(sources.ROOT / "profiles/kernel/qemu-abi.config")
         patches = sorted((sources.ROOT / "patches/kernel/linux-userspace").glob("*.patch")) if linux_userspace else []
@@ -253,6 +254,8 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
             patches = sorted((sources.ROOT / "patches/kernel/pico-neo3").glob("*.patch"))
             if not patches:
                 raise ValueError("Missing Pico compiler portability patches")
+            if linux_userspace:
+                patches += sorted((sources.ROOT / "patches/kernel/pico-neo3-linux").glob("*.patch"))
         if qemu_abi:
             qemu_patches = sorted((sources.ROOT / "patches/kernel/qemu-abi").glob("*.patch"))
             if not qemu_patches:

@@ -15,6 +15,7 @@ virtual target for functional tests.
 | Area | Verified | Remaining |
 |---|---|---|
 | Quest kernel | ARM64 kernel, 272 modules and 14 device-tree artifacts compile; QEMU checks userspace interfaces and simulated thermal behavior | Exact-device boot and peripheral operation |
+| Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Missing board/driver support, full userspace, recovery and exact-device boot |
 | Graphics | KGSL Turnip and native Monado builds; offline synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
 | SteamVR | Translated runtime presents stereo samples and receives both virtual controllers' input; native Frame ARM64 server passes virtual-device input/haptic checks on the Quest QEMU kernel | Reliable stock dashboard navigation, a complete reproducible image and native compositor presentation |

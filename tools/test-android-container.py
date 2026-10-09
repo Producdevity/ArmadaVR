@@ -25,7 +25,7 @@ archive = load('android_initramfs', 'test-dma-buf-sync.py')
 
 REQUIRED = ('ANDROID_BINDER_IPC', 'ANDROID_BINDERFS', 'USER_NS', 'PID_NS', 'IPC_NS', 'UTS_NS',
             'NET_NS', 'NAMESPACES', 'MEMFD_CREATE', 'SECCOMP', 'SECCOMP_FILTER',
-            'DEVTMPFS', 'PROC_FS', 'TMPFS', 'BINFMT_ELF')
+            'INET', 'IPV6', 'DEVTMPFS', 'PROC_FS', 'TMPFS', 'BINFMT_ELF')
 
 
 def kernel_inputs(kernel):
@@ -42,7 +42,8 @@ def kernel_inputs(kernel):
 def check_log(log):
     markers = ['ANDROID_PIDNS_PASS container_pid=1', 'ANDROID_USERNS_PASS host_uid=1000 container_uid=0', 'ANDROID_BINDER_ISOLATION_PASS',
                'ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1',
-               'ANDROID_BINDER_POLLFREE_PASS iterations=32', 'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
+               'ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000',
+               'ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1', 'ANDROID_BINDER_POLLFREE_PASS iterations=32', 'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
                'ANDROID_CONTAINER_KERNEL_PASS', 'reboot: Power down']
     markers += [f'ANDROID_BINDER_PASS name={name} protocol=8 independent_contexts=2'
                 for name in ('anbox-binder', 'anbox-hwbinder', 'anbox-vndbinder')]
@@ -57,7 +58,7 @@ def check_log(log):
         raise RuntimeError('Missing or inconsistent rootless OverlayFS result')
     return {'rootless_binderfs': True, 'independent_binder_contexts': 6,
             'binder_transaction_and_fd_passing': True, 'binder_pollfree_iterations': 32,
-            'pid_namespace_and_procfs': True, 'memfd_sharing_and_seals': True, 'seccomp_filter': True,
+            'unprivileged_socket_permissions': True, 'network_namespace_ipv4_ipv6_loopback': True, 'pid_namespace_and_procfs': True, 'memfd_sharing_and_seals': True, 'seccomp_filter': True,
             'native_rootless_overlayfs': bool(overlay_pass)}
 
 

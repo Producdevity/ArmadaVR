@@ -14,7 +14,8 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
             "ANDROID_USERNS_PASS host_uid=1000 container_uid=0",
             *[f"ANDROID_BINDER_PASS name={name} protocol=8 independent_contexts=2"
               for name in ("anbox-binder", "anbox-hwbinder", "anbox-vndbinder")],
-            "ANDROID_BINDER_ISOLATION_PASS",
+            "ANDROID_BINDER_ISOLATION_PASS", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
+            "ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000",
             "ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1",
             "ANDROID_BINDER_POLLFREE_PASS iterations=32",
             "ANDROID_MEMFD_PASS", "ANDROID_SECCOMP_PASS", "ANDROID_CONTAINER_CHILD_PASS",
@@ -22,9 +23,10 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
             "reboot: Power down",
         ])
 
-    def test_incomplete_or_duplicated_transaction_evidence_is_rejected(self):
+    def test_incomplete_or_duplicated_guest_evidence_is_rejected(self):
         for marker in ("ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1",
-                       "ANDROID_BINDER_POLLFREE_PASS iterations=32"):
+                       "ANDROID_BINDER_POLLFREE_PASS iterations=32", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
+                       "ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000"):
             for log in (self.log().replace(marker, ""), self.log() + "\n" + marker):
                 with self.subTest(marker=marker, log=log), self.assertRaises(RuntimeError):
                     container.check_log(log)
