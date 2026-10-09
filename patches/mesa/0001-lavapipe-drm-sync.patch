@@ -28,7 +28,7 @@
  #include "util/detect.h"
  #include "pipe/p_defines.h"
  #include "pipe/p_state.h"
-@@ -1418,6 +1424,43 @@
+@@ -1418,6 +1424,45 @@
  
  }
  
@@ -63,8 +63,10 @@
 +   }
 +
 +   device->sync_drm_fd = fd;
-+   /* The runtime permits only one timeline type per physical device. */
-+   device->sync_types[1] = &device->drm_sync_type;
++   /* Permanent FD imports also target semaphores created without export flags.
++    * Their default payload must support import; keep only one timeline type. */
++   device->sync_types[0] = &device->drm_sync_type;
++   device->sync_types[1] = &lvp_pipe_sync_type;
 +   return VK_SUCCESS;
 +}
 +#endif

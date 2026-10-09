@@ -580,6 +580,16 @@ loaded and no validation errors. The system driver fails the same test with
 `VK_ERROR_INVALID_EXTERNAL_HANDLE`. These are scoped behavior tests, not CTS
 conformance or proof of every fence/image-sharing operation.
 
+The test also covers receivers created without `VkExportSemaphoreCreateInfo`.
+Permanent opaque-FD imports use the semaphore's existing payload, so the
+`LVP_DRM_SYNC` path selects DRM synchronization before the pipe-fence fallback.
+Otherwise an import-only binary semaphore selects a payload without an import
+callback and crashes. This also affected Zink's `glImportSemaphoreFdEXT` path.
+All four binary/timeline and exportable/import-only receiver combinations pass
+on the Quest QEMU kernel after this correction. The Vulkan image suite and a
+Vulkan/OpenGL image-and-semaphore handoff also pass, including the latter through
+FEX. These checks do not establish Steam Library interaction or hardware support.
+
 `tests/vulkan-external-image.c`, included in native probe bundles as
 `vulkan-external-image`, separately checks actual image sharing. Sixteen cases
 cover RGBA/BGRA UNORM, optimal/linear tiling, render/sample/input usage with and

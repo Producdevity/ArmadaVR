@@ -27,6 +27,7 @@ struct context {
     uint32_t *mapped;
     VkSemaphore forward, back;
     VkBool32 timeline;
+    VkBool32 import_only;
 };
 
 struct allocation {
@@ -74,7 +75,8 @@ static VkSemaphore semaphore(struct context *c, int import_fd)
         .semaphoreType = c->timeline ? VK_SEMAPHORE_TYPE_TIMELINE : VK_SEMAPHORE_TYPE_BINARY};
     VkExportSemaphoreCreateInfo export = {.sType = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
         .pNext = &type, .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT};
-    VkSemaphoreCreateInfo create = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &export};
+    VkSemaphoreCreateInfo create = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        .pNext = import_fd >= 0 && c->import_only ? (void *)&type : (void *)&export};
     VkSemaphore result;
     CHECK(vkCreateSemaphore(c->device, &create, NULL, &result));
     if (import_fd >= 0) {
@@ -201,8 +203,9 @@ static void finish(struct context *c)
 int main(int argc, char **argv)
 {
     alarm(30);
-    if (argc == 3) {
-        struct context c = {.timeline = !strcmp(argv[2], "timeline")};
+    if (argc == 4) {
+        struct context c = {.timeline = !strcmp(argv[2], "timeline"),
+            .import_only = !strcmp(argv[3], "import-only")};
         struct allocation allocation = {0};
         int fds[3];
         transfer(atoi(argv[1]), &allocation, fds, 0);
@@ -219,8 +222,9 @@ int main(int argc, char **argv)
         return 0;
     }
     REQUIRE(argc == 1);
-    for (unsigned timeline = 0; timeline < 2; ++timeline) {
-        struct context c = {.timeline = timeline};
+    for (unsigned mode_index = 0; mode_index < 4; ++mode_index) {
+        unsigned timeline = mode_index & 1, import_only = mode_index >> 1;
+        struct context c = {.timeline = timeline, .import_only = import_only};
         struct allocation allocation = {0};
         init(&c);
         buffer(&c, &allocation, -1);
@@ -247,7 +251,8 @@ int main(int argc, char **argv)
         REQUIRE(child >= 0);
         if (!child) {
             close(sockets[0]);
-            execl("/proc/self/exe", argv[0], socket_arg, mode, (char *)NULL);
+            execl("/proc/self/exe", argv[0], socket_arg, mode,
+                import_only ? "import-only" : "exportable", (char *)NULL);
             _exit(127);
         }
         close(sockets[1]);
@@ -265,7 +270,8 @@ int main(int argc, char **argv)
             REQUIRE(value == 9);
         }
         finish(&c);
-        printf("%s: OPAQUE_FD semaphore + 4 MiB buffer round trip across exec passed\n", mode);
+        printf("%s, %s receiver: OPAQUE_FD semaphore + 4 MiB buffer round trip across exec passed\n",
+            mode, import_only ? "import-only" : "exportable");
         fflush(stdout);
     }
     return 0;
