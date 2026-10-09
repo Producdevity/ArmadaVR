@@ -1,0 +1,19 @@
+Subject: arm64: return trace-counter hotplug registration failures
+
+The vendor initializer discards the registration result. Propagate a
+failure and remove its debugfs entries so initialization is reported
+accurately and recent Clang builds do not reject the unused result.
+
+--- a/arch/arm64/kernel/perf_trace_counters.c
++++ b/arch/arm64/kernel/perf_trace_counters.c
+@@ -160,6 +160,10 @@
+ 		"tracectr_cpu_hotplug",
+ 		tracectr_cpu_hotplug_coming_up,
+ 		NULL);
++	if (rc < 0) {
++		debugfs_remove_recursive(dir);
++		return rc;
++	}
+ 	return 0;
+ }
+ 

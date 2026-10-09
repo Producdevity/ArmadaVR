@@ -3,14 +3,17 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 engine="${CONTAINER_ENGINE:-docker}"
 profile="${1:-quest3}"
-out="${2:-output/kernel/quest3/vendor-build}"
+out="${2:-output/kernel/$profile/vendor-build}"
 variant="${3:-vendor}"
 mode="${4:-build}"
 default_memory=6g
 [[ "$mode" != configure ]] || default_memory=4g
 memory="${KERNEL_BUILD_MEMORY:-$default_memory}"
+volume="${KERNEL_BUILD_VOLUME:-armada-vr-$profile-kernel}"
+[[ "$volume" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$ ]] || { echo "Invalid KERNEL_BUILD_VOLUME" >&2; exit 1; }
 case "$memory" in 4g|6g) ;; *) echo "KERNEL_BUILD_MEMORY must be 4g or 6g" >&2; exit 1 ;; esac
-[[ "$profile" == quest3 ]] || { echo "Only the Quest 3 complete source is pinned" >&2; exit 1; }
+case "$profile" in quest3|pico-neo3) ;; *) echo "Unknown kernel profile" >&2; exit 1 ;; esac
+[[ "$profile" != pico-neo3 || "$variant" == vendor ]] || { echo "Pico currently supports the vendor compilation baseline only" >&2; exit 1; }
 args=("$profile")
 case "$variant" in vendor) ;; linux-userspace) args+=(--linux-userspace) ;; qemu-abi) args+=(--qemu-abi) ;; *) echo "Unknown kernel variant" >&2; exit 1 ;; esac
 case "$mode" in build) ;; configure) args+=(--configure-only) ;; *) echo "Unknown kernel mode" >&2; exit 1 ;; esac
@@ -23,7 +26,7 @@ out=$(cd "$out" && pwd)
     --network none --memory "$memory" --memory-swap "$memory" --cpus 2 --pids-limit 256 \
     --env "KERNEL_BUILD_IMAGE_ID=$image" \
     --env "KERNEL_BUILD_MEMORY=$memory" \
-    --mount "type=volume,src=armada-vr-$profile-kernel,dst=/work" \
+    --mount "type=volume,src=$volume,dst=/work" \
     --mount "type=bind,src=$PWD/tools,dst=/project/tools,readonly" \
     --mount "type=bind,src=$PWD/profiles,dst=/project/profiles,readonly" \
     --mount "type=bind,src=$PWD/patches,dst=/project/patches,readonly" \

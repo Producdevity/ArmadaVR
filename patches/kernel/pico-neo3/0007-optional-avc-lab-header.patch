@@ -1,0 +1,28 @@
+Subject: selinux: use published defaults for optional lab audit sampling
+
+The release omits Android's generated ProductConfig.h. Both consumers
+already default FEAT_LAB_TAG and FEAT_AVC_CLEAN to zero. Drop the missing
+include and retain these defaults, leaving full AVC auditing enabled
+without the optional lab sampling controls. SELinux enforcement is
+unchanged; this does not reproduce the private product configuration.
+
+--- a/fs/proc/cmdline.c
++++ b/fs/proc/cmdline.c
+@@ -6,7 +6,6 @@
+ 
+ //Smt:[FEAT_LAB_TAG, FEAT_AVC_CLEAN] {@
+ #include <linux/uaccess.h>
+-#include <config/ProductConfig.h>
+ #ifndef FEAT_LAB_TAG
+ #define FEAT_LAB_TAG 0
+ #endif
+--- a/security/selinux/avc.c
++++ b/security/selinux/avc.c
+@@ -48,7 +48,6 @@
+ #endif
+ 
+ //Smt: [FEAT_LAB_TAG, FEAT_AVC_CLEAN] {@
+-#include <config/ProductConfig.h>
+ #ifndef FEAT_LAB_TAG
+ #define FEAT_LAB_TAG 0
+ #endif

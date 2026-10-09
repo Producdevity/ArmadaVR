@@ -3,10 +3,32 @@
   "repository": "bytedance/neo3-kernel",
   "commit": "9cacc1c1356dd32a048f4cb13bc84af402bd3326",
   "kernel_version": "4.19.81",
+  "full_source": {
+    "url": "https://codeload.github.com/bytedance/neo3-kernel/tar.gz/9cacc1c1356dd32a048f4cb13bc84af402bd3326",
+    "size": 176834575,
+    "sha256": "88fb81480eb02f1e958a57a818e6b3fc699e5156a223ea53a5cc1b037abe7063",
+    "archive_root": "neo3-kernel-9cacc1c1356dd32a048f4cb13bc84af402bd3326",
+    "symlink_rewrites": {
+      "audio-kernel/include/soc/internal.h": {
+        "original": "../../../../../../kernel/msm-4.19/drivers/base/regmap/internal.h",
+        "target": "../../../drivers/base/regmap/internal.h"
+      },
+      "audio-kernel/soc/core.h": {
+        "original": "../../../../../kernel/msm-4.19/drivers/pinctrl/core.h",
+        "target": "../../drivers/pinctrl/core.h"
+      },
+      "audio-kernel/soc/pinctrl-utils.h": {
+        "original": "../../../../../kernel/msm-4.19/drivers/pinctrl/pinctrl-utils.h",
+        "target": "../../drivers/pinctrl/pinctrl-utils.h"
+      }
+    }
+  },
+  "config_fragments": ["arch/arm64/configs/vendor/kona-perf_defconfig"],
+  "build_targets": ["Image", "modules"],
   "base": null,
   "overlays": [],
   "include_dirs": [],
-  "device_tree_blocker": "ByteDance Neo3 source omits arch/arm64/boot/dts/vendor; no exact Pro/Pro Eye DTS is available in this release. Obtain matching board source or stock DTB/DTBO before compiling.",
+  "device_tree_blocker": "ByteDance Neo3 source omits arch/arm64/boot/dts/vendor. Stock DTB/DTBO are available separately, but cannot be compiled from this release; compatibility with the public kernel remains unverified.",
   "files": {
     "AndroidKernel.mk": "84199ddbd244920e0f9902fd29e0fcab392027290b999c830a66477fbbf803cd",
     "COPYING": "ee5808b032a67f587d3541099d46de34f5bec8cd5976114ba07f1299ee6001ff",

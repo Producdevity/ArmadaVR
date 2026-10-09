@@ -1,0 +1,52 @@
+Subject: soc: qcom: align DCC offsets with successful writes
+
+Correct misleading indentation after the error branches without
+changing the SRAM descriptor sequence or failure behavior.
+
+--- a/drivers/soc/qcom/dcc_v2.c
++++ b/drivers/soc/qcom/dcc_v2.c
+@@ -342,19 +342,19 @@
+ 			ret = dcc_sram_writel(drvdata, addr, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 
+ 			ret = dcc_sram_writel(drvdata,
+ 					entry->mask, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 
+ 			ret = dcc_sram_writel(drvdata,
+ 					entry->write_val, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 			addr = 0;
+ 			break;
+ 		}
+@@ -437,18 +437,18 @@
+ 			ret = dcc_sram_writel(drvdata, addr, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 
+ 			ret = dcc_sram_writel(drvdata, link, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 
+ 			ret = dcc_sram_writel(drvdata,
+ 				entry->write_val, sram_offset);
+ 			if (ret)
+ 				goto overstep;
+-				sram_offset += 4;
++			sram_offset += 4;
+ 			addr = 0x00;
+ 			link = 0;
+ 			break;

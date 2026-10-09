@@ -1,0 +1,16 @@
+Subject: proc: declare the storage swap counter with a void prototype
+
+The vendor helper takes no arguments. Spell that explicitly for modern
+Clang's strict-prototype checks; its callers and behavior are unchanged.
+
+--- a/fs/proc/task_mmu.c
++++ b/fs/proc/task_mmu.c
+@@ -1805,7 +1805,7 @@
+ 	return (test_bit(MMF_RECLAIM_TO_STORAGE_START, &mm->flags) &&
+ 		test_bit(MMF_RECLAIM_TO_STORAGE_STOP, &mm->flags));
+ }
+-unsigned long sum_storage_swap_out ()
++unsigned long sum_storage_swap_out(void)
+ {
+ 	unsigned long swap_write_stats=0;
+ 	int cpu;

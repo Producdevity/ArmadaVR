@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify pinned headset kernel sources and compile vendor device trees offline."""
 import argparse
+import copy
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -80,6 +81,8 @@ def full_source(profile, archive, source, verify_only=False):
         require_case_sensitive(source.parent)
         source.mkdir(parents=True, exist_ok=False)
     paths, total = set(), 0
+    rewrites = profile["full_source"].get("symlink_rewrites", {})
+    seen_rewrites = set()
     with tarfile.open(archive, "r|gz") as stream:
         for member in stream:
             prefix, _, relative = member.name.partition("/")
@@ -94,6 +97,16 @@ def full_source(profile, archive, source, verify_only=False):
             if relative in paths:
                 raise ValueError(f"Duplicate source archive path: {relative}")
             paths.add(relative)
+            if relative in rewrites:
+                rule = rewrites[relative]
+                if not member.issym() or member.linkname != rule["original"]:
+                    raise ValueError(f"Pinned source symlink changed: {relative}")
+                target = rule["target"]
+                if PurePosixPath(target).is_absolute() or not (path.parent / target).resolve().is_relative_to(source.resolve()):
+                    raise ValueError(f"Rewritten source symlink escapes its directory: {relative}")
+                member = copy.copy(member)
+                member.linkname = target
+                seen_rewrites.add(relative)
             if not verify_only:
                 extract_entry(stream, member, path, source)
             elif member.isfile():
@@ -112,11 +125,18 @@ def full_source(profile, archive, source, verify_only=False):
                     raise ValueError(f"Source directory differs: {relative}")
             elif not member.isdir():
                 raise ValueError(f"Unsupported source archive entry: {relative}")
+    if seen_rewrites != set(rewrites):
+        raise ValueError("Pinned source symlink rewrite is absent from the archive")
+    for relative, rule in rewrites.items():
+        target = (source_path(source, relative).parent / rule["target"]).resolve()
+        if not target.is_file() or target.relative_to(source.resolve()).as_posix() not in paths:
+            raise ValueError(f"Rewritten source symlink has no archived file target: {relative}")
     if verify_only:
         for path in source.rglob("*"):
             if path.relative_to(source).as_posix() not in paths:
                 raise ValueError(f"Unexpected full-source path: {path.relative_to(source)}")
-    return {"entries": len(paths), "bytes": total, "archive_sha256": profile["full_source"]["sha256"]}
+    return {"entries": len(paths), "bytes": total, "archive_sha256": profile["full_source"]["sha256"],
+            "symlink_rewrites": rewrites}
 
 
 def source_path(root, relative):

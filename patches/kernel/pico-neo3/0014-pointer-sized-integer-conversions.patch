@@ -1,0 +1,145 @@
+Subject: arm64: make vendor pointer-to-integer conversions explicit
+
+Preserve the existing enum, firmware field and register widths while
+converting pointer carriers through unsigned long first. The video
+queue address is intentionally split into two 32-bit debug registers.
+
+--- a/techpack/video/msm/vidc/hfi_iris2.c
++++ b/techpack/video/msm/vidc/hfi_iris2.c
+@@ -167,7 +167,7 @@
+ 				(u32)device->qdss.align_device_addr, sid);
+ 	/* update queues vaddr for debug purpose */
+ 	__write_register(device, CPU_CS_VCICMDARG0_IRIS2,
+-		(u32)device->iface_q_table.align_virtual_addr, sid);
++		(u32)(unsigned long)device->iface_q_table.align_virtual_addr, sid);
+ 	__write_register(device, CPU_CS_VCICMDARG1_IRIS2,
+ 		(u32)((u64)device->iface_q_table.align_virtual_addr >> 32),
+ 		sid);
+--- a/drivers/media/dvb-core/dvb_frontend.c
++++ b/drivers/media/dvb-core/dvb_frontend.c
+@@ -2517,7 +2517,7 @@
+ 	case FE_DISEQC_SEND_BURST:
+ 		if (fe->ops.diseqc_send_burst) {
+ 			err = fe->ops.diseqc_send_burst(fe,
+-						(enum fe_sec_mini_cmd)parg);
++						(enum fe_sec_mini_cmd)(unsigned long)parg);
+ 			fepriv->state = FESTATE_DISEQC;
+ 			fepriv->status = 0;
+ 		}
+@@ -2526,8 +2526,8 @@
+ 	case FE_SET_TONE:
+ 		if (fe->ops.set_tone) {
+ 			err = fe->ops.set_tone(fe,
+-					       (enum fe_sec_tone_mode)parg);
+-			fepriv->tone = (enum fe_sec_tone_mode)parg;
++					       (enum fe_sec_tone_mode)(unsigned long)parg);
++			fepriv->tone = (enum fe_sec_tone_mode)(unsigned long)parg;
+ 			fepriv->state = FESTATE_DISEQC;
+ 			fepriv->status = 0;
+ 		}
+@@ -2536,8 +2536,8 @@
+ 	case FE_SET_VOLTAGE:
+ 		if (fe->ops.set_voltage) {
+ 			err = fe->ops.set_voltage(fe,
+-						  (enum fe_sec_voltage)parg);
+-			fepriv->voltage = (enum fe_sec_voltage)parg;
++						  (enum fe_sec_voltage)(unsigned long)parg);
++			fepriv->voltage = (enum fe_sec_voltage)(unsigned long)parg;
+ 			fepriv->state = FESTATE_DISEQC;
+ 			fepriv->status = 0;
+ 		}
+--- a/drivers/misc/qseecom.c
++++ b/drivers/misc/qseecom.c
+@@ -3699,8 +3699,8 @@
+ 				(uint32_t)(__qseecom_uvirt_to_kphys(
+ 				data, (uintptr_t)req->resp_buf));
+ 		} else {
+-			send_data_req.req_ptr = (uint32_t)req->cmd_req_buf;
+-			send_data_req.rsp_ptr = (uint32_t)req->resp_buf;
++			send_data_req.req_ptr = (uint32_t)(uintptr_t)req->cmd_req_buf;
++			send_data_req.rsp_ptr = (uint32_t)(uintptr_t)req->resp_buf;
+ 		}
+ 
+ 		send_data_req.req_len = req->cmd_req_len;
+--- a/drivers/media/platform/msm/cvp/hfi_response_handler.c
++++ b/drivers/media/platform/msm/cvp/hfi_response_handler.c
+@@ -491,7 +491,7 @@
+ 	}
+ 	session_id = (void *)(uintptr_t)get_msg_session_id(pkt);
+ 	core = list_first_entry(&cvp_driver->cores, struct msm_cvp_core, list);
+-	inst = cvp_get_inst_from_id(core, (unsigned int)session_id);
++	inst = cvp_get_inst_from_id(core, (unsigned int)(uintptr_t)session_id);
+ 
+ 	if (!inst) {
+ 		dprintk(CVP_ERR, "%s: invalid session\n", __func__);
+--- a/drivers/perf/qcom_llcc_pmu.c
++++ b/drivers/perf/qcom_llcc_pmu.c
+@@ -255,7 +255,7 @@
+ 	if (!llccpmu)
+ 		return -ENOMEM;
+ 
+-	llccpmu->ver = (enum llcc_pmu_version)
++	llccpmu->ver = (enum llcc_pmu_version)(unsigned long)
+ 			of_device_get_match_data(&pdev->dev);
+ 	if (!llccpmu->ver) {
+ 		pr_err("Unknown device type!\n");
+--- a/drivers/platform/msm/ipa/ipa_v3/ipa_debugfs.c
++++ b/drivers/platform/msm/ipa/ipa_v3/ipa_debugfs.c
+@@ -815,7 +815,7 @@
+ 	struct ipa3_rt_tbl *tbl;
+ 	struct ipa3_rt_entry *entry;
+ 	struct ipa3_rt_tbl_set *set;
+-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
++	enum ipa_ip_type ip = (enum ipa_ip_type)(unsigned long)file->private_data;
+ 	u32 ofst;
+ 	u32 ofst_words;
+ 
+@@ -912,7 +912,7 @@
+ static ssize_t ipa3_read_rt_hw(struct file *file, char __user *ubuf,
+ 	size_t count, loff_t *ppos)
+ {
+-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
++	enum ipa_ip_type ip = (enum ipa_ip_type)(unsigned long)file->private_data;
+ 	int tbls_num;
+ 	int rules_num;
+ 	int tbl;
+@@ -1080,7 +1080,7 @@
+ 	int j;
+ 	struct ipa3_flt_tbl *tbl;
+ 	struct ipa3_flt_entry *entry;
+-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
++	enum ipa_ip_type ip = (enum ipa_ip_type)(unsigned long)file->private_data;
+ 	struct ipa3_rt_tbl *rt_tbl;
+ 	u32 rt_tbl_idx;
+ 	u32 bitmap;
+@@ -1151,7 +1151,7 @@
+ 	int rl;
+ 	int rules_num;
+ 	struct ipahal_flt_rule_entry *rules;
+-	enum ipa_ip_type ip = (enum ipa_ip_type)file->private_data;
++	enum ipa_ip_type ip = (enum ipa_ip_type)(unsigned long)file->private_data;
+ 	u32 rt_tbl_idx;
+ 	u32 bitmap;
+ 	int res = 0;
+--- a/drivers/platform/msm/ipa/ipa_v3/ipahal/ipahal_hw_stats.c
++++ b/drivers/platform/msm/ipa/ipa_v3/ipahal/ipahal_hw_stats.c
+@@ -225,7 +225,7 @@
+ 	void *params, bool is_atomic_ctx)
+ {
+ 	struct ipahal_stats_init_pyld *pyld;
+-	int num = (int)(params);
++	int num = (int)(unsigned long)params;
+ 
+ 	if (num > IPA_MAX_FLT_RT_CNT_INDEX ||
+ 		num <= 0) {
+--- a/drivers/power/supply/qcom/smb1390-charger-psy.c
++++ b/drivers/power/supply/qcom/smb1390-charger-psy.c
+@@ -2101,7 +2101,7 @@
+ 	}
+ 
+ 	platform_set_drvdata(pdev, chip);
+-	chip->cp_role = (int)of_device_get_match_data(chip->dev);
++	chip->cp_role = (int)(unsigned long)of_device_get_match_data(chip->dev);
+ 	switch (chip->cp_role) {
+ 	case CP_MASTER:
+ 		rc = smb1390_master_probe(chip);

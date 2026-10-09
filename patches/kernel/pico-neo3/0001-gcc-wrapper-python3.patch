@@ -1,0 +1,67 @@
+Subject: scripts: port the compiler wrapper to Python 3 and reap failures
+
+Retain the warning allowlist and compiler error codes. Wait for the
+compiler before removing a rejected object, so a child cannot recreate
+it after the wrapper exits on a warning.
+
+--- a/scripts/gcc-wrapper.py
++++ b/scripts/gcc-wrapper.py
+@@ -1,4 +1,4 @@
+-#! /usr/bin/env python2
++#! /usr/bin/env python3
+ # SPDX-License-Identifier: GPL-2.0-only
+ # Copyright (c) 2011-2017, 2018 The Linux Foundation. All rights reserved.
+ 
+@@ -31,15 +31,10 @@
+     line = line.rstrip('\n')
+     m = warning_re.match(line)
+     if m and m.group(2) not in allowed_warnings:
+-        print "error, forbidden warning:", m.group(2)
++        print("error, forbidden warning:", m.group(2))
+ 
+-        # If there is a warning, remove any object if it exists.
+-        if ofile:
+-            try:
+-                os.remove(ofile)
+-            except OSError:
+-                pass
+-        sys.exit(1)
++        return True
++    return False
+ 
+ def run_gcc():
+     args = sys.argv[1:]
+@@ -54,19 +49,27 @@
+     compiler = sys.argv[0]
+ 
+     try:
+-        proc = subprocess.Popen(args, stderr=subprocess.PIPE)
++        proc = subprocess.Popen(args, stderr=subprocess.PIPE, universal_newlines=True)
++        forbidden_warning = False
+         for line in proc.stderr:
+-            print line,
+-            interpret_warning(line)
++            print(line, end="")
++            forbidden_warning = interpret_warning(line) or forbidden_warning
+ 
+         result = proc.wait()
++        if forbidden_warning:
++            if ofile:
++                try:
++                    os.remove(ofile)
++                except OSError:
++                    pass
++            result = 1
+     except OSError as e:
+         result = e.errno
+         if result == errno.ENOENT:
+-            print args[0] + ':',e.strerror
+-            print 'Is your PATH set correctly?'
++            print(args[0] + ':', e.strerror)
++            print('Is your PATH set correctly?')
+         else:
+-            print ' '.join(args), str(e)
++            print(' '.join(args), str(e))
+ 
+     return result
+ 

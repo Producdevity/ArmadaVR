@@ -1,0 +1,40 @@
+Subject: leds: qti: unwind Pico blink attributes on registration failure
+
+Avoid dereferencing the current unregistered LED or repeatedly removing
+its group. Clean completed modulated LEDs and the current breath files
+when group creation fails. Keep mutex cleanup for every initialized LED.
+
+--- a/drivers/leds/leds-qti-tri-led.c
++++ b/drivers/leds/leds-qti-tri-led.c
+@@ -583,7 +583,7 @@
+ 			if (rc){
+ 				dev_err(chip->dev, "Create breath file for %s led failed, rc=%d\n",
+ 						led->label, rc);
+-				goto err_out;
++				goto err_remove_breath;
+ 			}
+ 			/*Add by PICO rayson.zhang hunter.zhao for bug1488 bug54476 add led blink --end-*/
+ 
+@@ -592,15 +592,17 @@
+ 
+ 	return 0;
+ 
++err_remove_breath:
++	sysfs_remove_files(&led->cdev.dev->kobj, breath_attrs);
+ err_out:
+ 	for (j = 0; j <= i; j++) {
+-		if (j < i)
++		if (j < i && (pwm_get_output_type_supported(chip->leds[j].pwm_dev)
++				& PWM_OUTPUT_MODULATED)) {
++			sysfs_remove_group(&chip->leds[j].cdev.dev->kobj,
++					&pico_blink_attr_group);
+ 			sysfs_remove_files(&chip->leds[j].cdev.dev->kobj,
+ 					breath_attrs);
+-			/*Add by PICO rayson.zhang hunter.zhao for bug1488 bug54476 add led blink --start--*/
+-			sysfs_remove_group(&chip->leds[i].cdev.dev->kobj,
+-					&pico_blink_attr_group);
+-			/*Add by PICO rayson.zhang hunter.zhao for bug1488 bug54476 add led blink --end--*/
++		}
+ 		mutex_destroy(&chip->leds[j].lock);
+ 	}
+ 	return rc;

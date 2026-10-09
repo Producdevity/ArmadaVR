@@ -1,0 +1,75 @@
+From 1139aeb1c521eb4a050920ce6c64c36c4f2a3ab7 Mon Sep 17 00:00:00 2001
+From: Arnd Bergmann <arnd@arndb.de>
+Subject: smp: Fix smp_call_function_single_async prototype
+
+Backport upstream 1139aeb1c521eb4a050920ce6c64c36c4f2a3ab7 to the
+Neo3 4.19 implementation. Accept the unaligned call-data structure in
+function arguments while retaining aligned per-CPU and stack storage.
+This fixes the block request caller without changing struct request.
+
+--- a/include/linux/smp.h
++++ b/include/linux/smp.h
+@@ -53,7 +53,7 @@
+ 		smp_call_func_t func, void *info, bool wait,
+ 		gfp_t gfp_flags);
+ 
+-int smp_call_function_single_async(int cpu, call_single_data_t *csd);
++int smp_call_function_single_async(int cpu, struct __call_single_data *csd);
+ 
+ #ifdef CONFIG_SMP
+ 
+--- a/kernel/smp.c
++++ b/kernel/smp.c
+@@ -107,12 +107,12 @@
+  * previous function call. For multi-cpu calls its even more interesting
+  * as we'll have to ensure no other cpu is observing our csd.
+  */
+-static __always_inline void csd_lock_wait(call_single_data_t *csd)
++static __always_inline void csd_lock_wait(struct __call_single_data *csd)
+ {
+ 	smp_cond_load_acquire(&csd->flags, !(VAL & CSD_FLAG_LOCK));
+ }
+ 
+-static __always_inline void csd_lock(call_single_data_t *csd)
++static __always_inline void csd_lock(struct __call_single_data *csd)
+ {
+ 	csd_lock_wait(csd);
+ 	csd->flags |= CSD_FLAG_LOCK;
+@@ -125,7 +125,7 @@
+ 	smp_wmb();
+ }
+ 
+-static __always_inline void csd_unlock(call_single_data_t *csd)
++static __always_inline void csd_unlock(struct __call_single_data *csd)
+ {
+ 	WARN_ON(!(csd->flags & CSD_FLAG_LOCK));
+ 
+@@ -142,7 +142,7 @@
+  * for execution on the given CPU. data must already have
+  * ->func, ->info, and ->flags set.
+  */
+-static int generic_exec_single(int cpu, call_single_data_t *csd,
++static int generic_exec_single(int cpu, struct __call_single_data *csd,
+ 			       smp_call_func_t func, void *info)
+ {
+ 	if (cpu == smp_processor_id()) {
+@@ -327,7 +327,7 @@
+  * NOTE: Be careful, there is unfortunately no current debugging facility to
+  * validate the correctness of this serialization.
+  */
+-int smp_call_function_single_async(int cpu, call_single_data_t *csd)
++int smp_call_function_single_async(int cpu, struct __call_single_data *csd)
+ {
+ 	int err = 0;
+ 
+--- a/kernel/up.c
++++ b/kernel/up.c
+@@ -23,7 +23,7 @@
+ }
+ EXPORT_SYMBOL(smp_call_function_single);
+ 
+-int smp_call_function_single_async(int cpu, call_single_data_t *csd)
++int smp_call_function_single_async(int cpu, struct __call_single_data *csd)
+ {
+ 	unsigned long flags;
+ 

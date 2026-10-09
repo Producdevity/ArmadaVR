@@ -1,0 +1,25 @@
+Subject: crypto: qcedev: align unconditional cleanup jumps
+
+These paths free the request after copying its digest regardless of
+copy success. Match the indentation to the existing control flow.
+
+--- a/drivers/crypto/msm/qcedev.c
++++ b/drivers/crypto/msm/qcedev.c
+@@ -1827,7 +1827,7 @@
+ 		if (copy_to_user((void __user *)arg, &qcedev_areq->sha_op_req,
+ 					sizeof(struct qcedev_sha_op_req)))
+ 			err = -EFAULT;
+-			goto exit_free_qcedev_areq;
++		goto exit_free_qcedev_areq;
+ 		}
+ 		break;
+ 
+@@ -1919,7 +1919,7 @@
+ 		if (copy_to_user((void __user *)arg, &qcedev_areq->sha_op_req,
+ 					sizeof(struct qcedev_sha_op_req)))
+ 			err = -EFAULT;
+-			goto exit_free_qcedev_areq;
++		goto exit_free_qcedev_areq;
+ 		}
+ 		break;
+ 

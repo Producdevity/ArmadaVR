@@ -1,0 +1,18 @@
+From e33a814e772cdc36436c8c188d8c42d019fda639 Mon Sep 17 00:00:00 2001
+From: Dirk Mueller <dmueller@suse.com>
+Subject: scripts/dtc: Remove redundant YYLOC global declaration
+
+Backport upstream e33a814e772cdc36436c8c188d8c42d019fda639 to the
+Neo3 release. GCC 10 and later default to -fno-common; the parser
+already supplies yylloc, so the lexer must not define it again.
+
+--- a/scripts/dtc/dtc-lexer.l
++++ b/scripts/dtc/dtc-lexer.l
+@@ -38,7 +38,6 @@
+ #include "srcpos.h"
+ #include "dtc-parser.tab.h"
+ 
+-YYLTYPE yylloc;
+ extern bool treesource_error;
+ 
+ /* CAUTION: this will stop working if we ever use yyless() or yyunput() */

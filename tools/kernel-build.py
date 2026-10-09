@@ -85,6 +85,11 @@ def patched_source(source, cache, patches):
 def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
     if sys.platform != "linux":
         raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
+    if profile["repository"] == "bytedance/neo3-kernel" and (linux_userspace or qemu_abi):
+        raise ValueError("Pico Linux userspace patches and QEMU transports have not been ported")
+    targets = profile.get("build_targets", ["Image", "modules", "dtbs"])
+    if targets not in (["Image", "modules"], ["Image", "modules", "dtbs"]):
+        raise ValueError("Unsupported kernel build targets")
     if output.exists() and any(output.iterdir()):
         raise ValueError("Output exists; choose a new report directory")
     output.mkdir(parents=True, exist_ok=True)
@@ -100,6 +105,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
               "stock_toolchain_reproduction": False, "status": "started", "commands": [], "artifacts": [],
               "variant": "qemu-abi" if qemu_abi else "linux-userspace" if linux_userspace else "vendor",
               "qemu_transports": qemu_abi,
+              "build_targets": targets, "device_trees_compiled": False,
               "limits": {"memory": os.environ.get("KERNEL_BUILD_MEMORY", "external"), "make_jobs": 2,
                          "linker_threads": 1, "pahole_jobs": 1, "compile_seconds": 2700}}
     started = time.monotonic()
@@ -131,11 +137,26 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
         identity = {"profile_sha256": hashlib.sha256(json.dumps(profile, sort_keys=True).encode()).hexdigest(),
                     "compiler": report["compiler"], "container_image": report["container_image"],
                     "config_fragments": profile["config_fragments"]}
+        pico_make_options = []
+        if profile["repository"] == "bytedance/neo3-kernel":
+            pico_make_options = ["REAL_CC=clang", "CLANG_TRIPLE=aarch64-linux-gnu-",
+                                 "KCFLAGS=-Wno-unused-but-set-variable",
+                                 "CC_COMPAT=clang --target=arm-linux-gnueabi --prefix=/usr/bin/arm-linux-gnueabi- --gcc-toolchain=/usr -no-integrated-as"]
+            identity["make_overrides"] = pico_make_options
+            report["compiler_compatibility"] = {
+                "disabled_diagnostic": "unused-but-set-variable",
+                "reason": "Clang 13 added this diagnostic; the stock kernel used Clang 8",
+                "vendor_warning_guard": "retained",
+            }
         extensions = [sources.ROOT / "profiles/kernel" / name for name in
                       ("linux-userspace.config", "quest3-build.config")] if linux_userspace else []
         if qemu_abi:
             extensions.append(sources.ROOT / "profiles/kernel/qemu-abi.config")
         patches = sorted((sources.ROOT / "patches/kernel/linux-userspace").glob("*.patch")) if linux_userspace else []
+        if profile["repository"] == "bytedance/neo3-kernel":
+            patches = sorted((sources.ROOT / "patches/kernel/pico-neo3").glob("*.patch"))
+            if not patches:
+                raise ValueError("Missing Pico compiler portability patches")
         if qemu_abi:
             qemu_patches = sorted((sources.ROOT / "patches/kernel/qemu-abi").glob("*.patch"))
             if not qemu_patches:
@@ -145,6 +166,10 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
             identity["patches"] = {str(path.relative_to(sources.ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in patches}
         if linux_userspace:
             identity["config_extensions"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in extensions}
+        if linux_userspace or patches:
+            if not linux_userspace:
+                cache = workspace / "vendor"
+                cache.mkdir(exist_ok=True)
             cache = cache / hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
             cache.mkdir(exist_ok=True)
             build_dir = cache / "build"
@@ -176,6 +201,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
         make = ["make", "-C", str(source), f"O={build_dir}", "PYTHON=python3",
                 "LD=ld.lld --threads=1 --lto-partitions=1",
                 "PAHOLE_FLAGS=--skip_encoding_btf_enum64 --jobs=1"]
+        make.extend(pico_make_options)
         run([*make, "olddefconfig"], "config-resolve.log")
         shutil.copyfile(config, output / "resolved.config")
         shutil.copyfile(config, resolved_stamp)
@@ -192,7 +218,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
             return report
         report["status"] = "compiling"
         # GNU timeout terminates make's complete process group, including compiler children.
-        run(["timeout", "--kill-after=15", "2700", *make, "-j2", "Image", "modules", "dtbs"], "compile.log", 2760)
+        run(["timeout", "--kill-after=15", "2700", *make, "-j2", *targets], "compile.log", 2760)
         for relative in ("arch/arm64/boot/Image", "System.map", ".config", "modules.order", "modules.builtin"):
             shutil.copyfile(build_dir / relative, output / Path(relative).name)
         dt_dir = output / "device-trees"
@@ -202,6 +228,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
                 destination = dt_dir / path.relative_to(build_dir / "arch/arm64/boot/dts")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, destination)
+        report["device_trees_compiled"] = "dtbs" in targets
         staging = cache / "modules"
         if staging.exists():
             shutil.rmtree(staging)
@@ -242,7 +269,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("profile", choices=("quest3",))
+    parser.add_argument("profile", choices=("quest3", "pico-neo3"))
     parser.add_argument("--workspace", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--archive", type=Path, required=True)

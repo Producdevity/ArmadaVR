@@ -1,0 +1,17 @@
+Subject: mm: decode unmap flags through a pointer-sized integer
+
+The reverse-map callback carries flag bits in its opaque argument.
+Convert through unsigned long before assigning the enum, avoiding a
+direct pointer-to-enum cast rejected by newer Clang warning checks.
+
+--- a/mm/rmap.c
++++ b/mm/rmap.c
+@@ -1345,7 +1345,7 @@
+ 	struct page *subpage;
+ 	bool ret = true;
+ 	unsigned long start = address, end;
+-	enum ttu_flags flags = (enum ttu_flags)arg;
++	enum ttu_flags flags = (unsigned long)arg;
+ 
+ 	/* munlock has nothing to gain from examining un-locked vmas */
+ 	if ((flags & TTU_MUNLOCK) && !(vma->vm_flags & VM_LOCKED))

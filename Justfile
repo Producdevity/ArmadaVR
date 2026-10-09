@@ -85,8 +85,8 @@ build-kernel-tools:
     {{ engine }} build --platform linux/arm64 -f Containerfile.kernel -t localhost/armada-vr:kernel .
 
 # Attempt the original vendor configuration in Linux, capped at 6 GiB.
-build-vendor-kernel directory="output/kernel/quest3/vendor-build":
-    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh quest3 {{ quote(directory) }}
+build-vendor-kernel directory="output/kernel/quest3/vendor-build" profile="quest3":
+    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }}
 
 # Resolve the Linux userspace configuration separately from the vendor baseline.
 configure-headset-kernel directory="output/kernel/quest3/linux-config":

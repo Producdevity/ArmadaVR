@@ -1,0 +1,26 @@
+Subject: camera: guard four-camera stream helpers consistently
+
+The helper definitions were unconditional, but their state, callers and
+status attribute are all guarded by NEO25_FOUR_6DOF_CAMERAS_SUPPORT.
+Use the same guard for the definitions without selecting a wiring flag.
+Eye-camera handling remains unchanged outside this guard.
+
+--- a/techpack/camera/drivers/cam_sensor_module/cam_sensor/cam_sensor_core.c
++++ b/techpack/camera/drivers/cam_sensor_module/cam_sensor/cam_sensor_core.c
+@@ -22,6 +22,7 @@
+ #endif
+ int eyetracking_led_always_on = 0;/*Modify by PICO_Driver sophia.wang for bug57941: add eyetracking led always on mode for cit test start*/
+ 
++#ifdef NEO25_FOUR_6DOF_CAMERAS_SUPPORT
+ static void cam_set_bit(uint16_t camera_sid)
+ {
+ 	switch(camera_sid){
+@@ -70,6 +71,8 @@
+ 	}
+ 	CAM_INFO(CAM_SENSOR,"sophia cam_clear_bit %d sid %d",camera_streamoff_status,camera_sid);
+ }
++
++#endif
+ 
+ int cam_sensor_is_eyetracking(struct cam_sensor_ctrl_t *s_ctrl)
+ {

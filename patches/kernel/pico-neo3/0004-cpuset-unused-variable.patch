@@ -1,0 +1,18 @@
+Subject: cgroup: remove unused cpuset cancellation variable
+
+The cancellation callback already accesses the cpuset through css_cs
+inside its lock. Remove the redundant earlier lookup and unused local.
+
+--- a/kernel/cgroup/cpuset.c
++++ b/kernel/cgroup/cpuset.c
+@@ -1521,10 +1521,8 @@
+ static void cpuset_cancel_attach(struct cgroup_taskset *tset)
+ {
+ 	struct cgroup_subsys_state *css;
+-	struct cpuset *cs;
+ 
+ 	cgroup_taskset_first(tset, &css);
+-	cs = css_cs(css);
+ 
+ 	mutex_lock(&cpuset_mutex);
+ 	css_cs(css)->attach_in_progress--;

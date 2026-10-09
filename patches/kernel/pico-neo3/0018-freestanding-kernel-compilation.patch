@@ -1,0 +1,17 @@
+Subject: kbuild: compile the kernel as a freestanding environment
+
+Prevent Clang from replacing kernel sprintf/string calls with hosted-libc
+entry points such as stpcpy that this 4.19 tree does not provide. Keep the
+vendor diagnostics and module versioning enabled.
+
+--- a/Makefile
++++ b/Makefile
+@@ -427,7 +427,7 @@
+ 		$(USERINCLUDE)
+ 
+ KBUILD_AFLAGS   := -D__ASSEMBLY__
+-KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
++KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -ffreestanding \
+ 		   -fno-strict-aliasing -fno-common -fshort-wchar \
+ 		   -Werror-implicit-function-declaration \
+ 		   -Wno-format-security \

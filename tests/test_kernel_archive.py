@@ -117,3 +117,37 @@ class KernelArchiveTests(unittest.TestCase):
                 {"symbol": "CONFIG_DEFAULT", "requested": '"zstd"', "resolved": '"lzo"'},
                 {"symbol": "CONFIG_DISABLED", "requested": "n", "resolved": "y"},
                 {"symbol": "CONFIG_REMOVED", "requested": "y", "resolved": "n"}])
+
+    def test_pinned_android_tree_symlink_maps_only_to_an_archived_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            profile, archive = self.fixture(root, [("kernel.h", tarfile.REGTYPE, b"original"),
+                                                    ("audio", tarfile.DIRTYPE, ""),
+                                                    ("audio/header.h", tarfile.SYMTYPE, "../../kernel/kernel.h")])
+            profile["full_source"]["symlink_rewrites"] = {
+                "audio/header.h": {"original": "../../kernel/kernel.h", "target": "../kernel.h"}}
+            source = root / "source"
+            with patch.object(source_tool, "require_case_sensitive"):
+                source_tool.full_source(profile, archive, source)
+            source_tool.full_source(profile, archive, source, True)
+            self.assertEqual((source / "audio/header.h").read_bytes(), b"original")
+            (source / "audio/header.h").unlink()
+            (source / "audio/header.h").symlink_to("../../outside")
+            with self.assertRaises(ValueError):
+                source_tool.full_source(profile, archive, source, True)
+
+    def test_symlink_rewrite_refuses_changed_original_escape_and_missing_target(self):
+        cases = [("wrong-original", "../kernel.h"),
+                 ("../../kernel/kernel.h", "../../outside"),
+                 ("../../kernel/kernel.h", "../missing.h")]
+        for original, target in cases:
+            with self.subTest(original=original, target=target), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                profile, archive = self.fixture(root, [("kernel.h", tarfile.REGTYPE, b"original"),
+                                                        ("audio", tarfile.DIRTYPE, ""),
+                                                        ("audio/header.h", tarfile.SYMTYPE, "../../kernel/kernel.h")])
+                profile["full_source"]["symlink_rewrites"] = {
+                    "audio/header.h": {"original": original, "target": target}}
+                with patch.object(source_tool, "require_case_sensitive"), self.assertRaises(ValueError):
+                    source_tool.full_source(profile, archive, root / "source")
+                self.assertFalse((root / "outside").exists())
