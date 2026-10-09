@@ -5,9 +5,9 @@ explicitly with `--runtime /path/to/verified/SteamVR`; `--client` locates Steam'
 FEX and runtime dependencies. The compositor checksum guard remains enabled.
 Keep the OpenXR manifest and its library inside this installation: a manifest
 symlink into another runtime can silently select a different client version.
-Native ARM64 presentation and authenticated Library interaction remain separate
-acceptance requirements; successful virtual rendering does not establish
-headset compatibility.
+Both-hand authenticated Library navigation and scrolling now pass in this
+translated VM baseline. Native ARM64 presentation remains a separate acceptance
+requirement; successful virtual rendering does not establish headset compatibility.
 
 The isolated public SteamVR 2.16.7 test now passes actual application presentation
 and simulated controller acceptance. Its 120 stereo submissions produce 147
@@ -39,6 +39,48 @@ from `profiles/vr-runtime.json`, mounted read-only at
 `/usr/share/guestos/fex-mesa`. That installation, Steam's downloaded dependencies
 and the guest swap file currently live in the development overlay. A fresh
 desktop build does not yet reproduce all these additions.
+
+## Authenticated Library interaction, October 10
+
+A fresh backend using the corrected Lavapipe semaphore-import path renders the
+stock authenticated Steam interface: a 1920 × 1080 main panel, 1800 × 120 bar
+and separate menu overlay. Both virtual controllers navigate between Home and
+All Games and scroll the rendered game grid. Captures show the first rows moving
+to later alphabetic entries and returning to the top. Controller poses, buttons
+and trackpad touch are restored after each bounded test.
+
+This required three graphics-configuration corrections in the isolated client
+profile. The pinned FEX build accepts repeated `HostEnv` string entries; a JSON
+array silently fails to select the requested host ICD. Steam itself retains
+translated OpenGL, while `steamwebhelper` uses native OpenGL and Vulkan thunks.
+The browser selects Zink with `MESA_LOADER_DRIVER_OVERRIDE=zink` and
+`LIBGL_KOPPER_DRI2=true`, and uses the same Vulkan ICD and DRM synchronization
+node as the compositor. Direct llvmpipe OpenGL reproduces the incompatible
+image-import error; enabling native OpenGL for the main Steam process instead
+stalls startup. These settings are scoped to the tested interpreter and client.
+
+Zink then exposed a null callback when importing a semaphore created without
+export flags. The [DRM synchronization correction](#implemented-drm-synchronization-backend-2026-09-10)
+resolves that failure in both a native GL/Vulkan reproducer and the real browser.
+The regression suite exercises binary and timeline imports in fresh processes,
+with the validation layer loaded. This does not establish all historical CEF
+failures as having the same cause.
+
+The dashboard uses separate overlays and scenegraph transforms. A trigger press
+may first select the active hand or expand the menu; a highlight is not navigation
+proof. The acceptance captures verify the resulting pages and scroll content.
+Raw textures have inverted vertical bounds, which are applied when reviewing
+those captures. The virtual controller implementation and Valve bindings were
+unchanged.
+
+The client runs for 22 minutes and exits zero after its normal shutdown request;
+the backend remains active. Its final recorded cgroup counters contain no memory
+limit or OOM events. This bounded session is not a long-term stability test.
+
+Evidence and failed comparisons remain in `output/library-render-20261010-v1/`.
+The successful client setup is still an isolated development profile. Integrating
+it into a reproducible image, Steam library game launch, sustained reliability,
+native Frame composition and physical controller/headset acceptance remain open.
 
 ## Fresh backend and stock input, October 8
 
@@ -541,9 +583,10 @@ to [Mesa 26.1.8](https://docs.mesa3d.org/relnotes/26.1.8.html), matching the VM.
 It uses Mesa's existing DRM synchronization provider, replaces the emulated
 timeline type when enabled, and signals DRM objects only after the llvmpipe
 rendering fence completes. Capability queries use the runtime's actual import
-and export callbacks. Ordinary process-local binary synchronization retains
-its existing implementation. An explicitly selected unusable node fails device
-initialization; leaving the option unset retains the default backend.
+and export callbacks. With the option enabled, DRM synchronization is also the
+default for local binary semaphores so that later permanent imports are supported.
+An explicitly selected unusable node fails device initialization; leaving the option unset
+retains the original backend.
 
 ```sh
 just build-mesa-tools

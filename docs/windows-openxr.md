@@ -61,6 +61,22 @@ Evidence is in `output/proton-x86-v1/openxr-v10-*` through `openxr-v15-*`.
 Windows game compatibility, a complete reproducible SteamVR image, sustained
 reliability and physical controller output remain unverified.
 
+## Corrected synchronization driver, October 10
+
+A fresh translated backend using the semaphore-import correction passes another
+left/right pair. Each run initializes its own new Proton prefix. Unobstructed
+captures show stereo cubes before and after dashboard focus transfer, while the
+Windows sample records `FOCUSED` → `VISIBLE` → `FOCUSED` and then `EXITING`.
+The selected controller's application-menu button ends each run with launcher
+status zero; no console newline or forced termination is used. The virtual driver
+records 152 additional left-hand and 116 additional right-hand haptic events.
+
+The backend remains alive after both runs and after the authenticated Steam
+client's preceding normal shutdown. This verifies the changed driver's sample
+rendering and interaction path; it does not explain the earlier exit 247 or
+establish game compatibility, native ARM64 composition or physical performance.
+Evidence is retained in `output/library-render-20261010-v1/`.
+
 ## Fresh backend repeat, October 8
 
 A restored desktop baseline uses a new writable overlay and a read-only Proton
