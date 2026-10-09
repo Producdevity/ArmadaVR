@@ -94,6 +94,13 @@ Independent cold EDL entry and restoration still need validation on this unit.
 macOS also requires approval when the Pico first changes to its Qualcomm USB
 identity; a pending accessory decision prevents libusb enumeration.
 
+The backed-up b1977 recovery is a user build with `ro.debuggable=0`; its init
+configuration disables ADB by default and comments out fastbootd. Rebooting into
+recovery does not establish an unattended USB return path. PICO's documented
+[recovery entry](https://sdk.picovr.com/docs/FAQ/chapter_five.html) uses Power +
+Volume Up + Home from power-off, followed by Power + Volume Up at the Android
+robot. This sequence and cold EDL entry have not been validated on this unit.
+
 When multiple ADB servers are running, the Pico can reconnect to a different
 server after reset. Check the existing servers for its exact serial before
 diagnosing a failed return to Android.
@@ -255,6 +262,16 @@ omits its required `wlan/fw-api` headers. The tested Xiaomi `cmi-r-oss` header
 set lacks roaming and datapath-statistics interfaces required by Pico's source;
 it is incompatible and is not included in the maintained build. Obtain a
 coherent matching release rather than removing those interfaces to make it compile.
+
+A separate QCA6390 experiment now compiles against the stock-derived Linux
+kernel using newer
+[Xiaomi `dagu-s-oss` headers](https://github.com/MiCode/vendor_qcom_opensource_wlan/tree/b7eb630ef0f4ef2058bc94cff72f65168a2c2ae3/fw-api)
+and pointer-width corrections in three driver source files. All 480 imported
+symbol versions match; the signed module verifies against the built kernel's
+embedded certificate and rejects a modified payload. The exact stock firmware
+message ABI, active chip variant and radio operation remain unverified; reading
+the unit's PCI identifiers is denied. QCA6490 has not been compiled. This
+experiment is retained separately and is not part of the maintained build.
 
 Read-only stock observations narrow the hardware work:
 
