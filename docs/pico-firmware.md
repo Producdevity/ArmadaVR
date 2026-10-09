@@ -199,22 +199,37 @@ into ArmadaVR's installer, or run its rollback flow merely to test access.
 
 ## Kernel build and stock driver dependencies
 
-The pinned public source now builds an ARM64 `Image` and 11 modules with Debian
+The pinned public source now builds an ARM64 `Image` and 38 modules with Debian
 Clang 14.0.6. The build uses the published `kona-perf_defconfig`, not the captured
 stock configuration. It takes about ten minutes on two host cores, with a
-measured peak of 4.50 GiB under a 6 GiB limit. Reproduce it in a new output
+measured peak of 4.60 GiB under a 6 GiB limit. Reproduce it in a new output
 directory after building the kernel tools image:
 
 ```sh
 just build-vendor-kernel output/kernel/pico-neo3/vendor-build pico-neo3
 ```
 
-The build verifies the source archive, applies 18 portability/correctness
+The build verifies the source archive, applies 19 portability/correctness
 patches, checks that source files stay unchanged, and records image, module,
 configuration and toolchain hashes. The patches include Python 3 compiler-wrapper
 support, driver error cleanup, packed-type symbol-version generation and
 freestanding compilation. Module versioning and the vendor warning guard remain
 enabled. Fault-injection checks cover LED registration and fan GPIO cleanup.
+
+The build includes the 27 external audio modules named in the stock loaded-module
+inventory, alongside 11 in-tree modules. It copies the published audio source to
+an isolated build directory, resolves its three kernel-header links, and uses
+the vendor's Kona configuration. One module-linking pass resolves the audio
+modules' circular imports. The fixed-size debug buffer uses a C integer constant
+expression so Clang accepts it without disabling the vendor warning policy.
+The unconfirmed `PICOVR_US_EURO_HEADSET` manufacturing flag remains unset.
+
+All 38 module signatures verify against the certificate embedded in the built
+kernel; a modified signed payload is rejected. Imported symbol versions and
+module dependencies also pass offline checks. `Module.symvers` and
+`audio-Module.symvers` are exported for subsequent ABI checks. These results do
+not establish compatibility with stock modules, DSP firmware, audio routing,
+calibration or physical playback/capture.
 
 This configuration differs from the captured stock configuration at 80 requested
 symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
@@ -224,11 +239,22 @@ published board DTS is absent, so this build deliberately produces no device
 trees. Pico Linux-userspace and QEMU variants are refused until their patches and
 configuration have been ported. None of these artifacts has booted on the headset.
 
-A separate configuration-only check starts from the captured stock `.config`.
+A separate experimental build starts from the captured stock `.config`.
 Kconfig changes 18 requested symbols, including the missing stock features and
 compiler version. Adding the Linux-userspace fragment resolves every requested
 option, but does not supply BinderFS, missing driver implementations or runtime
-validation. This narrower configuration has not yet been compiled.
+validation. This configuration now compiles an `Image` and nine in-tree modules.
+All 27 external audio modules also compile against it; their 1,896 imported
+symbol versions match. The combined 36-module set passes signature and dependency
+checks. This experiment is separate from the supported vendor build above and
+has not booted in a VM or on the headset.
+
+Stock OTA Wi-Fi modules identify version `2.0.81.1H` for QCA6390 and QCA6490,
+matching the version in Pico's published driver source. The public release
+omits its required `wlan/fw-api` headers. The tested Xiaomi `cmi-r-oss` header
+set lacks roaming and datapath-statistics interfaces required by Pico's source;
+it is incompatible and is not included in the maintained build. Obtain a
+coherent matching release rather than removing those interfaces to make it compile.
 
 Read-only stock observations narrow the hardware work:
 
@@ -238,7 +264,7 @@ Read-only stock observations narrow the hardware work:
 | Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice` | Preserve the transport and reconstruct the missing station interface, pairing, input and haptics |
 | IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
 | Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
-| Audio/WLAN | 29 loaded stock modules, mostly external audio modules plus WLAN | Build compatible external modules or retain the exact stock kernel/module combination; the 11 baseline modules do not cover these dependencies |
+| Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules now build and pass offline ABI/signature checks; routing, DSP and physical audio remain. Wi-Fi needs matching firmware API headers and validation |
 
 Camera HAL advertises five logical devices while six camera sensor nodes are
 bound. Do not infer a one-to-one physical camera mapping from those counts.
@@ -252,7 +278,7 @@ per-unit calibration stay outside the public repository.
 |---|---|---|
 | Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified; stock return after reads passes. Independent cold recovery and restoration remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
-| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Public 4.19.81 Image and 11 modules compile; stock DTB/DTBO acquired. Vendor board DTS and several stock drivers are missing; stock compatibility and Linux userspace support remain unverified |
+| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Public 4.19.81 Image and 38 modules compile, including external audio. Stock-derived Linux configuration also compiles; stock DTB/DTBO acquired. Board DTS, several stock drivers and BinderFS are missing; physical compatibility and Linux runtime remain unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
 | Tracking and controllers | Syncboss/IMU protocol research and virtual actions exist; calibrated camera/IMU 6DoF, pairing and physical input/haptics remain | Camera/IMU transport, calibration, 6DoF and controller integration remain; Pro Eye adds eye cameras, calibration and runtime support |
 | Installation | No accepted boot/recovery or persistent installer | No accepted boot/recovery or persistent installer |

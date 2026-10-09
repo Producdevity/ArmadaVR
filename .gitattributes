@@ -1,1 +1,1 @@
-*.patch -whitespace
+*.patch -whitespace -text

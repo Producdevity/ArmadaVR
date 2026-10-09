@@ -9,6 +9,43 @@ spec.loader.exec_module(kernel)
 
 
 class KernelPatchTests(unittest.TestCase):
+    def audio_fixture(self, root):
+        source, cache = root / "kernel", root / "cache"
+        cache.mkdir()
+        for name, target in {"include/soc/internal.h": "drivers/base/regmap/internal.h",
+                             "soc/core.h": "drivers/pinctrl/core.h",
+                             "soc/pinctrl-utils.h": "drivers/pinctrl/pinctrl-utils.h"}.items():
+            header = source / target
+            header.parent.mkdir(parents=True, exist_ok=True)
+            header.write_text("header\n")
+            link = source / "audio-kernel" / name
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(header)
+        return source, cache
+
+    def test_audio_build_preserves_source_and_uses_kernel_headers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, cache = self.audio_fixture(Path(directory))
+            before = kernel.tree_digest(source)
+            audio = kernel.prepare_pico_audio(source, cache)
+            self.assertEqual(kernel.tree_digest(source), before)
+            self.assertEqual((audio / "soc/core.h").resolve(), (source / "drivers/pinctrl/core.h").resolve())
+            self.assertTrue((audio / "Kbuild").is_file())
+            (audio / "generated.o").write_bytes(b"object")
+            next_audio = kernel.prepare_pico_audio(source, cache)
+            self.assertNotEqual(audio, next_audio)
+            self.assertFalse((next_audio / "generated.o").exists())
+
+    def test_audio_build_rejects_unexpected_header_link(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, cache = self.audio_fixture(Path(directory))
+            link = source / "audio-kernel/soc/core.h"
+            link.unlink()
+            link.symlink_to(source / "drivers/pinctrl/pinctrl-utils.h")
+            with self.assertRaisesRegex(ValueError, "Unexpected Pico audio header link"):
+                kernel.prepare_pico_audio(source, cache)
+            self.assertEqual(list(cache.iterdir()), [])
+
     def test_changed_cached_source_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

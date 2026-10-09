@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 
 spec = importlib.util.spec_from_file_location("kernel_source", Path(__file__).with_name("kernel-source.py"))
@@ -82,6 +83,26 @@ def patched_source(source, cache, patches):
     return target, digest
 
 
+def prepare_pico_audio(source, cache):
+    links = {"include/soc/internal.h": "drivers/base/regmap/internal.h",
+             "soc/core.h": "drivers/pinctrl/core.h",
+             "soc/pinctrl-utils.h": "drivers/pinctrl/pinctrl-utils.h"}
+    original = source / "audio-kernel"
+    for name, target in links.items():
+        link = original / name
+        header = source / target
+        if not link.is_symlink() or not header.is_file() or link.resolve() != header.resolve():
+            raise ValueError(f"Unexpected Pico audio header link: {name}")
+    directory = Path(tempfile.mkdtemp(prefix="audio-", dir=cache)) / "source"
+    shutil.copytree(original, directory, symlinks=True)
+    for name, target in links.items():
+        link = directory / name
+        link.unlink()
+        link.symlink_to((source / target).resolve())
+    shutil.copyfile(sources.ROOT / "profiles/kernel/pico-audio.Kbuild", directory / "Kbuild")
+    return directory
+
+
 def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
     if sys.platform != "linux":
         raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
@@ -143,6 +164,8 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
                                  "KCFLAGS=-Wno-unused-but-set-variable",
                                  "CC_COMPAT=clang --target=arm-linux-gnueabi --prefix=/usr/bin/arm-linux-gnueabi- --gcc-toolchain=/usr -no-integrated-as"]
             identity["make_overrides"] = pico_make_options
+            identity["audio_kbuild_sha256"] = hashlib.sha256(
+                (sources.ROOT / "profiles/kernel/pico-audio.Kbuild").read_bytes()).hexdigest()
             report["compiler_compatibility"] = {
                 "disabled_diagnostic": "unused-but-set-variable",
                 "reason": "Clang 13 added this diagnostic; the stock kernel used Clang 8",
@@ -219,7 +242,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
         report["status"] = "compiling"
         # GNU timeout terminates make's complete process group, including compiler children.
         run(["timeout", "--kill-after=15", "2700", *make, "-j2", *targets], "compile.log", 2760)
-        for relative in ("arch/arm64/boot/Image", "System.map", ".config", "modules.order", "modules.builtin"):
+        for relative in ("arch/arm64/boot/Image", "System.map", "Module.symvers", ".config", "modules.order", "modules.builtin"):
             shutil.copyfile(build_dir / relative, output / Path(relative).name)
         dt_dir = output / "device-trees"
         dt_dir.mkdir()
@@ -229,10 +252,26 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(path, destination)
         report["device_trees_compiled"] = "dtbs" in targets
+        audio_make = None
+        if profile["repository"] == "bytedance/neo3-kernel":
+            if values.get("CONFIG_ARCH_KONA") != "y":
+                raise ValueError("Pico audio requires the Kona configuration")
+            audio = prepare_pico_audio(source, cache)
+            report["audio"] = {"source": str(audio), "stock_manufacturing_flags_verified": False,
+                               "PICOVR_US_EURO_HEADSET": "unset"}
+            # One modpost invocation resolves the vendor modules' circular imports.
+            audio_make = [*make, f"M={audio}", "MODNAME=audio", f"AUDIO_ROOT={audio}",
+                          "BOARD_PLATFORM=kona", "KBUILD_EXTRA_SYMBOLS=", "PICOVR_US_EURO_HEADSET="]
+            run(["timeout", "--kill-after=15", "900", *audio_make, "-j2", "modules"],
+                "audio-compile.log", 930)
+            shutil.copyfile(audio / "Module.symvers", output / "audio-Module.symvers")
         staging = cache / "modules"
         if staging.exists():
             shutil.rmtree(staging)
         run([*make, f"INSTALL_MOD_PATH={staging}", "INSTALL_MOD_STRIP=1", "modules_install"], "modules-install.log", 300)
+        if audio_make is not None:
+            run([*audio_make, f"INSTALL_MOD_PATH={staging}", "INSTALL_MOD_DIR=extra/pico-audio",
+                 "INSTALL_MOD_STRIP=1", "modules_install"], "audio-install.log", 300)
         for path in staging.glob("lib/modules/*/*"):
             if path.name in ("build", "source") and path.is_symlink():
                 path.unlink()

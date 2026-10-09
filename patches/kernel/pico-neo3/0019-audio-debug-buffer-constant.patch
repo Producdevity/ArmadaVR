@@ -1,0 +1,16 @@
+Pico audio: use an integer constant expression for the debug buffer.
+
+Clang 14 rejects the const-int array bound as a VLA under the vendor
+audio -Werror policy. An enum preserves the 768-byte bound in C.
+
+--- a/audio-kernel/asoc/codecs/wcd-mbhc-v2.c
++++ b/audio-kernel/asoc/codecs/wcd-mbhc-v2.c
+@@ -1843,7 +1843,7 @@
+ static ssize_t wcd_mbhc_debug_read(struct file *file, char __user *buf,
+ 								size_t count, loff_t *pos)
+ {
+-	const int size = 768;
++	enum { size = 768 };
+ 	char buffer[size];
+ 	int n = 0;
+ 	struct wcd_mbhc *mbhc = file->private_data;
