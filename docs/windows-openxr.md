@@ -169,6 +169,16 @@ menu. They reuse the existing verified Proton prefix. The left run records
 functional acceptance, not performance or a fresh-prefix test. Evidence is in
 `output/library-20261008-v1/`.
 
+The October 9 repeat uses the complete verified seven-depot SteamVR installation.
+Left and right tests each initialize a new Proton prefix on separate fresh
+backends; the right test also follows a cold VM boot. Both retain 15 captures,
+with visually checked stereo cubes before and after dashboard focus transfer,
+and exit zero through the corresponding controller menu. The virtual drivers
+record 59 new left-hand and 52 new right-hand haptic events. Evidence is in
+`output/library-ray-20261009-v1/` and `output/library-ray-20261009-v2/`.
+These results do not establish authenticated Library interaction, physical
+haptics, headset performance or flash readiness.
+
 ## Launch in the active virtual SteamVR session
 
 `tools/run-steamvr-windows.py` discovers the current compositor's FEX interpreter,

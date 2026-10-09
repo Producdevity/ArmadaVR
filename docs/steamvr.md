@@ -177,12 +177,16 @@ VM boot restores both mounts automatically, rechecks all 5,785 runtime files, an
 confirms that Steam sees the same protected runtime inode.
 
 With the complete installation, the x86 client's VR interface connects to the
-2.16.7 server. Starting with `-vrforce` before login reproduces browser restarts
-and an early client/backend exit. Normal client startup before the backend
-reaches the authenticated desktop and passes one explicitly requested normal
-shutdown with the backend remaining alive. This does not establish Library
-navigation, rendered scrolling or sustained reliability. Raw login/session
-files and their preservation snapshots stay inside the isolated guest.
+2.16.7 server. Starting the client against a ready backend reproduces browser
+restarts before login, both with and without `-vrforce`. The latter comparison
+creates the Library overlay but repeatedly loses its browser connection; a
+normal client shutdown then causes the backend to exit with an error. Browser
+GPU initialization failures are recorded, but their causal role is unproven.
+Normal client startup before the backend reaches the authenticated desktop and
+passes two explicitly requested normal shutdowns with the backend remaining
+alive. This does not establish Library navigation, rendered scrolling or
+sustained reliability. Raw login/session files and their preservation snapshots
+stay inside the isolated guest.
 
 ## Dashboard interaction, September 11
 
