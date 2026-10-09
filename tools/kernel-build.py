@@ -4,10 +4,12 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import mmap
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import struct
 import sys
 import tarfile
 import tempfile
@@ -49,6 +51,77 @@ def module_metadata(data):
     if len(result["name"]) != 1 or len(result["vermagic"]) != 1:
         raise ValueError("modinfo did not return a module name and vermagic")
     return result
+
+
+def validate_image_layout(vmlinux, image):
+    """Check the ELF's allocated memory against the raw ARM64 Image extent."""
+    with vmlinux.open("rb") as stream, mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_READ) as elf:
+        def bounded(offset, size):
+            if offset < 0 or size < 0 or offset + size > len(elf):
+                raise ValueError("Truncated kernel ELF")
+            return elf[offset:offset + size]
+
+        header = struct.unpack("<16sHHIQQQIHHHHHH", bounded(0, 64))
+        if (header[0][:7] != b"\x7fELF\x02\x01\x01" or header[1] not in (2, 3)
+                or header[2:4] != (183, 1)):
+            raise ValueError("Expected a little-endian AArch64 executable ELF")
+        if header[11] != 64 or not 0 < header[13] < header[12]:
+            raise ValueError("Unsupported kernel ELF section table")
+        sections = [struct.unpack("<IIQQQQIIQQ", bounded(header[6] + i * 64, 64))
+                    for i in range(header[12])]
+
+        def strings(section):
+            if section[1] != 3:
+                raise ValueError("Expected ELF string table")
+            return bounded(section[4], section[5])
+
+        def name(table, offset):
+            if not 0 <= offset < len(table) or (end := table.find(b"\0", offset)) < 0:
+                raise ValueError("Invalid ELF string offset")
+            return table[offset:end].decode("ascii")
+
+        section_names = strings(sections[header[13]])
+        tables = [section for section in sections if section[1] == 2]
+        if len(tables) != 1 or tables[0][9] != 24 or tables[0][5] % 24:
+            raise ValueError("Expected one complete kernel symbol table")
+        table = tables[0]
+        if not 0 < table[6] < len(sections):
+            raise ValueError("Invalid kernel symbol string table")
+        symbol_names = strings(sections[table[6]])
+        symbols = {}
+        required = {"_text", "_end", "__bss_start", "__bss_stop"}
+        for offset in range(table[4], table[4] + table[5], 24):
+            entry = struct.unpack("<IBBHQQ", bounded(offset, 24))
+            label = name(symbol_names, entry[0])
+            if label in required:
+                if label in symbols or entry[3] == 0:
+                    raise ValueError("Ambiguous or undefined kernel boundary: " + label)
+                symbols[label] = entry[4]
+        if set(symbols) != required:
+            raise ValueError("Missing kernel memory boundaries")
+        start, end = symbols["_text"], symbols["_end"]
+        if not start < symbols["__bss_start"] <= symbols["__bss_stop"] <= end < 2**64:
+            raise ValueError("Invalid kernel memory boundaries")
+        with image.open("rb") as raw:
+            image_header = raw.read(64)
+        if len(image_header) != 64 or image_header[56:60] != b"ARM\x64":
+            raise ValueError("Expected raw ARM64 Image")
+        if struct.unpack_from("<Q", image_header, 16)[0] != end - start or image.stat().st_size > end - start:
+            raise ValueError("Image extent disagrees with linked kernel boundaries")
+        allocated = []
+        for section in sections:
+            label = name(section_names, section[0])
+            if not section[2] & 2 or not section[5]:
+                continue
+            address, size = section[3], section[5]
+            if not start <= address < address + size <= end:
+                raise ValueError("Allocated ELF section outside Image extent: " + label)
+            if section[1] == 8 and not symbols["__bss_start"] <= address < address + size <= symbols["__bss_stop"]:
+                raise ValueError("Uninitialized ELF section outside kernel BSS: " + label)
+            if section[1] != 8:
+                bounded(section[4], size)
+            allocated.append({"name": label, "address": address, "bytes": size, "type": section[1]})
+        return {"boundaries": symbols, "image_size": end - start, "allocated_sections": allocated}
 
 
 def tree_digest(root):
@@ -242,6 +315,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
         report["status"] = "compiling"
         # GNU timeout terminates make's complete process group, including compiler children.
         run(["timeout", "--kill-after=15", "2700", *make, "-j2", *targets], "compile.log", 2760)
+        report["image_layout"] = validate_image_layout(build_dir / "vmlinux", build_dir / "arch/arm64/boot/Image")
         for relative in ("arch/arm64/boot/Image", "System.map", "Module.symvers", ".config", "modules.order", "modules.builtin"):
             shutil.copyfile(build_dir / relative, output / Path(relative).name)
         dt_dir = output / "device-trees"

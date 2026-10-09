@@ -249,12 +249,34 @@ configuration have been ported. None of these artifacts has booted on the headse
 A separate experimental build starts from the captured stock `.config`.
 Kconfig changes 18 requested symbols, including the missing stock features and
 compiler version. Adding the Linux-userspace fragment resolves every requested
-option, but does not supply BinderFS, missing driver implementations or runtime
-validation. This configuration now compiles an `Image` and nine in-tree modules.
+option, but does not supply BinderFS or missing driver implementations.
+This configuration compiles an `Image` and nine in-tree modules.
 All 27 external audio modules also compile against it; their 1,896 imported
 symbol versions match. The combined 36-module set passes signature and dependency
-checks. This experiment is separate from the supported vendor build above and
-has not booted in a VM or on the headset.
+checks. This experiment is separate from the supported vendor build above.
+
+Diskless execution exposed a vendor linker defect: a second `.bss` output
+placed RTIC's `selinux_state` after `_end`, outside the mapped kernel. The
+Pico patch now uses `BSS_FIRST_SECTIONS` to retain its page alignment and
+`KEEP` while including it in BSS initialization and the Image's memory extent.
+The build also checks all allocated ELF sections against the Image bounds and
+requires uninitialized sections to fall within the zeroed BSS range. The
+original failing ELF is rejected; the corrected Pico and existing Quest ELF
+pass this check.
+
+With that correction, the stock-derived Linux kernel reaches a static PID 1
+and powers off normally under QEMU TCG. The fixture needs an emulated secure
+monitor, 2 GiB RAM to cover the vendor's fixed crash-log reservation, and an
+explicit exclusion of `hwinfo_init`, which otherwise dereferences absent
+Qualcomm boot-information memory. WALT topology and missing SoC-information
+warnings remain on this virtual machine. No physical driver acceptance follows
+from this test.
+
+A separate VM test loads the unchanged SELinux policy from the authenticated
+recovery backup. A normal kernel-to-init domain transition succeeds; the
+enforcing policy denies a root write to a DAC-writable tmpfs file with `EACCES`,
+its bytes remain unchanged, and the guest powers off. No policy or enforcement
+setting is relaxed. The corrected kernel has not booted on the headset.
 
 Stock OTA Wi-Fi modules identify version `2.0.81.1H` for QCA6390 and QCA6490,
 matching the version in Pico's published driver source. The public release

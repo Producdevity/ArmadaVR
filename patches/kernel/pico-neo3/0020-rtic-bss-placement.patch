@@ -1,0 +1,42 @@
+Subject: [PATCH] arm64: keep Pico RTIC state within initialized kernel BSS
+
+The vendor linker places a second .bss output after _end. With LLD the
+SELinux state is outside the mapped Image and boot faults in selinux_init.
+Use the existing BSS_FIRST_SECTIONS hook to preserve RTIC page alignment
+and KEEP while including the state in zeroing, mapping and Image bounds.
+
+--- a/arch/arm64/kernel/vmlinux.lds.S
++++ b/arch/arm64/kernel/vmlinux.lds.S
+@@ -4,6 +4,11 @@
+  * taken from the i386 version by Russell King
+  * Written by Martin Mares <mj@atrey.karlin.mff.cuni.cz>
+  */
++
++#define BSS_FIRST_SECTIONS					\
++	. = ALIGN(PAGE_SIZE);				\
++	KEEP(*(.bss.rtic));			\
++	. = ALIGN(PAGE_SIZE);
+ 
+ #include <asm-generic/vmlinux.lds.h>
+ #include <asm/cache.h>
+@@ -68,10 +73,6 @@
+ #define TRAMP_TEXT
+ #endif
+ 
+-#define RTIC_BSS					\
+-	. = ALIGN(PAGE_SIZE);				\
+-	KEEP(*(.bss.rtic));			\
+-	. = ALIGN(PAGE_SIZE);				\
+ /*
+  * The size of the PE/COFF section that covers the kernel image, which
+  * runs from stext to _edata, must be a round multiple of the PE/COFF
+@@ -253,9 +254,6 @@
+ 
+ 	HEAD_SYMBOLS
+ 
+-	.bss : {			/* bss segment		*/
+-         RTIC_BSS
+-	}
+ }
+ 
+ /*
