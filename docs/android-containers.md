@@ -155,7 +155,8 @@ Fossilize layer/manifest extracted from Frame. A narrow `steamvr` metadata
 adapter supplies private mount directories; it provides no XR runtime.
 
 Four [version-specific integration patches](../patches/lepton/README.md) resolve
-reproduced failures without changing the kernel, Android init or vendor version:
+the original startup and installation failures without changing the kernel,
+Android init or vendor version. A fifth patch addresses launcher shutdown:
 
 - The host ashmem node exists but the container never mounts it. Enable memfd
   rather than inferring container capability from host device existence.
@@ -167,6 +168,8 @@ reproduced failures without changing the kernel, Android init or vendor version:
   after failure. The old hook hides failed installations behind exit zero.
 - Preserve the source APK timestamp in temporary copies so the baked-app
   decision stays consistent between mount setup and the post-boot launch.
+- Wait for Android's shutdown before forcing the container to stop. Bound the
+  wait and preserve forced cleanup for a failed or expired wait.
 
 A finite user service also needs enough tasks: a 512-task cap caused real
 `pthread_create` failures and killed system_server. A 2,048-task cap passes;
@@ -232,12 +235,45 @@ their bytes: `adb exec-out` combines these warnings with PNG output.
 The exact-patch repeat also confirms the same two Fossilize layer bind targets
 before and after the deliberately failed installation.
 
-Normal Android `sys.powerctl=shutdown` stops the context and the launcher returns
-zero. After service stop, synchronization and unmount, init aborts through
+## Android shutdown comparison
+
+Normal Android `sys.powerctl=shutdown` stops the original context and both the
+container and launcher return zero. After service stop, synchronization and
+unmount, however, init aborts through
 `exit` → static C++ finalization → `std::thread` destruction. The delivered
 binary's non-reboot-capable branch calls `exit(0)`, consistent with
 [Android 11's source](https://android.googlesource.com/platform/system/core/+/refs/tags/android-11.0.0_r48/init/reboot_utils.cpp#82).
-A source-only `_exit` candidate has no matching resolved product build or
-runtime validation; clean init shutdown remains open. All earlier failures and
-original inputs are retained. Physical devices, shared host filesystems and USB
-passthrough were absent from this VM.
+Exit status alone therefore misses the failure.
+
+The October 10 comparison changes only that call to the binary's existing
+`_exit` import in a separate, read-only overlay. The original init reproduces
+the fatal shutdown; the diagnostic copy boots and shuts down cleanly twice,
+preserving a data marker across restart. The actual running init hash is checked
+on each boot. `CAP_SYS_BOOT` remains absent, kernel taint remains zero, and the
+host init process and context mounts disappear after each shutdown.
+
+An actual APK test identifies an independent launcher problem: after an app
+exits, Lepton requests shutdown then immediately force-stops the container.
+Even with the corrected init, the original launcher produces container exit 137
+without completing synchronization. The fifth integration patch waits up to
+15 seconds for shutdown, with a further two-second kill deadline for a stuck
+wait process, then uses the original forced-stop fallback if necessary.
+
+With both corrections, app force-stop completes Android shutdown and a second
+launch restores counter 2, saves counter 4, and shuts down through
+`sys.powerctl=shutdown` while the app is in the foreground. Both containers and
+launchers exit zero without the fatal stack or forced-stop fallback. Default
+cleanup removes temporary prefixes, work directories, settings and owned
+mounts; no retention flags or process-group bypass are used. The exact packaged
+launcher patch also passes normal, already-stopped, absent, failed-wait and
+non-cooperative-wait checks; those fallback checks use a Podman command stub
+and the real GNU timeout, separately from the real Android runs.
+
+Evidence is preserved under `output/lepton-shutdown-20261010-v1`. The init change
+is a diagnostic binary comparison, not a matching source rebuild or a shipped
+replacement. Its source candidate applies to pinned Lineage 18.1, but the
+complete resolved product inputs and source-built acceptance remain open.
+Native Android graphics, OpenXR, actual game saves and physical-device support
+are not established by this software-rendered APK test. Earlier failures and
+original inputs remain intact; physical devices, host filesystem shares and
+USB passthrough were absent from this VM.

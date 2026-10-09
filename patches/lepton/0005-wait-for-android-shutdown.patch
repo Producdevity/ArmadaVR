@@ -1,0 +1,17 @@
+--- a/liblepton/liblepton.sh
++++ b/liblepton/liblepton.sh
+@@ -568,7 +568,12 @@ function kill_container()
+     local LEPTON_PID=$(podman inspect -f '{{ index .Config.Labels "lepton_pid" }}' "lepton-${CONTEXT}" 2>/dev/null || true)
+ 
+-    podman exec -i lepton-${CONTEXT} /system/bin/reboot -p 2>/dev/null || true
+-    podman stop -t 0 lepton-${CONTEXT} 2>/dev/null >/dev/null || true
++    if podman container exists "lepton-${CONTEXT}"; then
++        podman exec -i "lepton-${CONTEXT}" /system/bin/reboot -p 2>/dev/null || true
++        if ! timeout --foreground --kill-after=2s 15s podman wait "lepton-${CONTEXT}" 2>/dev/null >/dev/null; then
++            println "Android shutdown timed out or failed; stopping ${CONTEXT}."
++            podman stop -t 0 "lepton-${CONTEXT}" 2>/dev/null >/dev/null || true
++        fi
++    fi
+ 
+     # Can't wait for ourselves:
+     if ! is_ancestor_of "${LEPTON_PID}" "$$"; then

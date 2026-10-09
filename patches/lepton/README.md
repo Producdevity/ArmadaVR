@@ -15,7 +15,7 @@ Expected original launcher files:
 | `images/rootfs_overlay/system/bin/cmd` | `66337f13fc6fd1d68d07ae5ea174dd7120d8800113a4e52ebdc33b639d6b443e` |
 
 From the execution-copy directory, check the original hashes and run
-`git apply --check` with all four patches before applying them in numbered order. Refuse another
+`git apply --check` with all five patches before applying them in numbered order. Refuse another
 launcher version rather than applying with fuzz or assuming compatibility.
 
 The shared-memory patch uses memfd because this launcher does not mount ashmem
@@ -64,8 +64,23 @@ retains its context/data with diagnostic flags. A separate synthetic Steam
 compatibility launch also restores the counter through default cleanup without
 retention flags, removing its temporary prefixes, work directories and settings.
 The normal launcher process-group wrapper also passes save restoration and
-descendant cleanup. Actual game saves, clean Android init shutdown and Android
-XR remain separate acceptance gates.
+descendant cleanup. Actual game saves and Android XR remain separate acceptance
+gates.
+
+The shutdown patch gives Android 15 seconds to stop after `/system/bin/reboot -p`
+instead of immediately issuing `podman stop -t 0`. GNU `timeout` bounds the wait
+and kills a stuck wait process after another two seconds. A failed or expired
+wait retains the forced-stop fallback. A nonexistent context needs no shutdown.
+The patch does not add `CAP_SYS_BOOT` or change container isolation.
+
+There is a separate defect in the delivered Android init: its terminal
+non-reboot-capable branch calls `exit(0)`, which runs a joinable static thread's
+destructor and aborts after synchronization. The launcher patch alone cannot
+repair that binary. A VM-only diagnostic changes that one call to `_exit(0)`;
+with both corrections, the actual APK exits cleanly and preserves its counter
+across restart under default cleanup. The diagnostic binary is not distributed
+by these patches. A matching source-built init and its acceptance test remain
+required before packaging a complete Lepton image.
 
 See [actual Android acceptance](../../docs/android-containers.md#acquired-lepton-and-actual-android-boot)
 for measured results and remaining application, shutdown, XR and hardware limits.
