@@ -68,4 +68,5 @@ test "$(cat "$HOME/data-lower/removed")" = delete
 test "$(cat "$HOME/apk-lower/base.apk")" = apk
 test "$(cat "$HOME/rootfs/base")" = root-base
 echo LEPTON_MOUNT_LOWER_UNCHANGED_PASS
+pman system migrate
 echo LEPTON_MOUNT_LIFECYCLE_PASS

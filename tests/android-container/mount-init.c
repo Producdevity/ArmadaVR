@@ -1,4 +1,5 @@
 #define _GNU_SOURCE
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -59,8 +60,31 @@ int main(void)
         execl("/bin/sh", "sh", "/mount-root.sh", NULL);
         _exit(127);
     }
-    int status = 0;
-    int passed = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    int status = 0, fixture_status = 0, fixture_done = 0, children_gone = 0;
+    while (pid > 0 && !fixture_done) {
+        pid_t child = waitpid(-1, &status, 0);
+        if (child < 0) {
+            if (errno == EINTR)
+                continue;
+            break;
+        }
+        if (child == pid) {
+            fixture_status = status;
+            fixture_done = 1;
+        }
+    }
+    for (int attempt = 0; fixture_done && attempt < 200; ++attempt) {
+        pid_t child = waitpid(-1, &status, WNOHANG);
+        if (child < 0 && errno == ECHILD) {
+            children_gone = 1;
+            puts("LEPTON_MOUNT_CHILDREN_REAPED_PASS");
+            break;
+        }
+        if (child > 0)
+            continue;
+        usleep(10000);
+    }
+    int passed = fixture_done && children_gone && WIFEXITED(fixture_status) && WEXITSTATUS(fixture_status) == 0;
     puts(passed ? "LEPTON_MOUNT_VM_PASS" : "LEPTON_MOUNT_VM_FAIL");
     sync();
     reboot(RB_POWER_OFF);

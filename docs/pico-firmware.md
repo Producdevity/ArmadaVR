@@ -281,7 +281,10 @@ IPv4/IPv6 datagrams and isolated loopback traffic work, while raw sockets remain
 denied. Two BinderFS mounts provide independent contexts; real request/reply,
 file-descriptor passing, sender identity and 32 epoll/thread-exit cycles pass.
 Shared-memory seals and seccomp also pass, followed by normal shutdown. Native
-rootless OverlayFS still returns `EPERM`. These tests do not boot Android or
+rootless OverlayFS still returns `EPERM`. Rootless Podman with `fuse-overlayfs`
+passes the separate [writable-mount lifecycle](android-containers.md): three
+overlay views, persistent copy-up/whiteouts, independent contexts, unchanged
+lower files and complete helper cleanup. These tests do not boot Android or
 Lepton on the Pico kernel.
 
 The fixture needs an emulated secure monitor, 2 GiB RAM to cover the vendor's

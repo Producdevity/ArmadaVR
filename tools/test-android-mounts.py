@@ -21,6 +21,7 @@ FIXTURES = ('mount-init.c', 'mount-root.sh', 'mount-user.sh', 'Containerfile')
 MARKERS = ('LEPTON_MOUNT_ROOTLESS_PASS host_uid=1000', 'LEPTON_MOUNT_FIRST_PASS',
            'LEPTON_MOUNT_CONTEXT_ISOLATION_PASS', 'LEPTON_MOUNT_RESTART_PASS',
            'LEPTON_MOUNT_LOWER_UNCHANGED_PASS', 'LEPTON_MOUNT_LIFECYCLE_PASS',
+           'LEPTON_MOUNT_CHILDREN_REAPED_PASS',
            'LEPTON_MOUNT_VM_PASS', 'reboot: Power down')
 
 
@@ -36,7 +37,8 @@ def check_log(log):
     return {'rootless_podman': True, 'fuse_rootfs_and_explicit_overlays': 3,
             'persistent_copy_up_and_whiteouts': True, 'independent_contexts': 2,
             'read_only_rootfs': True, 'lower_inputs_unchanged': True,
-            'restart_persistence': True, 'bounded_stop_and_mount_cleanup': True}
+            'restart_persistence': True, 'bounded_stop_and_mount_cleanup': True,
+            'guest_children_reaped': True}
 
 
 def validate_archive(path):

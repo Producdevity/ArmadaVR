@@ -27,6 +27,10 @@ maps the same user to container UID/GID 0. It then checks:
   devices; protocol version 8 and independent context-manager registration.
 - Rejection of a second manager for the same Binder context, and survival of
   the other instance when a device is removed.
+- Binder request/reply, file-descriptor passing, sender identity and 32
+  epoll/thread-exit cycles.
+- Ordinary unprivileged IPv4/IPv6 datagram sockets, raw-socket rejection and
+  UDP loopback traffic inside the new network namespace.
 - Shared memfd writes across a fork and enforcement of write/size seals.
 - A small seccomp filter that denies one syscall and permits another.
 - Rootless native OverlayFS mounting and, when supported, preservation of the
@@ -37,7 +41,7 @@ The seccomp filter is a test, not a policy for Android applications. The Binder
 checks exercise real driver ioctls and context isolation; they do not exchange
 Android service transactions. The memory check does not establish graphics
 buffer or synchronization interoperability. Subordinate ID ranges, cgroup
-delegation, networking, Podman, Android boot, APK execution and graphics remain
+delegation, external networking, Podman, Android boot, APK execution and graphics remain
 separate integration tests.
 
 ## Verified result
@@ -53,6 +57,14 @@ Kernel image SHA-256:
 `7dbcd65685de1c7a7f4538849ebbfe2c3dd375020ff13332c958bfccce44811c`.
 Both the original build and the tested image are preserved. Earlier v1/v2 logs
 record fixture setup failures, before the successful run; they are not discarded.
+
+On October 9, the expanded Binder and networking fixture passes on the same
+Quest kernel and the maintained [Pico Linux kernel](pico-firmware.md).
+The Pico test uses a private diskless adapter for the vendor kernel's virtual
+board and logging limitations; the maintained runner still requires a QEMU
+transport build. Both kernels retain the native rootless OverlayFS limitation.
+Pico's separate stock-policy test verifies enforcing access denial; the container
+ABI fixture does not load an Android policy.
 
 The source confirms that this vendor 5.10 tree enables user-namespace mounts for
 BinderFS but not OverlayFS. [Podman documents a fuse-overlayfs fallback for
@@ -83,8 +95,8 @@ just test-android-mounts output/kernel/quest3/qemu-abi-v10 output/android-mounts
 
 This separate runner needs Docker, Zig and QEMU. It exports an immutable ARM64
 dependency image containing Podman 5.6.2 and fuse-overlayfs 1.15, verifies its
-bounded archive, and creates a new 256 MiB guest root disk. The root disk is
-necessary because OCI `pivot_root` cannot use the initial initramfs root. QEMU
+bounded archive, and creates a new 256 MiB guest root disk. OCI `pivot_root`
+requires leaving the initial initramfs root filesystem. QEMU
 uses snapshot writes, no networking, host shares, USB or physical devices. The
 runner checks that the base disk, kernel and source hashes remain unchanged.
 The fixture requires PID 1, the QEMU board and an exact test command-line token.
@@ -102,6 +114,19 @@ On October 7, 2026, `output/lepton-mount-v8/result.json` passes on the same
 - Lower files remain unchanged; stopping removes the container and FUSE mounts
   from Podman's mount namespace. The bounded stop deliberately reaches SIGKILL
   for a non-cooperative fixture process.
+
+The October 9 fixture also stops Podman's namespace pause process using
+[`podman system migrate`](https://docs.podman.io/en/v5.6.2/markdown/podman-system-migrate.1.html).
+Its PID 1 reaps adopted container helpers throughout execution and requires no
+remaining children before power-off. An earlier minimal init left helpers as
+zombies and stalled during container exit on the Pico kernel.
+
+The same shell checks pass on the maintained Pico Linux kernel in a diskless
+test with a separate tmpfs root. That private adapter supplies fresh host entropy
+and relays bounded log lines to the kernel buffer. It retains the virtual-board
+accommodations documented in [the Pico kernel results](pico-firmware.md).
+These results establish the tested FUSE mount path on both kernels; Pico Android
+startup and physical random-number generation remain unverified.
 
 This resolves the measured writable-mount prerequisite for this Podman/helper
 pair. Native rootless kernel OverlayFS remains unsupported. It does not measure
