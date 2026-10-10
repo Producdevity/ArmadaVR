@@ -76,11 +76,12 @@ The patch does not add `CAP_SYS_BOOT` or change container isolation.
 There is a separate defect in the delivered Android init: its terminal
 non-reboot-capable branch calls `exit(0)`, which runs a joinable static thread's
 destructor and aborts after synchronization. The launcher patch alone cannot
-repair that binary. A VM-only diagnostic changes that one call to `_exit(0)`;
-with both corrections, the actual APK exits cleanly and preserves its counter
-across restart under default cleanup. The diagnostic binary is not distributed
-by these patches. A matching source-built init and its acceptance test remain
-required before packaging a complete Lepton image.
+repair that binary. The [Android init source patch](../android-init/README.md)
+changes that terminal call to `_exit(0)`. A complete source-built init now passes
+the baseline comparison, APK input/save/restart and Android GLES/Vulkan OpenXR
+tests in the VM. Both corrections are needed for clean default cleanup.
+The reconstructed engineering build is separate from the original acquired
+image; Valve's exact resolved image manifest and release integration remain open.
 
 See [actual Android acceptance](../../docs/android-containers.md#acquired-lepton-and-actual-android-boot)
 for measured results and remaining application, shutdown, XR and hardware limits.

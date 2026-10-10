@@ -1,0 +1,20 @@
+Subject: [PATCH] init: avoid static destructors during container shutdown
+
+SPDX-License-Identifier: Apache-2.0
+
+The non-reboot-capable path runs after service shutdown, synchronization
+and unmount. Calling exit() there invokes static C++ destructors, including
+a joinable thread's destructor, and aborts the container's init process.
+Use _exit() for this terminal path. Leave reboot-capable systems unchanged.
+
+--- a/init/reboot_utils.cpp
++++ b/init/reboot_utils.cpp
+@@ -85,7 +85,7 @@
+     if (!IsRebootCapable()) {
+         // On systems where init does not have the capability of rebooting the
+         // device, just exit cleanly.
+-        exit(0);
++        _exit(0);
+     }
+ 
+     switch (cmd) {

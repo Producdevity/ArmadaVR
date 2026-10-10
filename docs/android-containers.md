@@ -269,14 +269,41 @@ launcher patch also passes normal, already-stopped, absent, failed-wait and
 non-cooperative-wait checks; those fallback checks use a Podman command stub
 and the real GNU timeout, separately from the real Android runs.
 
-Evidence is preserved under `output/lepton-shutdown-20261010-v1`. The init change
-is a diagnostic binary comparison, not a matching source rebuild or a shipped
-replacement. Its source candidate applies to pinned Lineage 18.1, but the
-complete resolved product inputs and source-built acceptance remain open.
-Native Android graphics, OpenXR, actual game saves and physical-device support
-are not established by this software-rendered APK test. Earlier failures and
-original inputs remain intact; physical devices, host filesystem shares and
-USB passthrough were absent from this VM.
+The original binary comparison is preserved under
+`output/lepton-shutdown-20261010-v1`. A subsequent complete source rebuild now
+passes the same comparison. The [Android init patch](../patches/android-init/README.md)
+applies after 31 pinned Waydroid/Valve patches to Lineage 18.1. The build compiles
+123 translation units using SDK 30 headers/generated sources and links the
+delivered image's shared libraries. It retains the original 20 dependency names,
+PIE, RELRO, a nonexecutable stack, strong stack protection, FORTIFY and signed
+integer overflow traps. It uses engineering/userdebug init settings.
+
+The final baseline reproduces the fatal shutdown even though its container and
+launcher exit zero. The source-fixed init completes two clean boots/shutdowns
+and restores a persistent marker. The actual APK accepts two taps, restores
+counter 2, accepts two more taps and shuts down normally in 4.96 and 4.01 seconds.
+There is no forced-stop fallback; owned processes, mounts and temporary prefixes
+are removed. Each run verifies the running init hash and absent `CAP_SYS_BOOT`.
+
+Fresh native SteamVR backends also pass 60-frame Android GLES and Vulkan OpenXR
+trials with this final init. Independent compositor captures verify left-eye
+red-to-yellow and right-eye blue output. Android and launcher exits are zero;
+the private overlay and launcher scripts are restored. These software-rendered
+VM tests establish source-built init compatibility, not headset performance.
+
+The final 1,480,656-byte candidate has SHA-256
+`8b7b767c976e29f05d8f3039a50e6bf5b820b2a097a8e4932be7d534a09feec5`.
+Source locks, build commands, debug binaries and evidence are retained under
+`output/init-source-20261010-v1`. An earlier hardening trial accidentally reused
+the baseline object because restored source timestamps prevented recompilation;
+the runtime comparison rejected it. That failure remains preserved separately
+from the final build, which checks distinct baseline/candidate hashes.
+
+This is a compatible reconstructed source closure, not Valve's exact resolved
+product manifest or a reproduction of its delivered binary. Release-image
+integration, actual game saves and physical-device support remain open.
+Original inputs are unchanged, kernel taint is zero, and the VM has no physical
+devices, host filesystem shares or USB passthrough.
 
 ## Android OpenXR runtime connection
 

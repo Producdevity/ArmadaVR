@@ -312,12 +312,13 @@ drivers, accepted Quest boot and independent recovery remain unverified.
    are now preserved. Android boot, framework Binder services, context isolation,
    data persistence, APK installation/rendering/input and network provisioning
    pass. A test APK now retains saves and its package through the default
-   compatibility-tool lifecycle. Bounded launcher shutdown is implemented;
-   the successful init exit comparison remains a diagnostic binary change.
-   Rebuild and verify that change from matching source inputs, then verify
-   actual game saves, Android OpenXR and Android/Linux graphics buffer and
-   fence sharing. FUSE handles the writable views; native kernel rootless
-   OverlayFS remains unsupported.
+   compatibility-tool lifecycle. Bounded launcher shutdown and a source-built
+   Android init now pass default cleanup, input/save/restart and fresh-backend
+   GLES/Vulkan OpenXR tests. The init build reconstructs pinned SDK 30 inputs;
+   Valve's exact resolved product manifest and release-image integration remain
+   open. Verify actual game saves and hardware graphics-buffer/fence sharing.
+   FUSE handles the writable views; native kernel rootless OverlayFS remains
+   unsupported.
 7. **Finish repeatable VR acceptance.** The [complete current root](headset-root.md)
    and its QEMU handoff tests now pass. Fresh native Windows backends pass
    both-hand input, haptics, dashboard focus transfer and normal menu exit;
