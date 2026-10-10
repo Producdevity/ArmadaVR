@@ -7,10 +7,13 @@ RUN kver=$(ls /usr/lib/modules | sort -V | tail -1) \
     && useradd -m -U -G video,render,input vr \
     && modinfo -k "$kver" virtio_gpu >/dev/null
 COPY --from=steam-client --chown=vr:vr / /home/vr/.local/share/Steam/
-# Valve's helper pins Frame CPU indices that do not exist in this two-vCPU guest.
+# Frame's CPU affinity is invalid in this guest; keep its GL default overridable.
 RUN helper=/home/vr/.local/share/Steam/steamrtarm64/steamwebhelper.sh \
     && grep -q 'exec taskset 0x7c ' "$helper" \
-    && sed -i 's/exec taskset 0x7c /exec /' "$helper"
+    && grep -Fxq 'export LIBGL_KOPPER_DISABLE=true' "$helper" \
+    && sed -i -e 's/exec taskset 0x7c /exec /' \
+       -e 's/^export LIBGL_KOPPER_DISABLE=true$/export LIBGL_KOPPER_DISABLE=${LIBGL_KOPPER_DISABLE:-true}/' \
+       -e 's/^echo "setting LIBGL_KOPPER_DISABLE=true.*$/echo "steamwebhelper: LIBGL_KOPPER_DISABLE=${LIBGL_KOPPER_DISABLE:-true}"/' "$helper"
 COPY system/desktop.service /etc/systemd/system/armada-vr-desktop.service
 COPY system/desktop-test.conf /etc/systemd/system/armada-vr-lab.service.d/desktop.conf
 COPY system/xorg.conf /etc/X11/xorg.conf.d/20-virtual-display.conf
