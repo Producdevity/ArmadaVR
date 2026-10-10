@@ -125,9 +125,21 @@ with an unchanged backing image (`output/quest-startup-gpu-firmware-v1/`).
 The lab uses software rendering. Real panel scanout, GPU completion, firmware
 acceptance and exact-device recovery remain open.
 
-The exact-current vendor image also supplies
+The October 8 vendor image for build `52083180032000520` also supplies
 `output/quest-gpu-firmware-52083180032000520-v1/`: five files totaling 157,952
 bytes. The ZAP MDT and `.b02` differ from the older reference; the SQE version
 and file set are unchanged. Structural checks pass, but this new bundle has
 not been executed or packaged into a newly validated root filesystem. The
 older reference bundles and root images remain preserved.
+
+### October 10 firmware transition
+
+The connected Quest now runs `52433670036000520`. Whole-OTA authentication and
+signed payload hashes now authenticate the retained reference vendor image and
+both original bundles: `output/quest-firmware-v1/` and
+`output/quest-gpu-firmware-v1/`. The source vendor SHA-256 is
+`e251197f09bdb2243cd15ce2c06353e660217550cd327924d1dbae2f9b8a38cc`.
+All 53 packaged files were rehashed. Compared with the 520-series bundles,
+28 ADSP files and the GPU ZAP MDT/`.b02` differ. New initramfs/root builds use
+the matching 524-series inputs; prior bundles and evidence remain unchanged.
+See [current authentication](boot-set-verification.md#current-build-result-october-10-2026).

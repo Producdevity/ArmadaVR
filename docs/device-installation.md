@@ -11,22 +11,42 @@ The October 10 read-only ADB check found an authorized USB-connected Quest 3
 
 | Property | Reported value |
 |---|---|
-| Incremental build | `52083180032000520` |
+| Incremental build | `52433670036000520` |
 | Android | 14 |
-| Kernel | `5.10.237-g16c343ceed81` |
+| Kernel | `5.10.246-gd7102a837402` |
+| Active slot / DTBO index | `_a` / `11` (Eureka PVT1.1) |
 | Verified Boot | `green` |
 | Flash lock / vbmeta state | `1` / `locked` |
 
 These properties do not establish root, permission to boot another kernel, or a
-usable restore path. Earlier reports inspected build `52083180031500520`;
-exact-build assumptions must be checked against the current unit.
+usable restore path. The unit updated from the previously tested
+`52083180032000520`. Firmware-sensitive offsets, modules, policy and device tests
+from that build are historical evidence, not acceptance of the new release.
 
 ## Offline preparation completed
 
 The exact-build stock OTA now authenticates against the release certificate
 copied read-only from the stock headset. Payload hashes and the extracted boot
 set's AVB integrity checks pass; see [boot-set verification](boot-set-verification.md).
-The current table's DTBO index 8 selects Eureka PVT1.1. The stock kernel enables
+The authenticated manifest matches all nine retained partition images and all
+53 files in the ADSP/GPU bundles. The earlier range-download reports remain
+unchanged; a new receipt binds their bytes to the authenticated complete OTA.
+Direct reads of the current device's firmware and module files are denied, so
+this establishes package provenance rather than installed-file parity.
+
+Meta's pinned source commit now names the unit's release. The corrected custom
+kernel and new matching 524-series initramfs pass unsigned boot/vendor_boot/DTBO
+assembly and roundtrip checks. The unchanged Linux Turnip driver also passes
+all 16 offscreen shader frames on the updated stock kernel, with captures
+identical to the previous firmware. This does not verify custom boot, display
+scanout or sustained performance. See [boot assembly](quest-boot-assembly.md)
+and [root integration](headset-root.md).
+
+### Earlier 520-series privilege and inventory tests
+
+The following results apply to build `52083180032000520`. Its DTBO index 8
+selects Eureka PVT1.1; the current 524-series table selects that board at index
+11. The earlier stock kernel enables
 module versioning and enforced Clang CFI, so a loader built for a nearby release
 cannot be considered compatible merely by changing its version string.
 
@@ -42,7 +62,7 @@ Any device test needs strict identity/binary guards and explicit restoration of
 settings and temporary files; the upstream defaults are unsuitable as an
 unattended installation workflow.
 
-The owned-file primitive has now passed on the current Quest: one byte of a
+The owned-file primitive passed on that earlier Quest firmware: one byte of a
 disposable 256-byte fixture was changed, the full file was checked, and the byte
 was restored. Partial-allocation tests also verified explicit IPsec API release
 and removal of the owned worker, socket and files. The original early process
@@ -51,7 +71,7 @@ the unsupported `Files.readString` call. Kernel security-association enumeration
 and taint remain unreadable, so API release is not independent proof of their
 kernel state. This test did not obtain root or load a module.
 
-The exact stock service and complete compiled SELinux policy identify the module
+That release's stock service and complete compiled SELinux policy identify the module
 loader as a root process in `init-insmod-sh`, rather than PID 1's `init` domain.
 Module initialization runs synchronously in that caller. The policy permits
 module loading from `vendor_file` but does not permit this domain to traverse or
@@ -148,11 +168,14 @@ roundtrips pass. See [boot assembly](quest-boot-assembly.md). Quest boot accepta
 remains unverified. The loader's geometry and bounded-copy assumptions still
 need a Quest-specific implementation.
 
-**The current build has a matching public root target.**
+**The previous build has a statically checked public root target.**
 [Fuguquest's target file](https://github.com/Henry1887/fuguquest/blob/2324ce262e674504ad41ec82abcda3bf09dd01e6/targets/q3_52083180032000520.json)
 names `52083180032000520` and its kernel release. This replaces the earlier
 unmatched IonStack target as the relevant source to inspect. A published target
 is not a successful test on this unit, and root remains separate from unlock.
+The upstream README also lists `52433670036000520` as a working release, but the
+520-series offset and primitive checks above do not validate that target. The
+shared-code trigger's quiescence and cache-visibility gap remains unresolved.
 
 **Original Valve components can now be inspected.** Valve's public
 [Lepton v3.0.5 source](https://gitlab.steamos.cloud/frame-public/lepton/-/tree/8be10c8a86ed2a6de1c6a2d6587994e957a35515)

@@ -125,3 +125,22 @@ headroom and unchanged reference inputs pass.
 
 These remain unsigned offline artifacts. No physical load address, custom boot,
 recovery, peripheral handoff or driver operation was verified by this assembly.
+
+October 10: the unit now runs `52433670036000520`. The complete stock OTA is
+authenticated against its independently copied certificate, and a new receipt
+matches the retained reference partitions to the signed payload manifest.
+`output/quest3-boot-assembly-524-current-20261010-v1/` uses those inputs, the
+corrected physical kernel and new `headset-initramfs-quest-524-current-20261010-v1`.
+Reference and custom payload roundtrips, all 13 overlay matches and partition
+headroom pass. The unit selects PVT1.1 at index 11 in this build's table.
+
+| Artifact | Bytes | SHA-256 |
+| --- | ---: | --- |
+| boot | 73,732,096 | `d3c868e82c15e667ecf62d79f594ee75845bf8c5bfd1a8e0563cd41fbeb2dc8a` |
+| vendor_boot | 716,800 | `837a38a7d8fbf04765f282b2739d1b1fecb9dbc09915c5e192835a636115a98b` |
+| dtbo | 12,564 | `a02fdeede1c1466f6bd97a7deadb0f034a80e011e8fd06706fa94dbfa54f29e8` |
+
+The custom kernel's source release now matches the unit's release label. It is
+still a distinct custom binary with its own matching modules, and these remain
+unsigned offline artifacts. Authentication and assembly do not establish
+device boot acceptance, installed-byte parity or independent recovery.

@@ -81,7 +81,27 @@ for the distinction between signature validation, platform key trust and stored
 rollback values. Android container geometry is a separate check provided by
 `tools/inspect-boot.py`.
 
-## Exact-build result, October 7, 2026
+## Current-build result, October 10, 2026
+
+The Quest now reports `52433670036000520`, stock kernel
+`5.10.246-gd7102a837402`, slot `_a` and DTBO index 11. Index 11 selects Eureka
+PVT1.1 in this build's table; the earlier index 8 must not be reused.
+
+The complete OTA, SHA-256
+`e4c57710fbb067051698b8df4a98fd19ed7e76cb6387f8f21aca8377f49d2e04`,
+passes whole-archive signature, payload and metadata verification against a
+fresh copy of the stock headset's release certificate. Its signed payload
+manifest matches all nine previously retained boot, vendor and ODM partition
+images. A separate receipt verifies the 48 ADSP and five GPU firmware files
+against those authenticated sources. Both VBMeta signatures, the chain key,
+boot payload hashes and rollback index `1780444800` pass the offline checks.
+
+Evidence is in `output/quest3-stock-52433670036000520-v1/`. Earlier extraction
+reports remain historical records of their original, unauthenticated acquisition.
+The new authentication does not establish installed-file parity, device rollback
+acceptance, a backup of both slots/calibration, custom boot or a working restore.
+
+## Previous-build result, October 7, 2026
 
 The local `52083180032000520` OTA authenticates under the release certificate
 copied read-only from stock Quest 3. Its archive SHA-256 is

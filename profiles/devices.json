@@ -23,7 +23,7 @@
       "kernel_source_profile": "kernel/quest3.json",
       "vendor_dt_build_verified": true,
       "mainline_board_support_verified": false,
-      "boot_image_format": "reference OTA 52433670036000520 uses Android v4 boot and vendor_boot; exact unit firmware remains unverified",
+      "boot_image_format": "authenticated OTA 52433670036000520 uses Android v4 boot and vendor_boot; connected unit reported this build on 2026-10-10; custom boot remains unverified",
       "rocknix_abl_compatibility_verified": false
     },
     "pico-neo3-pro": {

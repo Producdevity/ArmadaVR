@@ -260,8 +260,23 @@ Its verified compressed copy reproduces all 8 GiB and that hash; the expanded
 copy is removed afterward to conserve space. The original export and prior
 roots remain unchanged.
 
-The corresponding QEMU root and root-handoff/failure tests still need repeating
-with this bundle. The earlier virtual acceptance applies to the October 9 roots.
+The corresponding `headset-root-qemu-gpuobj-20261010-v1` now passes root handoff
+and mapper-failure shutdown with an unchanged backing image. These two roots
+use the previously current `52083180032000520` firmware.
 Android init and native SteamVR acceptance recorded separately do not establish
 their integration into this older archived userspace. The new physical root has
 not booted on a headset and is not an installation image.
+
+### Current Quest firmware, October 10
+
+After the Quest updated to `52433670036000520`,
+`headset-root-qemu-524-gpuobj-20261010-v1` was built with its matching new
+initramfs, authenticated 48-file ADSP/five-file GPU bundles and the same tested
+Turnip driver. Its SHA-256 is
+`e8a3cfd777fc7c8fb07773a3e4cf97cc0bc13f67575ade0bf54c72aa2e27e401`.
+All eight cases pass in `output/quest-startup-524-gpuobj-20261010-v1/`, including
+native/Windows root acceptance, persistent mapper handoff and orderly shutdown
+after mapper failure. The complete backing-image checksum remains unchanged.
+The compressed archive reproduces all 8 GiB and that checksum before raw-image
+removal. This updates firmware integration proof; it does not execute that
+firmware in QEMU or establish physical boot/recovery.
