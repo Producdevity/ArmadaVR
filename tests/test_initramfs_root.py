@@ -1,0 +1,25 @@
+import importlib.util
+from pathlib import Path
+import unittest
+
+spec = importlib.util.spec_from_file_location("root_test", Path(__file__).parents[1] / "tools/test-initramfs-root.py")
+root_test = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(root_test)
+
+
+class RootMachineTests(unittest.TestCase):
+    def test_pico_requires_secure_monitor_and_reservation_space(self):
+        options = root_test.machine_options({"repository": "bytedance/neo3-kernel"}, None)
+        self.assertEqual(options[options.index("-machine") + 1], "virt,secure=on,virtualization=on")
+        self.assertEqual(options[options.index("-accel") + 1], "tcg")
+        self.assertEqual(options[options.index("-m") + 1], "2048")
+
+    def test_pico_rejects_accelerators_without_secure_monitor(self):
+        for accel in ("hvf", "kvm"):
+            with self.subTest(accel=accel), self.assertRaisesRegex(ValueError, "requires TCG"):
+                root_test.machine_options({"repository": "bytedance/neo3-kernel"}, accel)
+
+    def test_quest_keeps_host_cpu_with_hardware_acceleration(self):
+        options = root_test.machine_options({"repository": "facebookincubator/oculus-linux-kernel"}, "hvf")
+        self.assertEqual(options[options.index("-machine") + 1], "virt")
+        self.assertEqual(options[options.index("-cpu") + 1], "host")

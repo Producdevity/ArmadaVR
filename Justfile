@@ -105,10 +105,10 @@ build-headset-kernel directory="output/kernel/quest3/linux-build" profile="quest
     CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }} linux-userspace
 
 # Build the vendor kernel with QEMU transports for userspace ABI testing only.
-build-kernel-abi directory="output/kernel/quest3/qemu-abi":
-    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh quest3 {{ quote(directory) }} qemu-abi
+build-kernel-abi directory="output/kernel/quest3/qemu-abi" profile="quest3":
+    CONTAINER_ENGINE={{ engine }} bash tools/build-kernel.sh {{ quote(profile) }} {{ quote(directory) }} qemu-abi
 
-# Boot the QEMU-transport vendor kernel with the existing read-only lab image.
+# Boot the Quest QEMU-transport kernel with the existing read-only lab image.
 test-kernel-abi kernel="output/kernel/quest3/qemu-abi" directory="output/kernel/quest3/abi-test":
     python3 -B tools/test-kernel-abi.py {{ quote(kernel) }} --output {{ quote(directory) }}
 

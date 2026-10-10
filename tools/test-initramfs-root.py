@@ -17,12 +17,26 @@ builder = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(builder)
 
 
+def machine_options(build, accel):
+    if build.get("repository") == "bytedance/neo3-kernel":
+        if accel not in (None, "tcg"):
+            raise ValueError("The Pico kernel fixture requires TCG with the virtual secure monitor")
+        return ["-machine", "virt,secure=on,virtualization=on", "-accel", "tcg",
+                "-cpu", "cortex-a76", "-smp", "1", "-m", "2048",
+                "-object", "rng-random,id=rng,filename=/dev/urandom", "-device", "virtio-rng-device,rng=rng"]
+    accel = accel or ("hvf" if platform.system() == "Darwin" else "tcg")
+    return ["-machine", "virt", "-accel", accel,
+            "-cpu", "host" if accel in ("hvf", "kvm") else "max", "-smp", "2", "-m", "1024"]
+
+
 def run(args):
     kernel, initramfs, output = args.kernel.resolve(), args.initramfs.resolve(), args.output.resolve()
     build, hashes, _, _ = builder.inputs(kernel)
     initrd = json.loads((initramfs / "build.json").read_text())
     if build.get("qemu_transports") is not True or initrd.get("qemu_transports") is not True:
         raise ValueError("Requires the QEMU kernel and QEMU initramfs; headset artifacts are refused")
+    machine = machine_options(build, args.accel)
+    pico = build.get("repository") == "bytedance/neo3-kernel"
     if initrd.get("status") != "built" or initrd["kernel_build_sha256"] != builder.digest(kernel / "build.json"):
         raise ValueError("Initramfs does not match the kernel build")
     artifact = next(item for item in initrd["artifacts"] if item["path"] == "initramfs.img")
@@ -66,14 +80,16 @@ def run(args):
         for name, label in (("overlay", "armada-vr-root"), ("missing-root", "absent-root")):
             disk = output / (name + ".ext4")
             shutil.copyfile(output / "root.ext4", disk)
-            command = [args.qemu, "-machine", "virt", "-accel", args.accel, "-cpu", "host" if args.accel in ("hvf", "kvm") else "max",
-                       "-smp", "2", "-m", "1024", "-nodefaults", "-nographic", "-monitor", "none", "-serial", "stdio",
+            disk_options = (["-drive", f"file={disk},if=none,id=root,format=raw",
+                             "-device", "virtio-blk-device,drive=root"] if pico else
+                            ["-drive", f"file={disk},if=virtio,format=raw"])
+            command = [args.qemu, *machine, "-nodefaults", "-nographic", "-monitor", "none", "-serial", "stdio",
                        "-no-reboot", "-nic", "none", "-kernel", str(kernel / "Image"), "-initrd", str(boot_initrd),
-                       "-drive", f"file={disk},if=virtio,format=raw", "-append",
+                       *disk_options, "-append",
                        f"console=ttyAMA0 earlycon selinux=0 audit=0 root=LABEL={label} ro rootfstype=ext4 rootflags=noload "
                        "systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 "
                        "systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=5 rd.timeout=10 "
-                       "init=/sbin/init armada.root_test=1"]
+                       "init=/sbin/init armada.root_test=1" + (" initcall_blacklist=hwinfo_init" if pico else "")]
             report["commands"].append(command)
             case = {"name": name, "status": "started"}
             report["cases"].append(case)
@@ -118,7 +134,7 @@ if __name__ == "__main__":
     parser.add_argument("--compiler-image", default="localhost/armada-vr:kernel")
     parser.add_argument("--vendor-ramdisk", type=Path)
     parser.add_argument("--qemu", default="qemu-system-aarch64")
-    parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"), default="hvf" if platform.system() == "Darwin" else "tcg")
+    parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"), help="Defaults to TCG for Pico, otherwise the host default")
     try:
         run(parser.parse_args())
     except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:

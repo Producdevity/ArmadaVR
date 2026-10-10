@@ -250,8 +250,10 @@ symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
 resolution; stock instead has `DISPLAY_VXR7200_I2C`, whose implementation is also
 absent. Stock controller-station and Pico RTT support are missing too. The
 published board DTS is absent, so this build deliberately produces no device
-trees. The separate QEMU-transport variant is still refused for Pico.
-None of these artifacts has booted on the headset.
+trees. A separate QEMU variant enables PL011, virtio-mmio, block, network,
+console, random and RTC transports without applying Quest-specific patches.
+It builds 40 modules; these virtual transports are excluded from hardware
+builds. None of these artifacts has booted on the headset.
 
 The maintained Linux variant adds the common Linux-userspace configuration and
 an Android 4.19 BinderFS backport. Build it with:
@@ -299,6 +301,24 @@ fixed crash-log reservation, and an explicit exclusion of `hwinfo_init`, which
 otherwise dereferences absent Qualcomm boot-information memory. WALT topology
 and missing SoC-information warnings remain. These VM accommodations do not
 establish physical driver compatibility.
+
+The QEMU variant is built with `just build-kernel-abi OUTPUT pico-neo3`.
+A bare `earlycon` boot argument exposed a vendor NULL dereference before
+userspace: Pico's console-off extension accessed the optional argument before
+upstream device-tree/SPCR fallback handling. The common Pico patch now checks
+for NULL while preserving `earlycon=off`. Three isolated boots with bare,
+explicit PL011 and off arguments each reach the Frame service probe described
+below and shut down normally. The original panic remains in the local evidence.
+
+The current Fedora initramfs has two additional compatibility failures on 4.19.
+A syscall trace shows `statx` succeeds without mount IDs, followed by an
+unsupported file-handle lookup and an unavailable `/proc/self/fdinfo` fallback
+before procfs is mounted. Systemd cannot mount its early API filesystems.
+A diagnostic-only procfs pre-mount advances startup, but every service executor
+fails: glibc's `pidfd_spawn` probes `waitid(P_PIDFD)`, which returns `EINVAL`,
+and reports `ENOSYS` to systemd. The production initramfs has no pre-mount
+workaround. Full root handoff and Lepton startup remain unverified on this
+kernel; successful static or Frame service tests do not cover these failures.
 
 The unchanged Pico Linux Image also runs the official Frame repair image's
 systemd `257.7-2.2` as PID 1 in a separate diskless fixture. Its manager and

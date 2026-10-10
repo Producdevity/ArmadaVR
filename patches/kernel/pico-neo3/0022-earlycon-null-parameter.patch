@@ -1,0 +1,19 @@
+From: ArmadaVR contributors
+Subject: [PATCH] tty: preserve bare earlycon handling with Pico console switch
+
+The early-parameter parser passes NULL for a bare earlycon option. Pico's
+console-off extension dereferences it before the existing device-tree/SPCR
+fallback, panicking during setup_arch. Keep the off option while allowing the
+upstream fallback to handle a missing parameter.
+
+--- a/drivers/tty/serial/earlycon.c
++++ b/drivers/tty/serial/earlycon.c
+@@ -215,7 +215,7 @@ static int __init param_setup_earlycon(char *buf)
+ 
+ #ifdef CONFIG_SERIAL_CORE_CONSOLE
+ 	pr_err("%s(): serial console/earlycon %s\n", __func__, buf);
+-	if(*buf) {
++	if (buf && *buf) {
+ 		if(!strcmp("off", buf)){
+ 			do_skip_serial = 1;
+ 			pr_err("%s: do_skip_serial = %d\n", __func__, do_skip_serial);

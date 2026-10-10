@@ -10,6 +10,30 @@ spec.loader.exec_module(kernel)
 
 
 class KernelPatchTests(unittest.TestCase):
+    def test_pico_virtual_transports_preserve_hardware_patch_set(self):
+        profile = kernel.sources.read_profile("pico-neo3")
+        physical, patches = kernel.build_inputs(profile, True, False)
+        virtual, virtual_patches = kernel.build_inputs(profile, True, True)
+        self.assertEqual(virtual[:-1], physical)
+        self.assertEqual(virtual_patches, patches)
+        self.assertEqual(virtual[-1].name, "pico-neo3-qemu.config")
+        self.assertTrue(all("pico-neo3" in str(path) for path in patches))
+        self.assertNotIn("CONFIG_UDMABUF", kernel.config_values(virtual[-1]))
+
+    def test_quest_virtual_transports_keep_quest_source_patches(self):
+        profile = kernel.sources.read_profile("quest3")
+        physical, patches = kernel.build_inputs(profile, True, False)
+        virtual, virtual_patches = kernel.build_inputs(profile, True, True)
+        self.assertEqual(virtual[:-1], physical)
+        self.assertEqual(virtual[-1].name, "qemu-abi.config")
+        self.assertEqual(virtual_patches[:len(patches)], patches)
+        self.assertTrue(virtual_patches[len(patches):])
+        self.assertTrue(all(path.parent.name == "qemu-abi" for path in virtual_patches[len(patches):]))
+
+    def test_virtual_transports_require_userspace_variant(self):
+        with self.assertRaisesRegex(ValueError, "require the Linux userspace"):
+            kernel.build_inputs(kernel.sources.read_profile("pico-neo3"), False, True)
+
     def layout_fixture(self, root, extra_bss=None):
         image = bytearray(64)
         struct.pack_into("<Q", image, 16, 0x4000)

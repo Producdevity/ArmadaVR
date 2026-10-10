@@ -176,11 +176,33 @@ def prepare_pico_audio(source, cache):
     return directory
 
 
+def build_inputs(profile, linux_userspace, qemu_abi):
+    if qemu_abi and not linux_userspace:
+        raise ValueError("QEMU transports require the Linux userspace configuration")
+    pico = profile["repository"] == "bytedance/neo3-kernel"
+    extensions = [sources.ROOT / "profiles/kernel" / name for name in
+                  ("linux-userspace.config", "pico-neo3-linux.config" if pico else "quest3-build.config")] if linux_userspace else []
+    if qemu_abi:
+        extensions.append(sources.ROOT / "profiles/kernel" /
+                          ("pico-neo3-qemu.config" if pico else "qemu-abi.config"))
+    patch_sets = ["pico-neo3"] if pico else []
+    if linux_userspace:
+        patch_sets.append("pico-neo3-linux" if pico else "linux-userspace")
+    if qemu_abi and not pico:
+        patch_sets.append("qemu-abi")
+    patches = []
+    for name in patch_sets:
+        selected = sorted((sources.ROOT / "patches/kernel" / name).glob("*.patch"))
+        if not selected:
+            raise ValueError("Missing kernel source patches: " + name)
+        patches.extend(selected)
+    return extensions, patches
+
+
 def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
     if sys.platform != "linux":
         raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
-    if profile["repository"] == "bytedance/neo3-kernel" and qemu_abi:
-        raise ValueError("Pico QEMU transports have not been ported")
+    extensions, patches = build_inputs(profile, linux_userspace, qemu_abi)
     targets = profile.get("build_targets", ["Image", "modules", "dtbs"])
     if targets not in (["Image", "modules"], ["Image", "modules", "dtbs"]):
         raise ValueError("Unsupported kernel build targets")
@@ -244,23 +266,6 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
                 "reason": "Clang 13 added this diagnostic; the stock kernel used Clang 8",
                 "vendor_warning_guard": "retained",
             }
-        extensions = [sources.ROOT / "profiles/kernel" / name for name in
-                      ("linux-userspace.config", "pico-neo3-linux.config"
-                       if profile["repository"] == "bytedance/neo3-kernel" else "quest3-build.config")] if linux_userspace else []
-        if qemu_abi:
-            extensions.append(sources.ROOT / "profiles/kernel/qemu-abi.config")
-        patches = sorted((sources.ROOT / "patches/kernel/linux-userspace").glob("*.patch")) if linux_userspace else []
-        if profile["repository"] == "bytedance/neo3-kernel":
-            patches = sorted((sources.ROOT / "patches/kernel/pico-neo3").glob("*.patch"))
-            if not patches:
-                raise ValueError("Missing Pico compiler portability patches")
-            if linux_userspace:
-                patches += sorted((sources.ROOT / "patches/kernel/pico-neo3-linux").glob("*.patch"))
-        if qemu_abi:
-            qemu_patches = sorted((sources.ROOT / "patches/kernel/qemu-abi").glob("*.patch"))
-            if not qemu_patches:
-                raise ValueError("Missing QEMU ABI source patches")
-            patches += qemu_patches
         if patches:
             identity["patches"] = {str(path.relative_to(sources.ROOT)): hashlib.sha256(path.read_bytes()).hexdigest() for path in patches}
         if linux_userspace:
