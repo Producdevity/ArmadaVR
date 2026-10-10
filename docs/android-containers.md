@@ -338,6 +338,42 @@ insufficient timing acceptance.
 Evidence is retained in `output/android-mesa-followup-20261010-v1/evidence-v1`
 and `vulkan-rendering-acceptance-v1.json`; all 160 archived files were
 checksum-verified. Android and OpenXR shutdown succeed with the same private
-diagnostic init. GLES integration, controller actions, persistent namespace
+diagnostic init. Controller actions, persistent namespace
 orchestration, matching source-built init, games and physical headset graphics
 still require validation. Neither headset is flash-ready from this result.
+
+## Android GLES stereo rendering
+
+The companion Android EGL/GLES build uses Zink over the same Lavapipe driver.
+Select Zink with `MESA_LOADER_DRIVER_OVERRIDE=zink` and select its CPU Vulkan
+device with `D3D_ALWAYS_SOFTWARE=true`. Do not use `LIBGL_ALWAYS_SOFTWARE` for
+this Android configuration: it selects Mesa's separate software EGL path,
+whose loader interface is incompatible with the Android image loader. The
+failed SurfaceFlinger startup and backtrace are preserved.
+
+Mesa 26.1.8 also advertises external-memory and semaphore extensions in the
+ES 3.1 context while gating their dispatch entries to ES 3.2. Consequently,
+`glCreateMemoryObjectsEXT` returns `GL_INVALID_OPERATION`, leaving OpenXR
+swapchain textures without storage. The
+[dispatch patch](../patches/mesa/0005-gles-external-object-dispatch.patch)
+enables memory entrypoints from ES 3.0 and semaphore/common entrypoints from
+ES 2.0. It retains each implementation's extension checks and leaves desktop
+direct-state-access entries unchanged. The
+[Khronos specification](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_external_objects.txt)
+requires texture-storage support for memory objects; ES 3.2 is the specification
+it was written against, not its minimum requirement.
+
+The original driver fails the actual Android ES 3.1 test. With the correction,
+both 624 × 624 swapchains render 60 stereo frames, all 120 eye readbacks have
+complete framebuffers and no GL error, and independent compositor captures
+show red/blue followed by yellow/blue. The observer attributes 61 compositor
+presents to the translated Android process. Android and OpenXR exit normally;
+the private mount/property scripts are restored and kernel taint remains zero.
+
+All 190 files in `output/android-mesa-followup-20261010-v1/evidence-v2` were
+checksum-verified. `gles-rendering-acceptance-v1.json` records the captures and
+remaining timing failure: 55 of 59 predicted-time intervals are one nanosecond.
+The patch also applies without fuzz to the pinned archive and reproduces the
+tested source. These are software-rendered VM results. Reproducible Android
+driver packaging, controller actions, session orchestration, matching init
+source, games and physical graphics still require work.
