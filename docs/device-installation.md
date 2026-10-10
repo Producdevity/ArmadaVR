@@ -1,7 +1,8 @@
 # Device installation requirements
 
-Updated October 10, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
-tests, but no validated Quest installation or recovery procedure.
+Updated October 10, 2026. ArmadaVR has offline kernel and virtual-runtime tests,
+plus physical GPU rendering on both stock headsets. Quest installation and
+independent recovery remain unvalidated.
 
 ## Current Quest 3
 
@@ -295,8 +296,9 @@ drivers, accepted Quest boot and independent recovery remain unverified.
 3. **Finish physical kernel and driver support.** Validate the selected panel
    and board overlay, UFS, USB, ADSP services, firmware loading, GPU and display
    fences, audio, Wi-Fi, battery/charging, fan and thermal shutdown. The
-   [Android Turnip candidate](turnip.md#physical-android-gpu-acceptance) now passes
-   real GPU transfers and offscreen shader rendering on both stock headsets.
+   [Android and Linux Turnip candidates](turnip.md#physical-android-gpu-acceptance)
+   now pass offscreen shader rendering on both stock headsets, with GPU transfer
+   and allocation-failure cleanup also checked in the Android build.
    That isolates the GPU userspace prerequisite; it does not validate the
    custom kernel, physical display, other drivers or simulated sensors.
 4. **Implement tracking and controllers.** Integrate synchronized cameras and

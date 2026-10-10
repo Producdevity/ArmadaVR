@@ -53,6 +53,45 @@ no flash readiness follows from this software result. Evidence and negative comp
 `output/native-wsi-followup-20261010-v1/` and
 `output/frame-native-wsi-20261010-v1/` through `v14/`.
 
+### Current official package comparison
+
+Valve's [Frame hotfix repository](https://holo-packages.steamos.cloud/archlinux-deckard-hotfixes/)
+now exposes individual ARM64 packages. The October 10 comparison uses
+`deckard-steamvr-rel-r25839070+87334fb7-1`, downloaded and verified against the
+official package database: 676,247,472 bytes, SHA-256
+`3433c55c90c667b269842dd0b4cdf3c559ef7680f1a6f646269680725ca4e310`.
+This avoids another complete recovery-image download. Its compositor hash is
+`658991cbe9de1f6accc301dba101fdb1f8ee2109ffc812779397e5312a9bd525`.
+The existing runtime and maintained profile remain unchanged.
+
+In an isolated VM, the new runtime accepts 120 stereo submissions. Independent
+captures verify both eyes at both brightness levels with the old bundled
+validation layer and with Valve's current `1.4.363.0-4` validation package.
+The observed compositor clock is 60.020 Hz. One earlier current-layer run
+submitted every frame but missed the bright capture; it remains a failed
+acceptance run. The later run adds the existing clock/focus observer, so its
+success does not establish that the earlier failure is fixed.
+
+Current validation retains the duplicate Vulkan 1.2/timeline feature chain,
+descriptor-array count mismatch, unknown acquire/present structures and pending
+acquire-semaphore errors. It also reports a presentation semaphore reused for
+another swapchain image before reacquisition (`vkQueueSubmit` VUID `00067`).
+Neither current Khronos headers nor the inspected public Valve headers define
+the private presentation structure `1000002102`. No validation diagnostics are
+suppressed and no private synchronization semantics are assumed.
+
+The same driver passes the standalone display regression with current
+validation: 32 clock events at 60.097 Hz, stable descriptor count, presentation,
+surface lifecycle and refusal checks, with zero validation errors. This narrows
+the remaining investigation to the compositor's API use and private contracts;
+it does not establish that its synchronization or sustained frame timing is
+correct. The new runtime has not passed the full Windows, Android and dashboard
+acceptance matrix and is not promoted to the maintained profile.
+
+Package provenance, successful and failed runs, independently captured pixels
+and checksummed VM evidence are retained in
+`output/compositor-validation-20261010-v1/`.
+
 ### Virtual-display regression
 
 `patches/mesa/0004-lavapipe-virtual-display.patch` adds an explicit development

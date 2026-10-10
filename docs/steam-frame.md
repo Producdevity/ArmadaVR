@@ -4,6 +4,21 @@ For the October 8 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
 retain their original investigation dates.
 
+## October 10 package availability
+
+The official [Frame hotfix package repository](https://holo-packages.steamos.cloud/archlinux-deckard-hotfixes/)
+now provides individual ARM64 SteamVR, Mesa and Vulkan-layer packages. ArmadaVR
+has acquired and checksum-verified the current SteamVR package and
+[compared its compositor with current validation](steamvr-arm64.md#current-official-package-comparison).
+Stereo rendering passes in the observed run; synchronization diagnostics and
+sustained performance remain unresolved. The existing tested runtime stays pinned.
+
+The [stable OS metadata](https://steamdeck-atomupd.steamos.cloud/meta/holo/steamos/aarch64/vr/stable.json)
+now names `20261007.6125817`, version `0.4.5`. The current hotfix SteamVR package
+was built October 9; it is not established as the exact component shipped in
+that October 7 image. Package availability does not replace Quest or Pico board,
+boot and recovery work. The complete recovery image was not downloaded again.
+
 ## October 8 firmware comparison
 
 The existing official recovery image is `20260922.5153644-0.3.0`; its native
