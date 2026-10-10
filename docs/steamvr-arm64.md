@@ -115,8 +115,8 @@ the original runtime and Frame firmware remain unchanged.
 Evidence is retained in `output/frame-native-wsi-20261010-v23/` through `v26/`,
 including the missing-library, Qt-symbol and loopback failures. The maintained
 bundle also repeats the exact stereo colors and both-controller input/haptic
-checks. Dashboard button selection, authenticated Library content and Windows
-rendering on this native backend still require separate acceptance. The monitor
+checks. Authenticated Library content and Windows rendering on this native
+backend still require separate acceptance. The monitor
 did not emit the older runtime's Ready marker, so that marker is not counted as
 passed. This result does not establish physical drivers or flash readiness.
 
@@ -173,6 +173,25 @@ controller driver now optionally supplies a fixed simulated HMD when the selecte
 driver is `armada_virtual` and `driver_armada_virtual.simulateHeadset` is explicitly
 true. The original null-HMD/x86 path remains available. Neither simulated path
 has a physical-device transport.
+
+The simulated headset profile selects a controller pose resource owned by the
+virtual-driver bundle. It defines tip and grip transforms at the simulated device
+origin; it does not supply a physical controller mesh. Frame omits the older Vive
+render model used by the translated test profile, so relying on that model leaves
+native controller-tip queries invalid. The bundle builder includes and hashes the
+pose resource, and native session validation requires it. The native controller
+probe checks both hands' actual OpenVR tip and grip transforms before testing
+input and haptics.
+
+Fresh native VM tests verify both hands opening the actual Settings panel and
+returning to the Library welcome panel. The test measures the runtime's toolbar
+transform, aims the simulated controller ray at the button, presses and releases
+its trigger, and restores both controllers afterward. Captures from the
+compositor show each navigation result, and the primary pointer changes to the
+selected hand. The missing-model comparison and fixed component checks are in
+`output/frame-native-wsi-20261010-v27/` and `v28/`; reviewed interaction evidence
+is in `v29/`. All 224 host tests pass. This proves stock dashboard navigation,
+not authenticated Library contents, physical tracking or native headset timing.
 
 Build the native probe and driver in an AArch64 Linux development environment with
 Clang, Vulkan headers/loader and the pinned OpenVR headers:

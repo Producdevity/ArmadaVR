@@ -39,7 +39,9 @@ public:
                                       left ? "Armada VR virtual left controller" : "Armada VR virtual right controller");
         properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Armada VR simulator");
         properties->SetStringProperty(container, vr::Prop_ControllerType_String, "vive_controller");
-        properties->SetStringProperty(container, vr::Prop_RenderModelName_String, "vr_controller_vive_1_5");
+        const bool simulated_headset = vr::VRSettings()->GetBool("driver_armada_virtual", "simulateHeadset");
+        properties->SetStringProperty(container, vr::Prop_RenderModelName_String,
+                                      simulated_headset ? "{armada_virtual}controller" : "vr_controller_vive_1_5");
         properties->SetStringProperty(container, vr::Prop_InputProfilePath_String, "{htc}/input/vive_controller_profile.json");
         properties->SetInt32Property(container, vr::Prop_ControllerRoleHint_Int32,
                                      left ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);

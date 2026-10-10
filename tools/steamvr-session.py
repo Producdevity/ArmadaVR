@@ -281,6 +281,7 @@ def validate_native_inputs(runtime, bundle):
         raise ValueError("Native session requires an AArch64 virtual-device bundle")
     required = {"steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
                 "steamvr-virtual.json", "armada_virtual/driver.vrdrivermanifest",
+                "armada_virtual/resources/rendermodels/controller/controller.json",
                 "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"}
     hashes = manifest.get("sha256", {})
     if not required.issubset(hashes):

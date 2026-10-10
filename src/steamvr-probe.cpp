@@ -210,6 +210,27 @@ int main(int argc, char **argv) {
         require(debug && error == vr::VRInitError_None, "No IVRDebug");
         auto vr_input = static_cast<vr::IVRInput *>(get(vr::IVRInput_Version, &error));
         require(vr_input && error == vr::VRInitError_None, "No IVRInput");
+        if (!std::strcmp(tracking, "armada_virtual")) {
+            auto models = static_cast<vr::IVRRenderModels *>(get(vr::IVRRenderModels_Version, &error));
+            require(models && error == vr::VRInitError_None, "No IVRRenderModels");
+            for (const char *hand : {"/user/hand/left", "/user/hand/right"}) {
+                vr::VRInputValueHandle_t path;
+                input_check(vr_input->GetInputSourceHandle(hand, &path), "controller pose path");
+                for (const char *component : {"tip", "grip"}) {
+                    vr::RenderModel_ComponentState_t pose{};
+                    vr::RenderModel_ControllerMode_State_t mode{};
+                    require(models->GetComponentStateForDevicePath("{armada_virtual}controller", component,
+                            path, &mode, &pose), "Missing virtual controller pose component");
+                    for (unsigned row = 0; row < 3; ++row)
+                        for (unsigned column = 0; column < 4; ++column)
+                            require(std::isfinite(pose.mTrackingToComponentLocal.m[row][column]) &&
+                                    std::abs(pose.mTrackingToComponentLocal.m[row][column] -
+                                             (row == column ? 1.f : 0.f)) < 0.00001f,
+                                    "Virtual controller pose is not identity");
+                    std::printf("hand=%s component=%s identity=1\n", hand, component);
+                }
+            }
+        }
         bool passed = controllers(system, debug, vr_input, argv[0]);
         shutdown();
         dlclose(library);

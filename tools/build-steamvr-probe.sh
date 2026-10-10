@@ -49,6 +49,7 @@ install -m755 "$work/steamvr-probe" "$out/steamvr-probe"
 mkdir -p "$out/armada_virtual/bin/$architecture"
 install -m755 "$work/driver_armada_virtual.so" "$out/armada_virtual/bin/$architecture/driver_armada_virtual.so"
 cp system/steamvr-controllers/driver.vrdrivermanifest "$out/armada_virtual/"
+cp -r system/steamvr-controllers/resources "$out/armada_virtual/"
 cp "$sdk/LICENSE" "$out/OpenVR-LICENSE"
 cp "profiles/$profile" "$out/steamvr-virtual.json"
 cp system/steamvr-probe/*.json "$out/"
@@ -78,6 +79,7 @@ files = {p.relative_to(out).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest
 sources = ['src/steamvr-probe.cpp', 'src/steamvr-controllers.cpp', 'src/steamvr-headset.h',
            'tools/build-steamvr-probe.sh', 'tools/fetch-openvr.py',
            'profiles/' + sys.argv[3], 'system/steamvr-controllers/driver.vrdrivermanifest',
+           'system/steamvr-controllers/resources/rendermodels/controller/controller.json',
            'tools/steamvr-session.py']
 if sys.argv[2] == 'x86_64':
     sources += ['src/vulkan-procaddr.c', 'src/openxr-procaddr.c',

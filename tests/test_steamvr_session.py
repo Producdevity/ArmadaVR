@@ -237,6 +237,7 @@ class SessionTests(unittest.TestCase):
         (runtime / "steamxr_linuxarm64.json").write_text(json.dumps({
             "runtime": {"library_path": "bin/linuxarm64/vrclient.so"}}))
         for name in ("steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
+                     "armada_virtual/resources/rendermodels/controller/controller.json",
                      "armada_virtual/driver.vrdrivermanifest", "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"):
             path = bundle / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -263,6 +264,14 @@ class SessionTests(unittest.TestCase):
             runtime, bundle = self.native_fixture(Path(temporary))
             (bundle / "steamvr-probe").write_bytes(b"changed")
             with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                session.validate_native_inputs(runtime, bundle)
+
+    def test_native_bundle_requires_controller_pose_resource(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime, bundle = self.native_fixture(Path(temporary))
+            (bundle / "armada_virtual/resources/rendermodels/controller/controller.json").unlink()
+            self.native_manifest(bundle)
+            with self.assertRaisesRegex(ValueError, "missing its checked session dependencies"):
                 session.validate_native_inputs(runtime, bundle)
 
     def test_native_bundle_rejects_external_artifact_and_wrong_target(self):
