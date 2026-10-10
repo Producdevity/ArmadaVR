@@ -6,8 +6,9 @@ FEX and runtime dependencies. The compositor checksum guard remains enabled.
 Keep the OpenXR manifest and its library inside this installation: a manifest
 symlink into another runtime can silently select a different client version.
 Both-hand authenticated Library navigation and scrolling now pass in this
-translated VM baseline. Native ARM64 presentation remains a separate acceptance
-requirement; successful virtual rendering does not establish headset compatibility.
+translated VM baseline. The [native ARM64 path](steamvr-arm64.md) also passes
+software presentation, cached Library navigation/scrolling and Windows OpenXR
+on fresh backends. Virtual rendering does not establish headset compatibility.
 
 The isolated public SteamVR 2.16.7 test now passes actual application presentation
 and simulated controller acceptance. Its 120 stereo submissions produce 147
@@ -29,9 +30,10 @@ these through FEX. The pinned client download now also includes the x86 Steam
 SDK libraries, Scout and the ARM64 runtime launcher service.
 
 The [native ARM64 runtime investigation](steamvr-arm64.md) subsequently obtained
-SteamVR 2.17.10 from Valve's Frame repair image. Native virtual devices and Vulkan
-sharing pass. A private virtual-display backend now also produces pixel-verified
-native stereo output; presentation timing, validation and maintained integration
+SteamVR 2.17.10 from Valve's Frame repair image. Maintained launchers now support
+native software presentation and Windows OpenXR through FEX/Proton. Both virtual
+controllers pass input, haptics, dashboard focus and menu exit; the native Steam
+client also renders cached Library content. Compositor timing and validation
 remain open. The translated desktop runtime remains a VM test baseline.
 
 The FEX graphics-provider root filesystem is the verified Arch Linux SquashFS

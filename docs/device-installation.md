@@ -1,11 +1,12 @@
 # Device installation requirements
 
-Updated October 9, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
+Updated October 10, 2026. ArmadaVR has offline kernel, driver and virtual-runtime
 tests, but no validated Quest installation or recovery procedure.
 
 ## Current Quest 3
 
-A read-only ADB check finds an authorized USB-connected Quest 3 (`eureka`):
+The October 9 read-only ADB check found an authorized USB-connected Quest 3
+(`eureka`):
 
 | Property | Reported value |
 |---|---|
@@ -296,26 +297,32 @@ drivers, accepted Quest boot and independent recovery remain unverified.
    IMU streams, device calibration, 6DoF prediction, distortion and display
    timing. Validate both controllers' pairing, poses, every required input,
    haptics, recentering, disconnect and reconnect behavior.
-5. **Resolve native runtime integration.** Native virtual-device input and
-   Vulkan sharing pass on the Quest test kernel. Resolve the native compositor
-   direct-display crash, then test dashboard interaction and fresh Windows rendering. Keep
-   FEX/Proton for game compatibility and preserve the existing translated
-   SteamVR baseline for comparison. Reuse applicable source changes while
-   retaining Quest-specific KGSL, panel and firmware support.
+5. **Complete native runtime integration.** The maintained native launchers now
+   pass software compositor presentation, dashboard interaction and Windows
+   OpenXR rendering on fresh backends. The native client also passes cached
+   Library navigation and scrolling with both virtual controllers. Resolve the
+   remaining compositor validation/timing issues and assemble a reproducible
+   image containing the tested dependencies. Keep FEX/Proton for game
+   compatibility and the translated SteamVR baseline for comparison. Physical
+   presentation still requires Quest-specific KGSL, panel and firmware support.
 6. **Complete Lepton integration offline.** Matching rootfs, sysbake and xattrs
    are now preserved. Android boot, framework Binder services, context isolation,
    data persistence, APK installation/rendering/input and network provisioning
    pass. A test APK now retains saves and its package through the default
-   compatibility-tool lifecycle. Verify actual game saves, clean init shutdown, Android OpenXR and
-   Android/Linux graphics buffer and fence sharing. FUSE handles the writable
-   views; native kernel rootless OverlayFS remains unsupported.
+   compatibility-tool lifecycle. Bounded launcher shutdown is implemented;
+   the successful init exit comparison remains a diagnostic binary change.
+   Rebuild and verify that change from matching source inputs, then verify
+   actual game saves, Android OpenXR and Android/Linux graphics buffer and
+   fence sharing. FUSE handles the writable views; native kernel rootless
+   OverlayFS remains unsupported.
 7. **Finish repeatable VR acceptance.** The [complete current root](headset-root.md)
-   and its QEMU handoff tests now pass. Repeat Windows rendering on a fresh
-   SteamVR backend, and verify both-hand stock dashboard
-   selection, scrolling, navigation, menu, close/reopen and focus transfer.
-   Diagnose renderer exits and allocation failures; test game launch, audio,
-   runtime restart and bounded soak. Measure sustained frame times and power on
-   real hardware when device testing is authorized.
+   and its QEMU handoff tests now pass. Fresh native Windows backends pass
+   both-hand input, haptics, dashboard focus transfer and normal menu exit;
+   native cached Library navigation and rendered scrolling also pass.
+   Extend these bounded samples to game launch, audio, runtime restart and
+   soak tests, retaining failure and allocation-pressure evidence. Measure
+   sustained frame times and power on real hardware after the device boot
+   and recovery gates pass.
 8. **Design installation and rollback last.** Preserve the vendor partition
    layout and boot chain. Select persistent installation only after accepted
    boot and recovery have been demonstrated. Verify updates, rollback,

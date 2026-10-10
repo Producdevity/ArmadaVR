@@ -1,8 +1,8 @@
 # ArmadaVR
 
 An experimental ARM64 Linux VR environment and headset board-support project.
-The initial hardware bring-up target is Pico Neo3 Pro Eye. Quest 3 is the next
-porting target; Neo3 Pro requires separate board and calibration checks.
+Quest 3 and Pico Neo3 Pro Eye are development targets. Neo3 Pro requires
+separate board and calibration checks.
 There is no validated headset installation image.
 
 The development environment uses Fedora, Armada's FEX packaging, native Monado
@@ -18,8 +18,8 @@ virtual target for functional tests.
 | Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Missing board/driver support, full userspace, recovery and exact-device boot |
 | Graphics | KGSL Turnip and native Monado builds; offline synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
-| SteamVR | Translated runtime presents stereo samples and receives both virtual controllers' input; native Frame ARM64 server passes virtual-device input/haptic checks on the Quest QEMU kernel | Reliable stock dashboard navigation, a complete reproducible image and native compositor presentation |
-| Android container | Acquired Lepton boots Android 11 in rootless Podman on the Quest test kernel; Binder, isolation, APK launch/input, retained save restart and networking pass | Default Steam game saves, clean init shutdown, Android XR, hardware graphics, games and performance |
+| SteamVR | Native Frame ARM64 presentation, cached Library navigation/scrolling with both virtual controllers, and Windows OpenXR on fresh native backends pass in QEMU; translated baseline retained | Complete reproducible image, compositor validation/timing, game and sustained runtime acceptance |
+| Android container | Lepton boots Android 11 on the Quest test kernel; Binder, isolation, APK input, default test-APK save lifecycle and networking pass; bounded launcher shutdown is implemented | Matching source-built init shutdown, actual game saves, Android XR, hardware graphics and performance |
 | Installation | Authenticated current-build stock OTA, boot-container assembly and integrity checks | Accepted custom boot, exact stock recovery and a tested installation/rollback procedure |
 
 VM results do not establish hardware compatibility or flash readiness. Read the
