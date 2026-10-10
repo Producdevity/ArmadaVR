@@ -207,6 +207,19 @@ The tested Android candidate has SHA-256
 Build commands, negative baselines, driver/dependency hashes, pixel captures
 and cleanup receipts are retained in `output/headset-gpu-20261010-v1`.
 Firmware, boot identity, locked/green state and enforcement are unchanged;
-the temporary device files are removed. This validates a Bionic build under
-stock Android, not the glibc driver in a booted Armada kernel. Custom boot,
-DRM synchronization, display ownership and physical VR remain separate gates.
+the temporary device files are removed.
+
+A separate Linux/glibc test also passes on both stock kernels. It uses the
+unchanged output of the maintained Linux builder, including the KGSL DRM and
+display patches: SHA-256
+`4799fc79cdc9fb9c8ede6657428a5a2b9868e5675e37575d9ecc5c5388b76ee4`.
+An explicit private glibc loader and 23-file dependency/test package run as the
+ordinary ADB shell user, without a chroot, Android HAL or system-library changes.
+Both devices render all 16 shader frames correctly; exported pixels match the
+Android candidate byte for byte. The driver and its dependencies are removed
+afterward, with device identity and enforcement unchanged. Exact package hashes,
+build commands and results are in `output/headset-linux-gpu-20261010-v1`.
+
+These results establish real GPU execution for both userspace ABIs under stock
+kernels. Custom boot, DRM synchronization, display ownership and physical VR
+remain separate gates.
