@@ -1,7 +1,7 @@
 FROM localhost/armada-vr:vm
 RUN dnf -y --setopt=install_weak_deps=False install \
     gtk2 openal-soft NetworkManager-libnm ibus-libs glibc-langpack-en \
-    lsof pciutils libssh2 dbus-x11 openbox xdg-utils xdg-user-dirs lsb_release \
+    lsof pciutils libssh2 dbus-x11 openbox xdg-utils xdg-user-dirs lsb_release xset \
     && dnf clean all
 ARG LAB_UID=1000
 ARG LAB_GID=1000
