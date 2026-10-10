@@ -249,11 +249,19 @@ These are the existing software-rendered lab tests. They do not establish
 native SteamVR compositor presentation, stock Library interaction or physical
 KGSL rendering. The complete host suite passes 207 tests.
 
-The October 10 `turnip-gpuobj-v1` build subsequently passes offscreen GPU
-rendering on both physical stock headsets and the maintained artifact checks.
-It is not yet included in these restored roots. A new assembly must select that
-bundle, retain the matching kernel/initramfs and firmware inputs, and repeat root
-handoff and mapper-failure acceptance. The builder's storage guard still applies;
-preserving compressed roots does not provide enough working space to rebuild them.
+October 10: `output/headset-root-quest-gpuobj-20261010-v2/` rebuilds the physical
+kernel root with `turnip-gpuobj-v1`, whose unchanged Linux driver passes offscreen
+rendering on both stock headsets. The matching kernel/initramfs, 272 modules,
+48 ADSP files, five GPU firmware files and 85-file Monado bundle are retained.
+Signed dependency installation, native driver/client loading, extraction checks
+and read-only filesystem checks pass. The image SHA-256 is
+`14abd72c07e9ba55a2e14bba78cd027c1705a4c02dd9946df0cc035064d70f11`.
+Its verified compressed copy reproduces all 8 GiB and that hash; the expanded
+copy is removed afterward to conserve space. The original export and prior
+roots remain unchanged.
+
+The corresponding QEMU root and root-handoff/failure tests still need repeating
+with this bundle. The earlier virtual acceptance applies to the October 9 roots.
 Android init and native SteamVR acceptance recorded separately do not establish
-their integration into this older archived userspace.
+their integration into this older archived userspace. The new physical root has
+not booted on a headset and is not an installation image.

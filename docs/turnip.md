@@ -98,8 +98,8 @@ allocation/import requests for its unsupported implicit-sync fallback instead
 of silently accepting that flag. This does not prove GPU completion, modifier
 compatibility or scanout. Complete v10 kernel/module/device-tree exports now
 include the backport. The October 9 restored roots contain the matching newer
-modules and `turnip-display-v2`; they still need the October 10 GPUOBJ driver
-update described below.
+modules and `turnip-display-v2`. The October 10 physical-kernel root also includes
+the GPUOBJ driver update described below; its QEMU counterpart remains pending.
 
 `output/mesa/turnip-display-v2/` contains the compiled ARM64 driver, four passing
 ASan/UBSan suites and five passing Freedreno tests. The first display build is
@@ -123,8 +123,9 @@ real descriptor ownership. These tests perform no KGSL GPU work or panel scanout
 `output/kgsl-display-audit-v1/` records artifact rejection tests, loading the new
 DSO in the pinned ARM64 runtime, and an absent-KGSL negative probe. The previous
 v7 bundle is preserved but is not accepted as a build of the current patches.
-The October 9 [restored roots](headset-root.md) include the display driver;
-the later GPUOBJ allocation change still requires root integration.
+The October 9 [restored roots](headset-root.md) include the display driver.
+The later GPUOBJ allocation change is included in the October 10 physical-kernel
+root and passes its loader/extraction checks; virtual root acceptance remains open.
 
 ## Native compositor integration still required
 
