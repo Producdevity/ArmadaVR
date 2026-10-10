@@ -163,14 +163,20 @@ already running, causing a null shared-state lock in the Frame client. The
 native webhelper must also start explicitly because the delivered runtime has
 no x86 webhelper at the path an x86 application attempts to launch.
 
-The Windows environment is still an integration prototype; the maintained
-Windows launcher currently selects the translated backend. Evidence and the
-failed comparisons are retained in `output/frame-native-wsi-20261010-v30/`
+The maintained Windows launcher now has an explicit `--native-bundle` mode;
+see [Windows launch instructions](windows-openxr.md#launch-in-the-active-virtual-steamvr-session).
+The original integration evidence and failed comparisons are retained in `output/frame-native-wsi-20261010-v30/`
 through `v42/`, with reviewed acceptance records in `v41/` and `v42/`.
 The maintained presentation launcher subsequently passes the right-hand Windows
 run with 399 submissions, normal menu exit, and no SteamVR or X server processes
 left after interrupting the launcher. The failed duplicate-startup comparison
 is retained in `v45/`; the corrected run is in `v46/`.
+Both maintained launchers then pass fresh right- and left-hand runs in `v48/`
+and `v49/`: 385/375 submissions, 71/63 haptic events, focus transfer, reviewed
+stereo/dashboard captures and normal menu exits. Rejected existing-prefix,
+wrong-interpreter and wrong-backend launches preserve the prefix registries.
+The private FEX configuration is removed; no translation, SteamVR or display
+processes remain at the final check. All 233 host tests pass.
 All original disks, firmware and runtime files remain unchanged. These are
 bounded software tests, not headset performance or installation acceptance.
 

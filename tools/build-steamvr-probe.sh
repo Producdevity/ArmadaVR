@@ -54,13 +54,13 @@ cp "$sdk/LICENSE" "$out/OpenVR-LICENSE"
 cp "profiles/$profile" "$out/steamvr-virtual.json"
 cp system/steamvr-probe/*.json "$out/"
 cp tools/steamvr-session.py "$out/steamvr-session.py"
+install -m755 tools/run-steamvr-windows.py "$out/run-steamvr-windows.py"
 if [[ "$target" == x86_64 ]]; then
     install -m755 "$work/libvulkan-procaddr.so" "$out/libvulkan-procaddr.so"
     install -m755 "$work/libopenxr-procaddr.so" "$out/libopenxr-procaddr.so"
     mkdir -p "$out/xpresent"
     install -m755 "$work/libXpresent.so.1" "$out/xpresent/libXpresent.so.1"
     cp "$work/xpresent/COPYING" "$out/Xpresent-LICENSE"
-    install -m755 tools/run-steamvr-windows.py "$out/run-steamvr-windows.py"
     cp profiles/steamvr-presentation.json profiles/steamvr-runtime.json "$out/"
 else
     install -m755 "$work/vulkan-interop" "$work/vulkan-external-sync" "$work/vulkan-external-image" "$out/"
@@ -81,10 +81,10 @@ sources = ['src/steamvr-probe.cpp', 'src/steamvr-controllers.cpp', 'src/steamvr-
            'tools/build-steamvr-probe.sh', 'tools/fetch-openvr.py',
            'profiles/' + sys.argv[3], 'system/steamvr-controllers/driver.vrdrivermanifest',
            'system/steamvr-controllers/resources/rendermodels/controller/controller.json',
-           'tools/steamvr-session.py']
+           'tools/steamvr-session.py', 'tools/run-steamvr-windows.py']
 if sys.argv[2] == 'x86_64':
     sources += ['src/vulkan-procaddr.c', 'src/openxr-procaddr.c',
-                'tools/run-steamvr-windows.py', 'tools/fetch-xpresent.py',
+                'tools/fetch-xpresent.py',
                 'patches/xpresent/0001-steamvr-initial-timing.patch']
 else:
     sources += ['src/vulkan-interop.c', 'tests/vulkan-external-sync.c', 'tests/vulkan-external-image.c',

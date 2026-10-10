@@ -216,6 +216,37 @@ python3 -B /path/to/steamvr-bundle/run-steamvr-windows.py \
   /path/to/windows/hello_xr.exe -g Vulkan
 ```
 
+For the [native ARM64 presentation session](steamvr-arm64.md#native-launcher-and-windows-applications),
+use the launcher included in its ARM64 bundle and supply the Windows translation
+components explicitly:
+
+```sh
+python3 -B /path/to/native-bundle/run-steamvr-windows.py \
+  --native-bundle /path/to/native-bundle \
+  --fex /path/to/FEX-Emu/usr/bin/FEX \
+  --fex-rootfs /path/to/mounted-x86-rootfs \
+  --vulkan-compat /path/to/x86-bundle/libvulkan-procaddr.so \
+  --compat /path/to/x86-bundle/libopenxr-procaddr.so \
+  --proton /path/to/x86-proton/files \
+  --launcher /path/to/windows/openxr-launcher.exe \
+  --prefix /path/to/new-dedicated-prefix --initialize \
+  /path/to/windows/hello_xr.exe -g Vulkan
+```
+
+The native mode requires the verified FEX-2607-76 interpreter, its adjacent host
+and guest Vulkan thunks, and the mounted Arch x86-64 root filesystem. Both
+resolver libraries above must be x86-64; the ARM64 bundle does not build them.
+The launcher validates the active session's private registry, simulated headset,
+bundle, native compositor and matching Frame x86 client. It creates its own
+private FEX configuration and socket identity, and uses the compositor's actual
+display and graphics environment. The compositor remains ARM64. The Windows
+process disables the virtual-display-only extension filter so Wine can use X11.
+
+The prefix is dedicated to this launch. On completion, native mode waits for its
+wineserver; if it does not stop within 15 seconds, it stops that prefix before
+removing the temporary FEX configuration. An existing-prefix initialization
+refusal does not start or stop Wine.
+
 Omit `--initialize` when reusing that prefix. Initialization refuses an existing
 prefix and waits for the matching wineserver to finish after `wineboot`; the
 first test exposed a race where `wineboot` returned before registry persistence.
