@@ -9,6 +9,7 @@ import platform
 from pathlib import Path
 import signal
 import secrets
+import shutil
 import subprocess
 import time
 import tempfile
@@ -60,6 +61,71 @@ def prepare_browser_config(config, interpreter_sha256):
         with path.open("x") as stream:
             stream.write(json.dumps({"Config": {key: "0"}}, indent=2) + "\n")
     return True
+
+
+def prepare_steam_client(directory, client, fex, rootfs, icd, render_node, registry, runtime,
+                         bwrap=Path("/usr/bin/bwrap")):
+    if hashlib.sha256(fex.read_bytes()).hexdigest() != FEX_BROWSER_CACHE_SHA256:
+        raise ValueError("Steam client graphics require the verified FEX-2607-76 interpreter")
+    if client.resolve() != (Path.home() / ".local/share/Steam").resolve():
+        raise ValueError("Steam client must belong to the current HOME profile")
+    if not (client / "steam.sh").is_file() or not (client / "steamapps/appmanifest_250820.acf").is_file():
+        raise ValueError("Steam client needs its launcher and complete SteamVR installation record")
+    installed = client / "steamapps/common/SteamVR"
+    if not (installed / "bin/linux64/vrclient.so").samefile(runtime / "bin/linux64/vrclient.so"):
+        raise ValueError("Steam client and backend must use the same installed SteamVR runtime")
+    fex_root = fex.parent.parent
+    emulator = fex_root.parent / "emulator.json"
+    host = fex_root / "lib/aarch64-linux-gnu/fex-emu/HostThunks"
+    guest = fex_root / "share/fex-emu/GuestThunks"
+    for path in (emulator, host / "libGL-host.so", guest / "libGL-guest.so",
+                 host / "libvulkan-host.so", guest / "libvulkan-guest.so"):
+        if not path.is_file():
+            raise ValueError(f"Missing client translation dependency: {path}")
+    header = bwrap.read_bytes()[:20]
+    if header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\xb7\x00":
+        raise ValueError("The client requires native AArch64 bubblewrap")
+    directory.mkdir(mode=0o700)
+    config = directory / "fex"
+    config.mkdir(mode=0o700)
+    (config / "AppConfig").mkdir(mode=0o700)
+    helper = directory / "native-bwrap"
+    shutil.copyfile(bwrap, helper)
+    helper.chmod(0o755)
+    (config / "Config.json").write_text(json.dumps({"Config": {
+        "RootFS": str(rootfs), "ThunkHostLibs": str(host), "ThunkGuestLibs": str(guest),
+        "SilentLog": "1", "OutputLog": "stderr"}, "ThunksDB": {"GL": "0", "Vulkan": "1"}}) + "\n")
+    (config / "AppConfig/steam.json").write_text(json.dumps({"ThunksDB": {"GL": "0"}}) + "\n")
+    (config / "AppConfig/steamwebhelper.json").write_text(json.dumps({"Config": {
+        "DynamicL1CacheDecreaseCountHeuristic": "0"}, "ThunksDB": {"GL": "1"}}) + "\n")
+    aliases = ("/usr/lib", "/usr/lib/x86_64-linux-gnu", "/var/pressure-vessel/gfx/main/usr/lib",
+               "/usr/lib/pressure-vessel/overrides/lib/x86_64-linux-gnu")
+    libraries = {"Vulkan": ("libvulkan-guest.so", ("libvulkan.so", "libvulkan.so.1", "libvulkan.so.1.4.357")),
+                 "GL": ("libGL-guest.so", ("libGL.so", "libGL.so.1", "libGL.so.1.2.0", "libGL.so.1.7.0"))}
+    (config / "ThunksDB.json").write_text(json.dumps({"DB": {
+        name: {"Library": library, "Overlay": [prefix + "/" + alias for prefix in aliases for alias in names]}
+        for name, (library, names) in libraries.items()}}) + "\n")
+    host_env = ("VK_DRIVER_FILES=" + str(icd), "VK_ICD_FILENAMES=" + str(icd),
+                "LVP_DRM_SYNC=" + str(render_node), "LP_NUM_THREADS=2", "MESA_VK_WSI_SW_PRESENT=1",
+                "LIBGL_DRIVERS_PATH=/usr/lib64/dri")
+    settings = ['"TSOEnabled":"1"', '"Multiblock":"1"', '"SilentLog":"1"']
+    # This FEX version reads repeated string keys; arrays silently lose HostEnv entries.
+    settings.extend('"HostEnv":' + json.dumps(value) for value in host_env)
+    application = config / "application.json"
+    application.write_text('{"Config":{' + ','.join(settings) + '},"ThunksDB":{"Vulkan":"1"},'
+        '"AppOverrides":{"steamwebhelper":{"HostEnv":"MESA_LOADER_DRIVER_OVERRIDE=zink",'
+        '"HostEnv":"LIBGL_KOPPER_DRI2=true"}}}\n')
+    env = os.environ | {"FEX_APP_CONFIG_LOCATION": str(config) + "/", "FEX_PORTABLE": "1",
+        "FEX_APP_CONFIG": str(application), "VR_OVERRIDE": str(runtime), "VR_PATHREG_OVERRIDE": str(registry),
+        "STEAM_FORCE_CLIENT": "steamrt64", "PRESSURE_VESSEL_BWRAP": str(helper),
+        "STEAM_COMPAT_EMULATOR": str(emulator), "LIBGL_ALWAYS_SOFTWARE": "1"}
+    for name in ("LD_LIBRARY_PATH", "LD_PRELOAD", "STEAM_RUNTIME", "FEX_ENV", "FEX_GDBSERVER",
+                 "FEX_ROOTFS", "FEX_THUNKHOSTLIBS", "FEX_THUNKGUESTLIBS",
+                 "FEX_DYNAMICL1CACHEDECREASECOUNTHEURISTIC", "FEX_APP_DATA_LOCATION", "FEX_SERVERSOCKETPATH"):
+        env.pop(name, None)
+    command = [str(fex), "/bin/bash", str(client / "steam.sh"), "-nobootstrapupdate",
+               "-skipinitialbootstrap", "-publicbeta", "-no-cef-sandbox", "-vrverbose"]
+    return command, env
 
 
 def stop(process):
@@ -259,7 +325,7 @@ def run_native(args):
         raise ValueError("Native session requires AArch64 Linux")
     if os.geteuid() == 0:
         raise ValueError("Run native checks as an unprivileged user")
-    if not args.runtime or args.probe or args.resolver or args.debug_compositor or args.virtual_display:
+    if not args.runtime or args.probe or args.resolver or args.debug_compositor or args.virtual_display or args.steam_client:
         raise ValueError("Native checks require --runtime and do not accept FEX or presentation options")
     runtime, bundle = args.runtime.resolve(strict=True), args.bundle.resolve(strict=True)
     settings = validate_native_inputs(runtime, bundle)
@@ -329,6 +395,8 @@ def run_native(args):
 def run(args):
     if args.native_devices or args.native_preflight:
         return run_native(args)
+    if args.steam_client and (not args.virtual_display or args.probe):
+        raise ValueError("Steam client launch requires the virtual display and cannot run with --probe")
     client = args.client.resolve()
     runtime = args.runtime.resolve() if args.runtime else client / "steamapps/common/SteamVR"
     validate_runtime_paths(runtime)
@@ -465,8 +533,17 @@ def run(args):
                                    env=env, cwd=binaries, stdout=log, stderr=subprocess.STDOUT,
                                    timeout=190, check=True, restore_signals=False)
                     print("Virtual SteamVR dashboard is visible.", flush=True)
+                steam_client = None
+                if args.steam_client:
+                    command, client_env = prepare_steam_client(directory / "client", args.steam_client.resolve(),
+                        fex, args.rootfs.resolve(), args.icd.resolve(), args.render_node, registry, runtime)
+                    steam_client = subprocess.Popen(command, env=client_env, cwd=args.steam_client,
+                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                    processes.append(steam_client)
                 deadline = time.monotonic() + args.session_timeout
                 while time.monotonic() < deadline:
+                    if steam_client and steam_client.poll() is not None:
+                        return steam_client.returncode
                     if monitor.poll() is not None:
                         return monitor.returncode
                     if any(process.poll() is not None for process in processes[:2]):
@@ -493,6 +570,8 @@ def main():
     parser.add_argument("--client", type=Path, default=Path.home() / ".local/share/Steam")
     parser.add_argument("--runtime", type=Path,
                         help="Use a separate SteamVR installation; the compositor version check still applies")
+    parser.add_argument("--steam-client", type=Path,
+                        help="Launch this HOME profile's x86 Steam client after the virtual dashboard is ready")
     parser.add_argument("--rootfs", type=Path, default=Path("/usr/share/guestos/fex-mesa"))
     parser.add_argument("--icd", type=Path,
                         default=Path("/opt/armada-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json"))

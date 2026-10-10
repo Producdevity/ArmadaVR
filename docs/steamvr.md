@@ -78,9 +78,43 @@ the backend remains active. Its final recorded cgroup counters contain no memory
 limit or OOM events. This bounded session is not a long-term stability test.
 
 Evidence and failed comparisons remain in `output/library-render-20261010-v1/`.
-The successful client setup is still an isolated development profile. Integrating
-it into a reproducible image, Steam library game launch, sustained reliability,
+Steam library game launch, a reproducible complete image, sustained reliability,
 native Frame composition and physical controller/headset acceptance remain open.
+
+### Launching the authenticated client
+
+The maintained session launcher can start the current HOME profile's existing
+Steam installation after the virtual dashboard reaches readiness:
+
+```sh
+python3 tools/steamvr-session.py --virtual-display window \
+    --steam-client "$HOME/.local/share/Steam"
+```
+
+The client must use the same installed SteamVR runtime as the backend. The
+launcher verifies the tested FEX interpreter, creates private graphics settings
+with browser-only Zink, and uses native AArch64 bubblewrap for Steam's runtime.
+Steam retains ownership of its client-side FEX server setup. Normal client exit
+ends the managed session and removes its temporary configuration. This option
+requires the virtual display and is incompatible with native checks or `--probe`.
+
+A fresh VM run verifies Home/Library navigation and rendered scrolling with both
+hands through this launcher. Normal shutdown returns zero for the client and
+launcher; its owned backend and display processes exit zero, with no retained
+runtime processes or temporary session directory. The rebuilt bundle contains
+the exact tested launcher and also passes stereo rendering and both-controller
+pose, press/release and haptic tests. Application action tests run with the
+dashboard closed; with it open, the dashboard owns the buttons. Configuration
+and refusal tests pass alongside all 223 host tests.
+
+These software-rendered tests need substantial memory. A combined 5,000 MiB RAM
+and 512 MiB swap cgroup limit kills the browser. A later run exhausts its
+1,500 MiB swap allowance and leaves the Library grid blank under heavy reclaim.
+Allowing the same 6 GiB VM and existing 2 GiB swap to use `MemoryHigh=5500M`,
+`MemoryMax=5700M` and `MemorySwapMax=1900M` restores rendered scrolling. This is
+functional VM evidence, not a performance target or headset memory requirement.
+The failed runs and successful comparison are retained in
+`output/integrated-client-20261010-v1/`.
 
 ## Fresh backend and stock input, October 8
 

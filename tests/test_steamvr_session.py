@@ -17,6 +17,88 @@ spec.loader.exec_module(session)
 
 
 class SessionTests(unittest.TestCase):
+    def client_fixture(self, root):
+        client = root / ".local/share/Steam"
+        runtime = client / "steamapps/common/SteamVR"
+        (runtime / "bin/linux64").mkdir(parents=True)
+        (runtime / "bin/linux64/vrclient.so").write_bytes(b"runtime")
+        (client / "steamapps/appmanifest_250820.acf").write_text('"AppState" {}\n')
+        (client / "steam.sh").write_text("#!/bin/bash\n")
+        fex_root = root / "FEX-Emu/usr"
+        paths = ("bin/FEX", "lib/aarch64-linux-gnu/fex-emu/HostThunks/libGL-host.so",
+                 "lib/aarch64-linux-gnu/fex-emu/HostThunks/libvulkan-host.so",
+                 "share/fex-emu/GuestThunks/libGL-guest.so", "share/fex-emu/GuestThunks/libvulkan-guest.so")
+        for name in paths:
+            p = fex_root / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"fixture")
+        (fex_root.parent / "emulator.json").write_text("{}\n")
+        bwrap = root / "bwrap"
+        bwrap.write_bytes(b"\x7fELF\x02\x01" + bytes(12) + b"\xb7\x00")
+        return (root / "client-run", client, fex_root / "bin/FEX", root / "rootfs",
+                root / "icd.json", root / "renderD128", root / "registry.json", runtime, bwrap)
+
+    def test_client_graphics_preserve_repeated_host_settings_and_browser_scope(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+            root = Path(temporary)
+            args = self.client_fixture(root)
+            with mock.patch.object(session.Path, "home", return_value=root), mock.patch.object(
+                    session, "FEX_BROWSER_CACHE_SHA256", hashlib.sha256(b"fixture").hexdigest()), mock.patch.dict(
+                    os.environ, {"XDG_RUNTIME_DIR": temporary, "FEX_ENV": "LD_PRELOAD=wrong",
+                                 "FEX_APP_DATA_LOCATION": "/wrong", "FEX_SERVERSOCKETPATH": "wrong",
+                                 "FEX_ROOTFS": "/wrong", "LD_LIBRARY_PATH": "/wrong"}):
+                command, env = session.prepare_steam_client(*args)
+            self.assertEqual(command[:3], [str(args[2]), "/bin/bash", str(args[1] / "steam.sh")])
+            self.assertNotIn("FEX_ENV", env)
+            self.assertNotIn("FEX_ROOTFS", env)
+            self.assertNotIn("LD_LIBRARY_PATH", env)
+            self.assertNotIn("FEX_APP_DATA_LOCATION", env)
+            self.assertNotIn("FEX_SERVERSOCKETPATH", env)
+            pairs = json.loads(Path(env["FEX_APP_CONFIG"]).read_text(), object_pairs_hook=list)
+            settings = dict(pairs)
+            host = [value for key, value in settings["Config"] if key == "HostEnv"]
+            self.assertEqual(len(host), 6)
+            self.assertIn("VK_DRIVER_FILES=" + str(args[4]), host)
+            self.assertIn("LVP_DRM_SYNC=" + str(args[5]), host)
+            browser = dict(settings["AppOverrides"])["steamwebhelper"]
+            self.assertEqual(browser, [("HostEnv", "MESA_LOADER_DRIVER_OVERRIDE=zink"),
+                                       ("HostEnv", "LIBGL_KOPPER_DRI2=true")])
+            config = args[0] / "fex"
+            self.assertEqual(json.loads((config / "AppConfig/steam.json").read_text())["ThunksDB"]["GL"], "0")
+            helper = json.loads((config / "AppConfig/steamwebhelper.json").read_text())
+            self.assertEqual(helper["ThunksDB"]["GL"], "1")
+            self.assertEqual(helper["Config"]["DynamicL1CacheDecreaseCountHeuristic"], "0")
+            self.assertEqual(Path(env["PRESSURE_VESSEL_BWRAP"]).read_bytes(), args[-1].read_bytes())
+            db = json.loads((config / "ThunksDB.json").read_text())["DB"]
+            self.assertIn("/var/pressure-vessel/gfx/main/usr/lib/libvulkan.so.1.4.357", db["Vulkan"]["Overlay"])
+            self.assertIn("/usr/lib/pressure-vessel/overrides/lib/x86_64-linux-gnu/libGL.so.1", db["GL"]["Overlay"])
+
+    def test_client_refuses_other_profile_runtime_interpreter_and_helper(self):
+        for invalid in ("home", "runtime", "interpreter", "helper"):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory(dir="/tmp") as temporary:
+                root = Path(temporary)
+                args = list(self.client_fixture(root))
+                expected = "Steam client"
+                home = root
+                if invalid == "home":
+                    home = root / "other-home"
+                elif invalid == "runtime":
+                    other = root / "other-runtime/bin/linux64"
+                    other.mkdir(parents=True)
+                    (other / "vrclient.so").write_bytes(b"runtime")
+                    args[7] = other.parents[1]
+                elif invalid == "interpreter":
+                    args[2].write_bytes(b"different")
+                    expected = "verified FEX"
+                else:
+                    args[-1].write_bytes(b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00")
+                    expected = "native AArch64"
+                with mock.patch.object(session.Path, "home", return_value=home), mock.patch.object(
+                        session, "FEX_BROWSER_CACHE_SHA256", hashlib.sha256(b"fixture").hexdigest()):
+                    with self.assertRaisesRegex(ValueError, expected):
+                        session.prepare_steam_client(*args)
+                self.assertFalse(args[0].exists())
+
     def test_fex_server_isolates_sessions_and_changed_rootfs(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as temporary, mock.patch.dict(
                 os.environ, {"XDG_RUNTIME_DIR": temporary}):
