@@ -1,0 +1,13 @@
+--- a/liblepton/mounting.sh
++++ b/liblepton/mounting.sh
+@@ -481,8 +481,8 @@
+     podman_mount_entry_type "devpts" /dev/pts "mode=644,ptmxmode=666"
+ 
+     # debugfs mount
+-    podman_mount_entry "/sys/kernel/debug" "/sys/kernel/debug" rw
+-    podman_mount_entry "/sys/kernel/tracing" "/sys/kernel/tracing" rw
++    podman_mount_entry_optional "/sys/kernel/debug" "/sys/kernel/debug" rw
++    podman_mount_entry_optional "/sys/kernel/tracing" "/sys/kernel/tracing" rw
+ 
+     podman_mount_entry_optional "${APK_AUTO_INSTALL_DIR}" "/data/auto_install" rw,U
+ 

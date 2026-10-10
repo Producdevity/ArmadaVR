@@ -1,0 +1,20 @@
+--- a/liblepton/mounting.sh
++++ b/liblepton/mounting.sh
+@@ -367,7 +367,7 @@
+ 
+     # provide a vr config file
+     println "    setenv VR_PATHREG_OVERRIDE /vendor/etc/openvrpaths.vrpath" >> "${ZYGOTE_LAUNCH_RC}"
+-    podman_mount_entry "${LEPTON_DIR}/openvrpaths.vrpath" "/vendor/etc/openvrpaths.vrpath" ro,U
++    podman_mount_entry "${LEPTON_DIR}/openvrpaths.vrpath" "/vendor/etc/openvrpaths.vrpath" ro
+ 
+     # tell vrclient where to find our steamvr config/logs
+     println "    setenv VR_CONFIG_PATH /data/steamvr/config" >> "${ZYGOTE_LAUNCH_RC}"
+@@ -523,7 +523,7 @@
+         for LIBNAME in "${STEAM_COMPAT_CLIENT_INSTALL_PATH}/androidarm64/"*.so; do
+             LIBNAME="$(lepton_basename "${LIBNAME}")"
+             println "${LIBNAME} nopreload" >>"${PREFIX}/mounts/public.libraries.txt"
+-            podman_mount_entry "${STEAM_COMPAT_CLIENT_INSTALL_PATH}/androidarm64/${LIBNAME}" "/system/lib64/${LIBNAME}" ro,U
++            podman_mount_entry "${STEAM_COMPAT_CLIENT_INSTALL_PATH}/androidarm64/${LIBNAME}" "/system/lib64/${LIBNAME}" ro
+         done
+     fi
+     podman_mount_entry "${PREFIX}/mounts/public.libraries.txt" "/system/etc/public.libraries.txt" ro,U

@@ -121,6 +121,13 @@ class RuntimeRPMTests(unittest.TestCase):
         self.assertEqual(result["packages"], self.manifest["packages"])
         self.assertEqual(result["bytes"], self.package.stat().st_size)
 
+    def test_distribution_snapshot_version_filename(self):
+        name = "passt-0^20261002.gcba3570-1.fc44.aarch64.rpm"
+        self.package.rename(self.directory / name)
+        self.manifest["packages"][0]["path"] = name
+        self.save()
+        self.assertEqual(root.read_rpms(self.directory)["packages"], self.manifest["packages"])
+
     def test_changed_and_extra_packages_are_refused(self):
         extra = self.directory / "unlisted.rpm"
         extra.write_bytes(b"extra")

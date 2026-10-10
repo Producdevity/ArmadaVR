@@ -1,0 +1,14 @@
+--- a/lepton
++++ b/lepton
+@@ -210,11 +210,6 @@
+             if [[ -n "${LEPTON_DUMP_LOGCAT:-}" ]] || [[ "${EARLY_SHUTDOWN}" == "1" ]]; then
+                 println "Dumping logcat to $(logcat_debug_dir)"
+                 dump_logcat "$(logcat_debug_dir)"
+-
+-                if [[ "${EARLY_SHUTDOWN}" == "1" ]]; then
+-                    # Clearing baked app data in this case since something might be wrong.
+-                    clear_baked_app_data "early exit"
+-                fi
+             fi
+ 
+             kill_container "${LEPTON_CONTEXT}" --quiet

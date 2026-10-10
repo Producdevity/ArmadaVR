@@ -26,6 +26,9 @@ spec.loader.exec_module(turnip_artifact)
 spec = importlib.util.spec_from_file_location("monado_artifact", ROOT / "tools/monado-artifact.py")
 monado_artifact = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(monado_artifact)
+spec = importlib.util.spec_from_file_location("lepton_artifact", ROOT / "tools/lepton-artifact.py")
+lepton_artifact = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(lepton_artifact)
 
 SCRIPT = r'''
 set -eu
@@ -109,9 +112,16 @@ if Path('/output/monado.json').is_file():
     spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/monado',root,monado)
+lepton=None
+if Path('/output/lepton.json').is_file():
+    lepton=json.loads(Path('/output/lepton.json').read_text())
+    spec=importlib.util.spec_from_file_location('lepton','/lepton-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.install('/lepton',root,lepton)
+    Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest(),'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'gpu_firmware':gpu},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'gpu_firmware':gpu},indent=2)+'\n')
 PYROOT
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
@@ -121,6 +131,19 @@ if test -f /output/monado.json; then
     chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/ldd -r /opt/armada-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
     python3 -c 'from pathlib import Path; data=Path("/output/monado-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
     chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/armada-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
+fi
+if test -f /output/lepton.json; then
+    chroot /tmp/root /bin/sh -ec '
+        for program in podman fuse-overlayfs adb newuidmap newgidmap conmon crun setfattr inotifywait jq ip which hostname tput; do
+            path=$(command -v "$program")
+            printf "%s\n" "$path"
+            ldd -r "$path"
+        done
+        rpm -q podman fuse-overlayfs android-tools shadow-utils conmon crun attr inotify-tools jq iproute which hostname ncurses
+        ldd -r /usr/lib/libVkLayer_fossilize.so
+    ' > /output/lepton-dependencies.txt 2>&1
+    python3 -c 'from pathlib import Path; data=Path("/output/lepton-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
+    chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/usr/lib/libVkLayer_fossilize.so",mode=os.RTLD_NOW); assert library.VK_LAYER_fossilize_GetInstanceProcAddr' >> /output/lepton-dependencies.txt 2>&1
 fi
 python3 - "$2" <<'PYSIZE'
 import sys
@@ -141,6 +164,28 @@ if test -f /output/monado.json; then
     mkdir -p /tmp/verify/monado-root/opt/armada-vr /tmp/verify/monado-root/usr/share/armada-vr
     debugfs -R 'rdump /opt/armada-vr/monado /tmp/verify/monado-root/opt/armada-vr' /output/rootfs.ext4
     debugfs -R 'dump /usr/share/armada-vr/monado-build.json /tmp/verify/monado-root/usr/share/armada-vr/monado-build.json' /output/rootfs.ext4
+fi
+if test -f /output/lepton.json; then
+    mkdir -p /tmp/verify/lepton-root/opt/armada-vr /tmp/verify/lepton-root/usr/share/armada-vr
+    debugfs -R 'rdump /opt/armada-vr/lepton /tmp/verify/lepton-root/opt/armada-vr' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/armada-vr/lepton-build.json /tmp/verify/lepton-root/usr/share/armada-vr/lepton-build.json' /output/rootfs.ext4
+    mkdir -p /tmp/verify/lepton-root/usr/bin /tmp/verify/lepton-root/usr/lib/android-sdk /tmp/verify/lepton-capabilities
+    for program in newuidmap newgidmap adb; do
+        debugfs -R "dump -p /usr/bin/$program /tmp/verify/lepton-root/usr/bin/$program" /output/rootfs.ext4
+    done
+    for program in newuidmap newgidmap; do
+        debugfs -R "ea_get -f /tmp/verify/lepton-capabilities/$program.cap /usr/bin/$program security.capability" /output/rootfs.ext4
+    done
+    debugfs -R 'rdump /usr/lib/android-sdk/platform-tools /tmp/verify/lepton-root/usr/lib/android-sdk' /output/rootfs.ext4
+    python3 - <<'PYHOST'
+import json,subprocess
+from pathlib import Path
+record=json.loads(Path('/output/lepton-runtime.json').read_text())['host']
+names=[i['path'] for i in record['files']]+['usr/share/armada-vr/lepton-host.json','home/vr/.config/containers/storage.conf']
+for name in names:
+    target=Path('/tmp/verify/lepton-root')/name;target.parent.mkdir(parents=True,exist_ok=True)
+    subprocess.run(['debugfs','-R',f'dump -p /{name} {target}','/output/rootfs.ext4'],check=True)
+PYHOST
 fi
 python3 - <<'PYVERIFY'
 import hashlib,importlib.util,json
@@ -178,8 +223,15 @@ if Path('/output/monado.json').is_file():
     spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_install('/tmp/verify/monado-root',monado)
+lepton=None
+if Path('/output/lepton.json').is_file():
+    lepton=json.loads(Path('/output/lepton.json').read_text())
+    spec=importlib.util.spec_from_file_location('lepton','/lepton-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.verify_install('/tmp/verify/lepton-root',lepton)
+    artifact.verify_runtime('/tmp/verify/lepton-root',json.loads(Path('/output/lepton-runtime.json').read_text()),'/tmp/verify/lepton-capabilities')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,
-    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip,'monado':monado},indent=2)+'\n')
+    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip,'monado':monado,'lepton':lepton},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -262,7 +314,7 @@ def read_rpms(directory):
         if not isinstance(item, dict):
             raise ValueError("Invalid runtime RPM identity")
         name, sha = item.get("path", ""), item.get("sha256", "")
-        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_+.-]+\.rpm", name) or
+        if (not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_+.~^-]+\.rpm", name) or
                 name in names or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{64}", sha)):
             raise ValueError("Invalid or duplicate runtime RPM identity")
         path = directory / name
@@ -294,6 +346,13 @@ def run(args):
     if monado_dir and any(c in str(monado_dir) for c in (",", ":")):
         raise ValueError("Choose a Monado path without commas or colons")
     monado = monado_artifact.package(monado_dir) if monado_dir else None
+    lepton_dir = args.lepton.absolute() if args.lepton else None
+    lepton_host_dir = args.lepton_host.absolute() if args.lepton_host else None
+    if bool(lepton_dir) != bool(lepton_host_dir):
+        raise ValueError("Lepton requires its matching native and Android Fossilize host bundle")
+    if any(c in str(p) for p in (lepton_dir, lepton_host_dir) if p for c in (",", ":")):
+        raise ValueError("Choose a Lepton path without commas or colons")
+    lepton = lepton_artifact.validate(lepton_dir, lepton_host_dir) if lepton_dir else None
     gpu_dir = args.gpu_firmware.absolute() if args.gpu_firmware else None
     if args.reuse_export and args.userspace_export:
         raise ValueError("Choose one export source")
@@ -324,6 +383,9 @@ def run(args):
         raise ValueError("Quest startup sources changed since the initramfs build")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
     inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")
+    if lepton:
+        inputs["tools/lepton-artifact.py"] = builder.digest(ROOT / "tools/lepton-artifact.py")
+        inputs["tools/prepare-lepton.py"] = builder.digest(ROOT / "tools/prepare-lepton.py")
     inputs["tools/turnip-artifact.py"] = builder.digest(ROOT / "tools/turnip-artifact.py")
     inputs["tools/prepare-quest-firmware.py"] = builder.digest(ROOT / "tools/prepare-quest-firmware.py")
     image = json.loads(subprocess.check_output(
@@ -338,9 +400,11 @@ def run(args):
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
     if monado:
         (output / "monado.json").write_text(json.dumps(monado, indent=2) + "\n")
+    if lepton:
+        (output / "lepton.json").write_text(json.dumps(lepton, indent=2) + "\n")
     if rpms:
         (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
-    report = {"status": "started", "turnip": turnip, "monado": monado, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
+    report = {"status": "started", "turnip": turnip, "monado": monado, "lepton": lepton, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw,
@@ -370,6 +434,9 @@ print('Monado runtime image preflight: passed')
                 subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=30)
         storage = storage_required(args.size_gib, export_source["expanded_bytes"] if export_source else image["Size"],
                                    not export_source, rpms["bytes"] if rpms else 0)
+        if lepton:
+            storage["scratch_bytes"] += 2 * lepton["inventory"]["expanded_bytes"]
+            storage["scratch_bytes"] += 2 * sum(i["bytes"] for i in lepton["host"]["files"])
         required = sum(storage.values())
         available = shutil.disk_usage(output).free
         report["storage_preflight"] = {"available_bytes": available, "required_working_bytes": required,
@@ -396,6 +463,7 @@ print('Monado runtime image preflight: passed')
                    *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
+                   *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/lepton-artifact.py:ro"] if lepton_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
         report["commands"].append(command)
@@ -413,6 +481,8 @@ print('Monado runtime image preflight: passed')
             raise ValueError("Turnip changed during root construction")
         if monado_dir and monado_artifact.package(monado_dir) != monado:
             raise ValueError("Monado changed during root construction")
+        if lepton_dir and lepton_artifact.validate(lepton_dir, lepton_host_dir) != lepton:
+            raise ValueError("Lepton changed during root construction")
         if rpm_dir and read_rpms(rpm_dir) != rpms:
             raise ValueError("Runtime RPMs changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
@@ -426,6 +496,8 @@ print('Monado runtime image preflight: passed')
                 names.append("monado-preflight.txt")
         if rpms:
             names += ["runtime-rpms.json", "runtime-rpms-install.txt"]
+        if lepton:
+            names += ["lepton.json", "lepton-runtime.json", "lepton-dependencies.txt"]
         report["artifacts"] = [{"path": n, "bytes": (output / n).stat().st_size, "sha256": builder.digest(output / n)}
                                for n in names]
         contents = json.loads((output / "contents.json").read_text())
@@ -450,6 +522,8 @@ if __name__ == "__main__":
     parser.add_argument("--image", default="localhost/armada-vr:runtime")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
     parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
+    parser.add_argument("--lepton", type=Path, help="Prepared Lepton execution bundle with source-built init")
+    parser.add_argument("--lepton-host", type=Path, help="Manifest-pinned native and Android Fossilize host bundle")
     parser.add_argument("--gpu-firmware", type=Path, help="Verified GPU bundle from the same Quest reference image")
     parser.add_argument("--reuse-export", type=Path, help="Reuse rootfs.tar from a successful root build with the same userspace image")
     parser.add_argument("--userspace-export", type=Path, help="Use a verified prior root export (tar or tar.zst); --image supplies only build tools")

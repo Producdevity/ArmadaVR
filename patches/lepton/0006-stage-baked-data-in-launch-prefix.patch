@@ -1,0 +1,20 @@
+--- a/liblepton/baking.sh
++++ b/liblepton/baking.sh
+@@ -57,10 +57,14 @@
+         echo "Lepton system is not baked. Please verify the files of Lepton in Settings->Properties->Installed files"
+         exit 1
+     else
+-        # The depot does not contain xattrs, so we need to restore them from a
+-        # file. We perform this always in case someone interrupted the process.
+-        pushd "${LEPTON_DIR}"/.. >/dev/null
++        # System installations can be read-only and shared by multiple users.
++        # Restore Android attributes on a private copy with the launch lifetime.
++        local BAKED_STAGE
++        BAKED_STAGE=$(mktemp -d "$(prefix)/baked-system.XXXXXXXXXX")
++        cp -a --no-preserve=ownership -- "${BAKED_SYSTEM_DATA_DIR}" "${BAKED_STAGE}/sysbake"
++        pushd "${BAKED_STAGE}" >/dev/null
+         setfattr --restore "${LEPTON_DIR}"/../sysbake.xattrs
+         popd >/dev/null
++        BAKED_SYSTEM_DATA_DIR="${BAKED_STAGE}/sysbake"
+     fi
+ }

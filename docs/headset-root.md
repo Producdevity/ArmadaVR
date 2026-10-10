@@ -91,6 +91,99 @@ bundles must declare the same reference build and vendor-image hash. GPU files
 are checked again after construction and against copies extracted from ext4.
 They are packaged as data; the builder does not execute them.
 
+### Lepton and Android init
+
+Prepare a separate execution archive from an acquired Lepton payload and a
+compatible source-built init:
+
+```sh
+python3 -B tools/prepare-lepton.py ACQUIRED_TAR_GZ ACQUISITION_MANIFEST \
+  --archive-sha256 ACQUIRED_SHA256 --init-build INIT_BUILD_DIRECTORY \
+  --output NEW_LEPTON_DIRECTORY
+```
+
+This requires Python, GNU patch and Bash 4.2 or later. `--bash PATH` selects the
+syntax-checking shell; macOS's system Bash is too old. The supported input is
+Lepton launcher 2.8.14/image 2.8.11, app 3029110/build 25257944. The acquisition
+manifest must list every regular file and link with its original size, hash,
+mode or target. `INIT_BUILD_DIRECTORY` supplies `init-candidate` and its matching
+`manifest.json`; see the [compatible init build](../patches/android-init/README.md).
+The caller supplies the acquisition checksum and build record. Preparation does
+not establish their independent provenance or prove Android boot.
+
+The preparer checks the release, complete inventory, original launcher/init
+hashes and ARM64 init format. It applies the ten maintained launcher patches
+without fuzz and inserts init only into `images/rootfs_overlay/system/bin/`.
+The original Android init, licenses, payload metadata and acquired archive remain
+unchanged. Android's absolute links remain archive data; archive traversal,
+duplicate names, special files and paths below symlinks are rejected. A complete
+roundtrip checks the new archive's contents and metadata before publication.
+
+Pass the resulting directory as `--lepton NEW_LEPTON_DIRECTORY`, together with
+`--lepton-host FOSSILIZE_BUNDLE`, when building the root. The latter has a version
+1 `manifest.json` containing `path`, `bytes`, `mode` and `sha256` for exactly:
+
+- `usr/lib/libVkLayer_fossilize.so` (0755, Linux ARM64)
+- `usr/share/guestos/android/vendor/vulkan_layers/libVkLayer_fossilize.so` (0755, Android ARM64)
+- `usr/share/vulkan/implicit_layer.d/VkLayer_fossilize.json` (0644)
+
+The manifest must identify `VK_LAYER_fossilize` and its native library path.
+Preserve the acquisition provenance and licenses alongside the source material;
+this checksum validation does not authenticate a manufacturer signature or grant
+redistribution rights. These files provide the shader-capture dependency, not
+a complete Android graphics overlay.
+
+The execution bundle is installed under `/opt/armada-vr/lepton`, with its build
+record under `/usr/share/armada-vr`. The builder verifies extraction from the
+finished ext4 image, including regular-file timestamps used by APK baking. The
+archive preparer retains extended attributes; root-image packaging currently
+refuses bundles containing them until their extraction verification is supported.
+
+The userspace must supply Podman, fuse-overlayfs, ADB, the UID/GID-map helpers,
+conmon, crun, attr, inotify-tools, jq, iproute, which, hostname and ncurses.
+Resolve missing dependencies against the chosen userspace's RPM
+database, then provide the signed closure with `--runtime-rpms`. The builder checks
+native relocations and package versions without requiring procfs in its offline
+chroot. Actual container execution requires a booted system.
+
+Fedora records `cap_setuid=ep` and `cap_setgid=ep` for its UID-map helpers, but
+Docker exports omit those file capabilities. The Lepton integration verifies the
+RPM metadata, restores those two capabilities and compares their raw extended
+attributes after ext4 construction. It also provides Lepton's Android SDK ADB
+path as a link to the installed `/usr/bin/adb`. It does not enable a Lepton
+service or supply a headset-specific Android host overlay, Wayland session or
+SteamVR session; those remain runtime integration requirements.
+
+Lepton stages its baked Android data beneath the launch prefix before restoring
+the depot's extended attributes. This preserves a read-only, shared installation.
+The prefix, Android data and Podman storage must reside on filesystems supporting
+user extended attributes; the tested 5.10 kernel's tmpfs does not support these
+Android attributes. Use ext4 for the writable state, including a caller-provided
+`LEPTON_PREFIX`, rather than the launcher's default temporary directory. The
+offline root still uses a RAM overlay and does not configure persistent user data.
+Absent debugfs and tracing directories are optional; their omission leaves those
+debugging features unavailable without blocking Android startup.
+
+The builder installs a per-user Podman storage configuration for `vr` under
+`/home/vr/.config/containers/storage.conf`, selecting `fuse-overlayfs`. Rootless
+Podman does not inherit that option from the system-wide configuration on this
+stack. Lepton preserves the host storage environment when attaching to Android,
+so attach and launch resolve the same container database.
+
+The assembled Quest test root passes normal startup and the controlled mapper
+failure case with the current 524 reference firmware. In a fresh VM, its installed
+Lepton bundle boots Android twice, runs the input APK twice and restores its saved
+counter from two to four. Both APK sessions end within 15 seconds of launch;
+Android and Lepton exit zero, temporary prefixes are removed and the kernel
+remains untainted. This exercises the short-session data-preservation patch with
+normal cleanup and no runtime edits to the installed bundle.
+
+These tests use read-only root media, ext4 writable state held in guest RAM,
+software rendering and a private Steam metadata adapter. They establish packaging
+and Android lifecycle behavior on the Quest kernel in QEMU. They do not establish
+persistent user storage, Android XR integration, Pico userspace compatibility,
+physical boot, recovery or headset driver operation.
+
 The builder removes the exported distribution kernel modules and VM boot images,
 known QEMU-specific display/network configuration and guest-agent enablement
 when present, and the

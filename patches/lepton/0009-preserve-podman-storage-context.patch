@@ -1,0 +1,18 @@
+--- a/liblepton/liblepton.sh
++++ b/liblepton/liblepton.sh
+@@ -384,7 +384,14 @@
+     fi
+ 
+     function join_by { local IFS="$1"; shift; println "$*"; }
+-    env -i PATH="$(join_by ":" "${ANDROID_PATH[@]}")" $(which podman) exec "${TERM_ARGS}" lepton-${LEPTON_CONTEXT} "$@"
++    local -a HOST_ENV=("PATH=$(join_by ":" "${ANDROID_PATH[@]}")")
++    local VARIABLE
++    for VARIABLE in HOME XDG_RUNTIME_DIR XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME CONTAINERS_CONF CONTAINERS_STORAGE_CONF; do
++        if [[ -v "${VARIABLE}" ]]; then
++            HOST_ENV+=("${VARIABLE}=${!VARIABLE}")
++        fi
++    done
++    env -i "${HOST_ENV[@]}" "$(command -v podman)" exec "${TERM_ARGS}" lepton-${LEPTON_CONTEXT} "$@"
+ }
+ 
+ function podman_attach()

@@ -9,13 +9,15 @@ Expected original launcher files:
 
 | File | SHA-256 |
 |---|---|
+| `lepton` | `f892362538effbefbbd70355cf1f659582ad78fec214f0e3eaf8adcc802a0f45` |
 | `liblepton/properties.sh` | `ec6af956c92e93092bee71998c2fcbda9c0e25385e8c95f30cb631927ef6fa9d` |
 | `liblepton/mounting.sh` | `4e53b2762198ef1350d80dcdfcabb3dcdf084db6cc2887ed94555a59321ab4f3` |
 | `liblepton/liblepton.sh` | `26c7c56106ed43c28ce0cc71ae62a859d6c55770506e8044326becac6b1ca073` |
 | `images/rootfs_overlay/system/bin/cmd` | `66337f13fc6fd1d68d07ae5ea174dd7120d8800113a4e52ebdc33b639d6b443e` |
+| `liblepton/baking.sh` | `e5d11e2c3027f1a067225fd6141bbd95fe527734290cac38c722ed42d056c4b5` |
 
 From the execution-copy directory, check the original hashes and run
-`git apply --check` with all five patches before applying them in numbered order. Refuse another
+`git apply --check` with all ten patches before applying them in numbered order. Refuse another
 launcher version rather than applying with fuzz or assuming compatibility.
 
 The shared-memory patch uses memfd because this launcher does not mount ashmem
@@ -72,6 +74,34 @@ instead of immediately issuing `podman stop -t 0`. GNU `timeout` bounds the wait
 and kills a stuck wait process after another two seconds. A failed or expired
 wait retains the forced-stop fallback. A nonexistent context needs no shutdown.
 The patch does not add `CAP_SYS_BOOT` or change container isolation.
+
+The baked-data patch restores Android's depot attributes into a fresh copy below
+the launch prefix. It preserves the installed files and their timestamps, allows
+a shared read-only installation, and gives the copy the existing prefix cleanup
+lifetime. Both the prefix and persistent Android data require user extended
+attributes; on the tested 5.10 kernel, use ext4 instead of tmpfs. The optional
+debug-filesystem patch omits debugfs/tracing binds when those host directories
+are absent, without changing their behavior when present.
+
+The runtime-ownership patch removes Podman's recursive ownership adjustment from
+read-only binds of the installed OpenVR paths file and Steam client libraries.
+These shared files are already readable; attempting to change their ownership
+fails on a read-only installation. Generated files in the user's launch prefix
+retain their existing ownership handling.
+
+The storage-context patch preserves `HOME`, the XDG directories and the two
+Podman configuration paths when the launcher attaches to Android. Its otherwise
+empty environment previously selected a different container database. The
+Android command search path remains isolated; unrelated host variables are not
+forwarded.
+
+The short-session patch preserves baked app data when a session ends before
+30 seconds. The original launcher treated every short session as a failed start
+and erased that data, including local app preferences, before stopping Android.
+The patch retains diagnostic log capture and normal shutdown. The virtual APK
+regression reproduces the lost restart state, then verifies two short sessions
+with the patch: the saved input counter survives and advances from two to four,
+both Android and Lepton exit successfully, and temporary prefixes are removed.
 
 There is a separate defect in the delivered Android init: its terminal
 non-reboot-capable branch calls `exit(0)`, which runs a joinable static thread's
