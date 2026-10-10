@@ -13,7 +13,7 @@ to native libraries in its [Frame compatibility guide](https://partner.steamgame
 ## Native software rendering — October 10, 2026
 
 The unmodified ARM64 server and compositor from Frame's SteamVR 2.17.10 now
-render the stereo test in QEMU. A private Lavapipe candidate supplies a real
+render the stereo test in QEMU. The opt-in Lavapipe display backend supplies a real
 XCB-backed `VK_KHR_display` surface and common WSI present-ID/wait support.
 The compositor creates its swapchain and both distortion meshes, then accepts
 120 stereo submissions with valid virtual poses. Captured 1024 × 512 output
@@ -44,12 +44,52 @@ rendering. Its bundled validation layer also reports a device-feature-chain
 duplication, a two-image swapchain below the reported minimum, descriptor-array
 and acquire-semaphore errors, plus unknown private presentation structures.
 These are separate from the standalone test's clean result. The virtual-display
-candidate remains private pending contract, lifecycle and integration work.
+backend has since been narrowed to FIFO presentation with a valid two-image
+minimum; that removes the swapchain image-count validation error. The other
+compositor diagnostics remain unresolved.
 Native dashboard, Windows-on-native-runtime, sustained timing, physical drivers
 and boot/recovery acceptance remain open; no flash readiness follows from this
 software result. Evidence and negative comparisons are retained in
 `output/native-wsi-followup-20261010-v1/` and
 `output/frame-native-wsi-20261010-v1/` through `v14/`.
+
+### Virtual-display regression
+
+`patches/mesa/0004-lavapipe-virtual-display.patch` adds an explicit development
+backend to Lavapipe. It exposes one 1024 × 512, 60 Hz display backed by an X11
+window, with FIFO swapchains and common X11 present-ID/wait handling. Enable it
+with `LVP_VIRTUAL_DISPLAY=1` and `MESA_VK_WSI_SW_PRESENT=1`. It requires an
+authenticated X11 connection with Present and XFixes. Other surface platforms
+are excluded from this opt-in mode; ordinary Lavapipe behavior remains the
+default. This backend does not control a physical display.
+
+On Linux with the patched ICD, an authenticated Xvfb display, Vulkan development
+files, libxcb development files and `VK_LAYER_KHRONOS_validation` installed:
+
+```sh
+VK_DRIVER_FILES=/path/to/lvp_icd.aarch64.json \
+LVP_VIRTUAL_DISPLAY=1 MESA_VK_WSI_SW_PRESENT=1 \
+    just test-vulkan-display
+```
+
+The test uses the existing `DISPLAY` and `XAUTHORITY`. It verifies enumeration,
+mode rejection, both capability queries, two-image FIFO presentation, pending
+and completed waits, actual pixels, shared-surface ownership, recreation,
+allocation-failure cleanup and 320 surface lifecycles across eight threads.
+All owned windows and descriptors must be released, and standalone Vulkan
+validation must remain clean. Each invocation creates a new output directory.
+
+Native VM comparisons also verify refusal with the backend disabled, with
+software Present disabled, without an X display and with XFixes disabled.
+The current capability probe must be rebuilt: the historical base image's
+older copy ignores `--direct-display`. Xvfb cannot disable its Present
+extension at runtime; the unsupported-option attempt is retained as a failed
+test setup. The maintained patch applies exactly to the source used for the
+tested driver. The maintained regression compiles with warnings treated as
+errors and passes on a fresh VM, including both virtual controllers and exact
+stereo colors. All 223 host tests also pass. Final evidence is in
+`output/frame-native-wsi-20261010-v22/`; an earlier capture of a fade transition
+is retained with the corrected sampler comparison.
 
 ## Official Frame runtime obtained — October 7, 2026
 

@@ -1,0 +1,491 @@
+--- a/src/gallium/frontends/lavapipe/lvp_device.c
++++ b/src/gallium/frontends/lavapipe/lvp_device.c
+@@ -128,6 +128,23 @@
+    .EXT_headless_surface                     = true,
+ #endif
+ };
++
++static struct vk_instance_extension_table
++lvp_get_instance_extensions(void)
++{
++   struct vk_instance_extension_table extensions = lvp_instance_extensions_supported;
++#if defined(VK_USE_PLATFORM_XCB_KHR) && defined(VK_USE_PLATFORM_DISPLAY_KHR)
++   if (debug_get_bool_option("LVP_VIRTUAL_DISPLAY", false)) {
++      extensions.KHR_display = true;
++      extensions.KHR_wayland_surface = false;
++      extensions.KHR_xlib_surface = false;
++      extensions.KHR_win32_surface = false;
++      extensions.EXT_metal_surface = false;
++      extensions.EXT_headless_surface = false;
++   }
++#endif
++   return extensions;
++}
+ 
+ static const struct vk_device_extension_table lvp_device_extensions_supported = {
+    .KHR_8bit_storage                      = true,
+@@ -1505,6 +1522,11 @@
+ 
+    device->max_images = device->pscreen->shader_caps[MESA_SHADER_FRAGMENT].max_shader_images;
+    device->vk.supported_extensions = lvp_device_extensions_supported;
++#ifdef LVP_USE_WSI_PLATFORM
++   const bool present_wait = instance->extensions.KHR_display;
++   device->vk.supported_extensions.KHR_present_id = present_wait;
++   device->vk.supported_extensions.KHR_present_wait = present_wait;
++#endif
+ #if defined(HAVE_LIBDRM) && defined(HAVE_LINUX_UDMABUF_H)
+    int dmabuf_bits = DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT;
+    int supported_dmabuf_bits = device->pscreen->caps.dmabuf;
+@@ -1529,6 +1551,10 @@
+    device->snorm_blend = debug_get_bool_option("LVP_SNORM_BLEND", false);
+ 
+    lvp_get_features(device, &device->vk.supported_features);
++#ifdef LVP_USE_WSI_PLATFORM
++   device->vk.supported_features.presentId = present_wait;
++   device->vk.supported_features.presentWait = present_wait;
++#endif
+    lvp_get_properties(device, &device->vk.properties);
+ 
+ #ifdef LVP_USE_WSI_PLATFORM
+@@ -1598,8 +1624,9 @@
+    vk_instance_dispatch_table_from_entrypoints(
+       &dispatch_table, &wsi_instance_entrypoints, false);
+ 
++   instance->extensions = lvp_get_instance_extensions();
+    result = vk_instance_init(&instance->vk,
+-                             &lvp_instance_extensions_supported,
++                             &instance->extensions,
+                              &dispatch_table,
+                              pCreateInfo,
+                              pAllocator);
+@@ -2105,8 +2132,9 @@
+    if (pLayerName)
+       return vk_error(NULL, VK_ERROR_LAYER_NOT_PRESENT);
+ 
++   const struct vk_instance_extension_table extensions = lvp_get_instance_extensions();
+    return vk_enumerate_instance_extension_properties(
+-      &lvp_instance_extensions_supported, pPropertyCount, pProperties);
++      &extensions, pPropertyCount, pProperties);
+ }
+ 
+ VKAPI_ATTR VkResult VKAPI_CALL lvp_EnumerateInstanceLayerProperties(
+--- a/src/gallium/frontends/lavapipe/lvp_private.h
++++ b/src/gallium/frontends/lavapipe/lvp_private.h
+@@ -167,10 +167,12 @@
+    const struct vk_sync_type *sync_types[3];
+ 
+    struct wsi_device wsi_device;
++   struct lvp_virtual_display *virtual_display;
+ };
+ 
+ struct lvp_instance {
+    struct vk_instance vk;
++   struct vk_instance_extension_table extensions;
+ 
+    uint64_t debug_flags;
+ 
+--- a/src/gallium/frontends/lavapipe/lvp_wsi.c
++++ b/src/gallium/frontends/lavapipe/lvp_wsi.c
+@@ -22,6 +22,382 @@
+  */
+ 
+ #include "lvp_wsi.h"
++#include "wsi_common_entrypoints.h"
++
++#if defined(VK_USE_PLATFORM_XCB_KHR) && defined(VK_USE_PLATFORM_DISPLAY_KHR)
++#include <xcb/xcb.h>
++#include <xcb/present.h>
++#include <xcb/xfixes.h>
++#include "util/u_debug.h"
++
++struct lvp_virtual_mode {
++   struct vk_object_base base;
++   struct lvp_virtual_display *display;
++};
++struct lvp_virtual_display {
++   struct vk_object_base base;
++   struct lvp_virtual_mode mode;
++   struct lvp_physical_device *physical;
++   xcb_connection_t *connection;
++   xcb_screen_t *screen;
++   uint32_t surface_count;
++   xcb_window_t window;
++};
++struct lvp_virtual_surface {
++   VkSurfaceKHR surface;
++   struct lvp_virtual_display *display;
++   xcb_window_t window;
++   struct lvp_virtual_surface *next;
++};
++VK_DEFINE_NONDISP_HANDLE_CASTS(lvp_virtual_display, base, VkDisplayKHR, VK_OBJECT_TYPE_DISPLAY_KHR)
++VK_DEFINE_NONDISP_HANDLE_CASTS(lvp_virtual_mode, base, VkDisplayModeKHR, VK_OBJECT_TYPE_DISPLAY_MODE_KHR)
++static simple_mtx_t virtual_surface_lock = SIMPLE_MTX_INITIALIZER;
++static struct lvp_virtual_surface *virtual_surfaces;
++static const VkExtent2D virtual_extent = {1024, 512};
++
++static VkResult
++lvp_virtual_display_init(struct lvp_physical_device *physical)
++{
++   if (!debug_get_bool_option("LVP_VIRTUAL_DISPLAY", false))
++      return VK_SUCCESS;
++   if (!debug_get_bool_option("MESA_VK_WSI_SW_PRESENT", false))
++      return vk_errorf(physical, VK_ERROR_INITIALIZATION_FAILED,
++                       "LVP_VIRTUAL_DISPLAY requires MESA_VK_WSI_SW_PRESENT=1");
++   int screen_index = 0;
++   xcb_connection_t *connection = xcb_connect(NULL, &screen_index);
++   if (xcb_connection_has_error(connection)) {
++      xcb_disconnect(connection);
++      return VK_ERROR_INITIALIZATION_FAILED;
++   }
++   const xcb_query_extension_reply_t *present = xcb_get_extension_data(connection, &xcb_present_id);
++   const xcb_query_extension_reply_t *xfixes = xcb_get_extension_data(connection, &xcb_xfixes_id);
++   if (!present || !present->present || !xfixes || !xfixes->present) {
++      xcb_disconnect(connection);
++      return vk_errorf(physical, VK_ERROR_INITIALIZATION_FAILED,
++                       "LVP_VIRTUAL_DISPLAY requires X11 Present and XFixes");
++   }
++   xcb_present_query_version_reply_t *pv = xcb_present_query_version_reply(connection,
++      xcb_present_query_version(connection, 1, 0), NULL);
++   xcb_xfixes_query_version_reply_t *xv = xcb_xfixes_query_version_reply(connection,
++      xcb_xfixes_query_version(connection, 2, 0), NULL);
++   bool versions_supported = pv && pv->major_version >= 1 && xv && xv->major_version >= 2;
++   free(pv);
++   free(xv);
++   if (!versions_supported) {
++      xcb_disconnect(connection);
++      return VK_ERROR_INITIALIZATION_FAILED;
++   }
++   xcb_screen_iterator_t it = xcb_setup_roots_iterator(xcb_get_setup(connection));
++   for (int i = 0; i < screen_index && it.rem; i++)
++      xcb_screen_next(&it);
++   if (!it.rem || it.data->width_in_pixels < virtual_extent.width ||
++       it.data->height_in_pixels < virtual_extent.height) {
++      xcb_disconnect(connection);
++      return VK_ERROR_INITIALIZATION_FAILED;
++   }
++   struct lvp_virtual_display *display = vk_zalloc(&physical->vk.instance->alloc,
++      sizeof(*display), 8, VK_SYSTEM_ALLOCATION_SCOPE_INSTANCE);
++   if (!display) {
++      xcb_disconnect(connection);
++      return VK_ERROR_OUT_OF_HOST_MEMORY;
++   }
++   vk_object_base_instance_init(physical->vk.instance, &display->base, VK_OBJECT_TYPE_DISPLAY_KHR);
++   vk_object_base_instance_init(physical->vk.instance, &display->mode.base, VK_OBJECT_TYPE_DISPLAY_MODE_KHR);
++   display->physical = physical;
++   display->connection = connection;
++   display->screen = it.data;
++   display->mode.display = display;
++   physical->virtual_display = display;
++   return VK_SUCCESS;
++}
++static void
++lvp_virtual_display_finish(struct lvp_physical_device *physical)
++{
++   struct lvp_virtual_display *display = physical->virtual_display;
++   if (!display)
++      return;
++   assert(!display->surface_count && !display->window);
++   xcb_disconnect(display->connection);
++   vk_object_base_finish(&display->mode.base);
++   vk_object_base_finish(&display->base);
++   vk_free(&physical->vk.instance->alloc, display);
++   physical->virtual_display = NULL;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceDisplayPropertiesKHR(VkPhysicalDevice _physical, uint32_t *count,
++                                         VkDisplayPropertiesKHR *properties)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   struct lvp_virtual_display *display = physical->virtual_display;
++   if (!display)
++      return wsi_GetPhysicalDeviceDisplayPropertiesKHR(_physical, count, properties);
++   VK_OUTARRAY_MAKE_TYPED(VkDisplayPropertiesKHR, out, properties, count);
++   vk_outarray_append_typed(VkDisplayPropertiesKHR, &out, p) {
++      *p = (VkDisplayPropertiesKHR) {
++         .display = lvp_virtual_display_to_handle(display),
++         .displayName = "Armada virtual X11 display",
++         .physicalDimensions = {160, 80},
++         .physicalResolution = {1024, 512},
++         .supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
++         .planeReorderPossible = false,
++         .persistentContent = false,
++      };
++   }
++   return vk_outarray_status(&out);
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceDisplayPlanePropertiesKHR(VkPhysicalDevice _physical, uint32_t *count,
++                                              VkDisplayPlanePropertiesKHR *properties)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   if (!physical->virtual_display)
++      return wsi_GetPhysicalDeviceDisplayPlanePropertiesKHR(_physical, count, properties);
++   VK_OUTARRAY_MAKE_TYPED(VkDisplayPlanePropertiesKHR, out, properties, count);
++   vk_outarray_append_typed(VkDisplayPlanePropertiesKHR, &out, p) {
++      *p = (VkDisplayPlanePropertiesKHR) {
++         .currentDisplay = lvp_virtual_display_to_handle(physical->virtual_display),
++         .currentStackIndex = 0,
++      };
++   }
++   return vk_outarray_status(&out);
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetDisplayPlaneSupportedDisplaysKHR(VkPhysicalDevice _physical, uint32_t plane,
++                                        uint32_t *count, VkDisplayKHR *displays)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   if (!physical->virtual_display)
++      return wsi_GetDisplayPlaneSupportedDisplaysKHR(_physical, plane, count, displays);
++   if (plane != 0)
++      return VK_ERROR_INITIALIZATION_FAILED;
++   VK_OUTARRAY_MAKE_TYPED(VkDisplayKHR, out, displays, count);
++   vk_outarray_append_typed(VkDisplayKHR, &out, p) {
++      *p = lvp_virtual_display_to_handle(physical->virtual_display);
++   }
++   return vk_outarray_status(&out);
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetDisplayModePropertiesKHR(VkPhysicalDevice _physical, VkDisplayKHR _display,
++                                uint32_t *count, VkDisplayModePropertiesKHR *properties)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   if (!physical->virtual_display)
++      return wsi_GetDisplayModePropertiesKHR(_physical, _display, count, properties);
++   struct lvp_virtual_display *display = lvp_virtual_display_from_handle(_display);
++   if (display != physical->virtual_display)
++      return VK_ERROR_INITIALIZATION_FAILED;
++   VK_OUTARRAY_MAKE_TYPED(VkDisplayModePropertiesKHR, out, properties, count);
++   vk_outarray_append_typed(VkDisplayModePropertiesKHR, &out, p) {
++      *p = (VkDisplayModePropertiesKHR) {
++         .displayMode = lvp_virtual_mode_to_handle(&display->mode),
++         .parameters = {.visibleRegion = {1024, 512}, .refreshRate = 60000},
++      };
++   }
++   return vk_outarray_status(&out);
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_CreateDisplayModeKHR(VkPhysicalDevice _physical, VkDisplayKHR _display,
++                         const VkDisplayModeCreateInfoKHR *info,
++                         const VkAllocationCallbacks *allocator, VkDisplayModeKHR *mode)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   if (!physical->virtual_display)
++      return wsi_CreateDisplayModeKHR(_physical, _display, info, allocator, mode);
++   struct lvp_virtual_display *display = lvp_virtual_display_from_handle(_display);
++   if (display != physical->virtual_display || info->flags ||
++       info->parameters.visibleRegion.width != virtual_extent.width ||
++       info->parameters.visibleRegion.height != virtual_extent.height ||
++       info->parameters.refreshRate != 60000)
++      return VK_ERROR_INITIALIZATION_FAILED;
++   *mode = lvp_virtual_mode_to_handle(&display->mode);
++   return VK_SUCCESS;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetDisplayPlaneCapabilitiesKHR(VkPhysicalDevice _physical, VkDisplayModeKHR _mode,
++                                   uint32_t plane, VkDisplayPlaneCapabilitiesKHR *caps)
++{
++   VK_FROM_HANDLE(lvp_physical_device, physical, _physical);
++   if (!physical->virtual_display)
++      return wsi_GetDisplayPlaneCapabilitiesKHR(_physical, _mode, plane, caps);
++   struct lvp_virtual_mode *mode = lvp_virtual_mode_from_handle(_mode);
++   if (mode->display != physical->virtual_display || plane != 0)
++      return VK_ERROR_INITIALIZATION_FAILED;
++   *caps = (VkDisplayPlaneCapabilitiesKHR) {
++      .supportedAlpha = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR,
++      .minSrcPosition = {0, 0}, .maxSrcPosition = {0, 0},
++      .minSrcExtent = {1024, 512}, .maxSrcExtent = {1024, 512},
++      .minDstPosition = {0, 0}, .maxDstPosition = {0, 0},
++      .minDstExtent = {1024, 512}, .maxDstExtent = {1024, 512},
++   };
++   return VK_SUCCESS;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_CreateDisplayPlaneSurfaceKHR(VkInstance _instance,
++                                 const VkDisplaySurfaceCreateInfoKHR *info,
++                                 const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface)
++{
++   VK_FROM_HANDLE(lvp_instance, instance, _instance);
++   if (!debug_get_bool_option("LVP_VIRTUAL_DISPLAY", false))
++      return wsi_CreateDisplayPlaneSurfaceKHR(_instance, info, allocator, surface);
++   struct lvp_virtual_mode *mode = lvp_virtual_mode_from_handle(info->displayMode);
++   struct lvp_virtual_display *display = mode->display;
++   if (display->physical->vk.instance != &instance->vk || info->flags ||
++       info->planeIndex || info->planeStackIndex ||
++       info->transform != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR ||
++       info->alphaMode != VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR ||
++       info->imageExtent.width != virtual_extent.width ||
++       info->imageExtent.height != virtual_extent.height)
++      return VK_ERROR_INITIALIZATION_FAILED;
++   struct lvp_virtual_surface *owned = vk_zalloc2(&instance->vk.alloc, allocator,
++      sizeof(*owned), 8, VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
++   if (!owned)
++      return VK_ERROR_OUT_OF_HOST_MEMORY;
++   owned->display = display;
++   VkResult result = VK_ERROR_SURFACE_LOST_KHR;
++   bool created_window = false;
++   simple_mtx_lock(&virtual_surface_lock);
++   if (!display->surface_count) {
++      assert(!display->window);
++      xcb_window_t window = xcb_generate_id(display->connection);
++      uint32_t override_redirect = 1;
++      xcb_generic_error_t *error = xcb_request_check(display->connection,
++         xcb_create_window_checked(display->connection, display->screen->root_depth,
++            window, display->screen->root, 0, 0, virtual_extent.width,
++            virtual_extent.height, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT,
++            display->screen->root_visual, XCB_CW_OVERRIDE_REDIRECT, &override_redirect));
++      if (error) {
++         free(error);
++         goto fail;
++      }
++      display->window = window;
++      created_window = true;
++      const char title[] = "Armada virtual X11 display";
++      xcb_change_property(display->connection, XCB_PROP_MODE_REPLACE, window,
++         XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, sizeof(title)-1, title);
++      error = xcb_request_check(display->connection, xcb_map_window_checked(display->connection, window));
++      if (error) {
++         free(error);
++         goto fail;
++      }
++   }
++   owned->window = display->window;
++   VkXcbSurfaceCreateInfoKHR xcb_info = {
++      .sType = VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR,
++      .connection = display->connection, .window = display->window,
++   };
++   result = wsi_CreateXcbSurfaceKHR(_instance, &xcb_info, allocator, &owned->surface);
++   if (result != VK_SUCCESS)
++      goto fail;
++   display->surface_count++;
++   owned->next = virtual_surfaces;
++   virtual_surfaces = owned;
++   simple_mtx_unlock(&virtual_surface_lock);
++   *surface = owned->surface;
++   return VK_SUCCESS;
++fail:
++   if (created_window) {
++      xcb_destroy_window(display->connection, display->window);
++      xcb_flush(display->connection);
++      display->window = 0;
++   }
++   simple_mtx_unlock(&virtual_surface_lock);
++   vk_free2(&instance->vk.alloc, allocator, owned);
++   return result;
++}
++VKAPI_ATTR void VKAPI_CALL
++lvp_DestroySurfaceKHR(VkInstance _instance, VkSurfaceKHR surface,
++                      const VkAllocationCallbacks *allocator)
++{
++   VK_FROM_HANDLE(lvp_instance, instance, _instance);
++   struct lvp_virtual_surface *owned = NULL;
++   simple_mtx_lock(&virtual_surface_lock);
++   struct lvp_virtual_surface **link = &virtual_surfaces;
++   while (*link) {
++      if ((*link)->surface == surface && (*link)->display->physical->vk.instance == &instance->vk) {
++         owned = *link;
++         *link = owned->next;
++         break;
++      }
++      link = &(*link)->next;
++   }
++   simple_mtx_unlock(&virtual_surface_lock);
++   wsi_DestroySurfaceKHR(_instance, surface, allocator);
++   if (owned) {
++      simple_mtx_lock(&virtual_surface_lock);
++      struct lvp_virtual_display *display = owned->display;
++      assert(display->surface_count > 0);
++      if (--display->surface_count == 0) {
++         xcb_destroy_window(display->connection, display->window);
++         xcb_flush(display->connection);
++         display->window = 0;
++      }
++      simple_mtx_unlock(&virtual_surface_lock);
++      vk_free2(&instance->vk.alloc, allocator, owned);
++   }
++}
++
++static bool
++lvp_is_virtual_surface(VkSurfaceKHR surface)
++{
++   bool found = false;
++   simple_mtx_lock(&virtual_surface_lock);
++   for (struct lvp_virtual_surface *owned = virtual_surfaces; owned; owned = owned->next) {
++      if (owned->surface == surface) {
++         found = true;
++         break;
++      }
++   }
++   simple_mtx_unlock(&virtual_surface_lock);
++   return found;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceSurfaceCapabilitiesKHR(VkPhysicalDevice physical, VkSurfaceKHR surface,
++                                           VkSurfaceCapabilitiesKHR *caps)
++{
++   VkResult result = wsi_GetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, caps);
++   if (result == VK_SUCCESS && lvp_is_virtual_surface(surface))
++      caps->minImageCount = 2;
++   return result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceSurfaceCapabilities2KHR(VkPhysicalDevice physical,
++                                            const VkPhysicalDeviceSurfaceInfo2KHR *info,
++                                            VkSurfaceCapabilities2KHR *caps)
++{
++   VkResult result = wsi_GetPhysicalDeviceSurfaceCapabilities2KHR(physical, info, caps);
++   if (result == VK_SUCCESS && lvp_is_virtual_surface(info->surface)) {
++      caps->surfaceCapabilities.minImageCount = 2;
++      vk_foreach_struct(ext, caps->pNext) {
++         if (ext->sType == VK_STRUCTURE_TYPE_SURFACE_PRESENT_MODE_COMPATIBILITY_KHR) {
++            VkSurfacePresentModeCompatibilityKHR *compat = (void *)ext;
++            if (!compat->pPresentModes) {
++               compat->presentModeCount = 1;
++            } else if (compat->presentModeCount) {
++               compat->pPresentModes[0] = VK_PRESENT_MODE_FIFO_KHR;
++               compat->presentModeCount = 1;
++            }
++         }
++      }
++   }
++   return result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceSurfacePresentModesKHR(VkPhysicalDevice physical, VkSurfaceKHR surface,
++                                           uint32_t *count, VkPresentModeKHR *modes)
++{
++   if (!lvp_is_virtual_surface(surface))
++      return wsi_GetPhysicalDeviceSurfacePresentModesKHR(physical, surface, count, modes);
++   VK_OUTARRAY_MAKE_TYPED(VkPresentModeKHR, out, modes, count);
++   vk_outarray_append_typed(VkPresentModeKHR, &out, mode) {
++      *mode = VK_PRESENT_MODE_FIFO_KHR;
++   }
++   return vk_outarray_status(&out);
++}
++
++#else
++static VkResult lvp_virtual_display_init(struct lvp_physical_device *physical) { return VK_SUCCESS; }
++static void lvp_virtual_display_finish(struct lvp_physical_device *physical) {}
++#endif
+ 
+ static VKAPI_ATTR PFN_vkVoidFunction VKAPI_CALL
+ lvp_wsi_proc_addr(VkPhysicalDevice physicalDevice, const char *pName)
+@@ -47,12 +423,18 @@
+    physical_device->wsi_device.wants_linear = true;
+    physical_device->vk.wsi_device = &physical_device->wsi_device;
+ 
+-   return VK_SUCCESS;
++   result = lvp_virtual_display_init(physical_device);
++   if (result != VK_SUCCESS) {
++      physical_device->vk.wsi_device = NULL;
++      wsi_device_finish(&physical_device->wsi_device, &physical_device->vk.instance->alloc);
++   }
++   return result;
+ }
+ 
+ void
+ lvp_finish_wsi(struct lvp_physical_device *physical_device)
+ {
++   lvp_virtual_display_finish(physical_device);
+    physical_device->vk.wsi_device = NULL;
+    wsi_device_finish(&physical_device->wsi_device,
+                      &physical_device->vk.instance->alloc);

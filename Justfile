@@ -15,6 +15,14 @@ check:
     for script in tools/*.sh; do bash -n "$script" || exit; done
     just --unstable --fmt --check
 
+# Test the opt-in Lavapipe display on Linux with an authenticated X11 display.
+test-vulkan-display directory="output/vulkan-display":
+    test ! -e {{ quote(directory) }}
+    mkdir -p {{ quote(directory) }}
+    cc -std=gnu11 -O2 -g -Wall -Wextra -Werror tests/vulkan-display.c -lxcb -lvulkan -pthread -o {{ quote(directory + "/vulkan-display") }}
+    {{ quote(directory + "/vulkan-display") }} --xcb >{{ quote(directory + "/xcb.log") }} 2>&1
+    {{ quote(directory + "/vulkan-display") }} --display >{{ quote(directory + "/display.log") }} 2>&1
+
 # Exercise real OpenXR and FEX libraries under ARM64 Linux, capped at 2 GiB.
 test:
     mkdir -p output/lab
