@@ -82,7 +82,7 @@ userspace export or additional RPMs, this image-only probe is inapplicable and
 the required check runs against the staged userspace before formatting. The assembled
 root repeats these checks in a chroot, then the files, modes, links and build
 record extracted from ext4 must match the validated bundle exactly. The userspace
-userspace must supply its dependencies, including `opencv-videoio` for the current
+must supply its dependencies, including `opencv-videoio` for the current
 build; use an already complete image or explicitly provide signed runtime RPMs.
 
 `--gpu-firmware VERIFIED_GPU_BUNDLE` adds the five KGSL firmware files selected
@@ -248,3 +248,12 @@ isolates its library in RAM instead of replacing a global runtime library.
 These are the existing software-rendered lab tests. They do not establish
 native SteamVR compositor presentation, stock Library interaction or physical
 KGSL rendering. The complete host suite passes 207 tests.
+
+The October 10 `turnip-gpuobj-v1` build subsequently passes offscreen GPU
+rendering on both physical stock headsets and the maintained artifact checks.
+It is not yet included in these restored roots. A new assembly must select that
+bundle, retain the matching kernel/initramfs and firmware inputs, and repeat root
+handoff and mapper-failure acceptance. The builder's storage guard still applies;
+preserving compressed roots does not provide enough working space to rebuild them.
+Android init and native SteamVR acceptance recorded separately do not establish
+their integration into this older archived userspace.

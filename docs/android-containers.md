@@ -214,8 +214,10 @@ be removed; its failed result is preserved.
 
 This passes the default compatibility-tool save lifecycle for the test APK.
 An actual Steam game, cloud saves and version/depot migration remain untested.
-Both containers exit 137 through the launcher's forced stop, so graceful
-Android shutdown remains unproven. The earlier harness bypasses Lepton's normal
+Both containers in that initial comparison exit 137 through the launcher's
+forced stop. The later [shutdown comparison](#android-shutdown-comparison)
+resolves this failure with source-built init and launcher fixes. The earlier
+harness bypasses Lepton's normal
 process-group wrapper and leaves Avahi publishers for systemd to contain.
 A `v27` run uses that wrapper, verifies the launcher's own process group,
 restores counter 4 and saves/renders counter 6. It exits zero and cleans its
@@ -365,8 +367,10 @@ insufficient timing acceptance.
 Evidence is retained in `output/android-mesa-followup-20261010-v1/evidence-v1`
 and `vulkan-rendering-acceptance-v1.json`; all 160 archived files were
 checksum-verified. Android and OpenXR shutdown succeed with the same private
-diagnostic init. Controller actions, persistent namespace
-orchestration, matching source-built init, games and physical headset graphics
+diagnostic init. The subsequent source-built init comparison above and
+[display-clock tests](steamvr-arm64.md#virtual-display-clock) replace that
+diagnostic and correct the one-nanosecond timing failure. Controller
+actions, persistent namespace orchestration, games and physical headset graphics
 still require validation. Neither headset is flash-ready from this result.
 
 ## Android GLES stereo rendering
@@ -401,6 +405,7 @@ All 190 files in `output/android-mesa-followup-20261010-v1/evidence-v2` were
 checksum-verified. `gles-rendering-acceptance-v1.json` records the captures and
 remaining timing failure: 55 of 59 predicted-time intervals are one nanosecond.
 The patch also applies without fuzz to the pinned archive and reproduces the
-tested source. These are software-rendered VM results. Reproducible Android
-driver packaging, controller actions, session orchestration, matching init
-source, games and physical graphics still require work.
+tested source. The later display-clock fix corrects those one-nanosecond intervals,
+and the source-built init passes a fresh GLES session. These are software-rendered
+VM results. Reproducible Android driver packaging, controller actions, session
+orchestration, games and physical graphics still require work.

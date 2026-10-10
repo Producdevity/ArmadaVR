@@ -168,13 +168,15 @@ physical Quest portability remains unverified. The
 unchanged Quest test kernel. A separate authenticated Steam installation now
 supplies Lepton's matching payload; [Android boot, Binder services, context
 persistence, software APK rendering and network provisioning](android-containers.md#acquired-lepton-and-actual-android-boot)
-pass with four version-specific integration patches. Normal APK launch and baked
+pass with version-specific integration patches. Normal APK launch and baked
 restart also pass with retained data, including a saved counter of 2 that becomes
 4 after further input. A synthetic Steam compatibility launch also preserves
 that data through default cleanup without retention flags. Android OpenXR Vulkan
 and GLES stereo rendering now pass in the VM. A private
-init diagnostic also exits cleanly, but a matching source-built init remains
-outstanding. Actual games and hardware graphics remain unverified. Frame images
+init diagnostic and a complete compatible source-built init both exit cleanly;
+the latter also passes APK input/save/restart and fresh GLES/Vulkan sessions.
+Valve's exact resolved product manifest and release-image integration remain
+open. Actual games and physical VR presentation remain unverified. Frame images
 and its QDL programmer target Frame hardware.
 
 **Standalone game compatibility can be studied on stock Android.**

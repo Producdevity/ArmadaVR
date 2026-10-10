@@ -97,8 +97,9 @@ Mesa uses to attach completion fences before presentation. KGSL now rejects
 allocation/import requests for its unsupported implicit-sync fallback instead
 of silently accepting that flag. This does not prove GPU completion, modifier
 compatibility or scanout. Complete v10 kernel/module/device-tree exports now
-include the backport. The existing v3 roots still contain the older v7 kernel
-modules and require repackaging.
+include the backport. The October 9 restored roots contain the matching newer
+modules and `turnip-display-v2`; they still need the October 10 GPUOBJ driver
+update described below.
 
 `output/mesa/turnip-display-v2/` contains the compiled ARM64 driver, four passing
 ASan/UBSan suites and five passing Freedreno tests. The first display build is
@@ -122,7 +123,8 @@ real descriptor ownership. These tests perform no KGSL GPU work or panel scanout
 `output/kgsl-display-audit-v1/` records artifact rejection tests, loading the new
 DSO in the pinned ARM64 runtime, and an absent-KGSL negative probe. The previous
 v7 bundle is preserved but is not accepted as a build of the current patches.
-Root repackaging with the new display driver has not been performed.
+The October 9 [restored roots](headset-root.md) include the display driver;
+the later GPUOBJ allocation change still requires root integration.
 
 ## Native compositor integration still required
 
@@ -138,8 +140,9 @@ preserved under `output/hardware-research/monado-display-01c1f6b/`. Its
 requests `VK_KHR_display`. The [native Monado bundle](monado.md) corrects the
 display-index bounds check, empty-plane access, mode validation and compatible
 plane selection. The existing runtime image still contains the original package;
-root integration with the new bundle remains outstanding. Automatic mode selection
-still prioritizes pixel count and then refresh rate.
+the October 9 restored headset roots include the new bundle and pass dependency
+and extraction checks. Automatic mode selection still prioritizes pixel count
+and then refresh rate.
 
 The earlier description of this target as forcing simulated display timing was
 incomplete. `COMP_TARGET_FORCE_FAKE_DISPLAY_TIMING` selects the simple pacing
