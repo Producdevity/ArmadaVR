@@ -47,8 +47,8 @@ These are separate from the standalone test's clean result. The virtual-display
 backend has since been narrowed to FIFO presentation with a valid two-image
 minimum; that removes the swapchain image-count validation error. The other
 compositor diagnostics remain unresolved.
-Native dashboard, Windows-on-native-runtime, sustained timing, physical drivers
-and boot/recovery acceptance remain open; no flash readiness follows from this
+Native dashboard interaction, Windows-on-native-runtime, sustained timing,
+physical drivers and boot/recovery acceptance remain open; no flash readiness follows from this
 software result. Evidence and negative comparisons are retained in
 `output/native-wsi-followup-20261010-v1/` and
 `output/frame-native-wsi-20261010-v1/` through `v14/`.
@@ -90,6 +90,35 @@ errors and passes on a fresh VM, including both virtual controllers and exact
 stereo colors. All 223 host tests also pass. Final evidence is in
 `output/frame-native-wsi-20261010-v22/`; an earlier capture of a fade transition
 is retained with the corrected sampler comparison.
+
+### Native dashboard startup
+
+A fresh VM with the rebuilt maintained ARM64 device bundle now renders the
+stock dashboard in both eyes. Captures show the Library welcome panel, toolbar
+and controller laser. The test resolved three environment failures in sequence:
+
+- The webhelper wrapper requires `xset`; without it, the wrapper reports an
+  invalid X server even when the compositor can present.
+- CEF needs NSS/NSPR and ALSA libraries, and the monitor needs its Qt/XCB
+  platform dependencies.
+- The shipped Qt 5.7 library lacks a `QPushButton::hitButton` symbol required by
+  the monitor. Selecting the Frame image's system Qt 5.15.16 libraries first
+  resolves it. The selected monitor and platform library pass a relocation
+  check before startup.
+
+The minimal VM init also left loopback down. A local TCP self-test failed with
+`ENETUNREACH` before enabling `lo` and passed afterward. SteamVR's localhost UI
+then became visible and rendered; the VM still had no external network adapter.
+These dependencies and the Qt selection are confined to disposable test images;
+the original runtime and Frame firmware remain unchanged.
+
+Evidence is retained in `output/frame-native-wsi-20261010-v23/` through `v26/`,
+including the missing-library, Qt-symbol and loopback failures. The maintained
+bundle also repeats the exact stereo colors and both-controller input/haptic
+checks. Dashboard button selection, authenticated Library content and Windows
+rendering on this native backend still require separate acceptance. The monitor
+did not emit the older runtime's Ready marker, so that marker is not counted as
+passed. This result does not establish physical drivers or flash readiness.
 
 ## Official Frame runtime obtained — October 7, 2026
 
