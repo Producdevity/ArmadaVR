@@ -13,7 +13,7 @@ python3 -B tools/build-headset-root.py KERNEL_BUILD STARTUP_INITRAMFS \
 
 The builder resolves `RUNTIME_IMAGE` to its immutable Docker ID. It exports a
 new, never-started container, then constructs the filesystem in a separate,
-network-disabled container limited to two CPUs, 2 GiB and five minutes. It never
+network-disabled container limited to two CPUs, 2 GiB and fifteen minutes. It never
 mounts or formats a host block device. `rootfs.tar` preserves the exported input;
 previous output directories are refused.
 

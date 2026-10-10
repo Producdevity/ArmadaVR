@@ -464,11 +464,11 @@ print('Monado runtime image preflight: passed')
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
                    *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/lepton-artifact.py:ro"] if lepton_dir else []),
-                   "--entrypoint", "timeout", image["Id"], "--kill-after=5", "300", "bash", "-c", SCRIPT,
+                   "--entrypoint", "timeout", image["Id"], "--kill-after=5", "900", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
         report["commands"].append(command)
         with (output / "build.log").open("wb") as log:
-            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=320, check=True)
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=920, check=True)
         if builder.inputs(kernel)[1] != hashes or builder.firmware.validate(firmware) != fw:
             raise ValueError("Kernel or firmware changed during root construction")
         if builder.digest(archive) != (export_source["archive_sha256"] if export_source else report["export_sha256"]):
