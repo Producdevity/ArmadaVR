@@ -1,6 +1,6 @@
 # Pico Neo3 Pro and Pro Eye firmware and boot access
 
-Checked October 9, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
+Checked October 10, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
 bring-up is active on the connected development unit. It was identified
 physically as Pro Eye; its generic Android model alone does not distinguish
 enterprise variants. Neo3 Pro requires its own inventory and calibration backups.
@@ -12,6 +12,13 @@ The connected Pro Eye reports global/overseas 5.8.4.0, internal build
 `smartcm.1696861506`, Android 10 and Linux `4.19.81-perf+`. It has about 8 GB
 RAM, Adreno 650 v3, a `SHARP493` panel property and eye-tracking support property.
 These are inventory observations, not physical driver acceptance.
+
+The October 10 [GPU tests](turnip.md#physical-android-gpu-acceptance) now verify
+32 buffer/fence checks and 16 offscreen shader-rendered frames with a source-built
+Turnip driver on this Pro Eye's stock Android system. API 29 tracing compatibility
+is required to load the driver. DRM render-node access remains denied to the
+ordinary shell. These tests do not boot the Armada kernel or validate its panel,
+tracking, audio, controller or eye-tracking drivers.
 
 The exact [global b1977 stock OTA](https://static.us-pui.picovr.com/5.8.4.0-202310092224-RELEASE-user-neo3-b1977-e4688d78c8.zip)
 was authenticated against the public OTA certificate copied independently from

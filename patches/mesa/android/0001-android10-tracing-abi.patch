@@ -1,0 +1,58 @@
+Subject: [PATCH] android: retain the Android 10 libcutils tracing ABI
+
+Android 10 exports atrace_setup and the readiness/tag globals, with inline
+init and tag accessors in its header. The newer exported accessors are absent
+on the Neo3 Pro Eye's stock system. Select the original inline implementation
+below API 30, and make the link-only stubs expose the corresponding symbols.
+The runtime continues to use the device's libcutils, not the build stubs.
+
+--- a/include/android_stub/cutils/trace.h
++++ b/include/android_stub/cutils/trace.h
+@@ -167,8 +167,23 @@
+ #define ATRACE_INIT() atrace_init()
+ #define ATRACE_GET_ENABLED_TAGS() atrace_get_enabled_tags()
+ 
++#if defined(ANDROID_API_LEVEL) && ANDROID_API_LEVEL < 30
++static inline void atrace_init()
++{
++    if (CC_UNLIKELY(!atomic_load_explicit(&atrace_is_ready, memory_order_acquire))) {
++        atrace_setup();
++    }
++}
++
++static inline uint64_t atrace_get_enabled_tags()
++{
++    atrace_init();
++    return atrace_enabled_tags;
++}
++#else
+ void atrace_init();
+ uint64_t atrace_get_enabled_tags();
++#endif
+ 
+ /**
+  * Test if a given tag is currently enabled.
+--- a/src/android_stub/cutils_stub.cpp
++++ b/src/android_stub/cutils_stub.cpp
+@@ -19,6 +19,15 @@
+ {
+ }
+ 
++#if defined(ANDROID_API_LEVEL) && ANDROID_API_LEVEL < 30
++atomic_bool atrace_is_ready = false;
++uint64_t atrace_enabled_tags = ATRACE_TAG_NOT_READY;
++
++void
++atrace_setup()
++{
++}
++#else
+ void
+ atrace_init()
+ {
+@@ -29,4 +38,5 @@
+ {
+    return ATRACE_TAG_NOT_READY;
+ }
++#endif
+ }

@@ -1,9 +1,10 @@
 # KGSL Turnip build and offline packaging
 
 The headset graphics backend is native AArch64 Mesa Turnip using Qualcomm's
-KGSL kernel interface. FEX is used separately for x86 applications and the
-currently available desktop SteamVR runtime. No headset GPU execution or
-physical display acceptance is established by these build results.
+KGSL kernel interface. FEX is used separately for x86 applications; the native
+ARM64 SteamVR runtime is now available for integration. The Android hardware
+tests below establish bounded GPU execution on both headsets under their stock
+kernels. Physical Linux display acceptance remains open.
 
 ```sh
 bash tools/build-mesa.sh NEW_MESA_DIRECTORY turnip
@@ -17,9 +18,10 @@ immutable ARM64 container image, a source cache keyed by profile, patches,
 builder and image, and no network during compilation. Existing outputs are
 refused. Build and test logs, source identities and artifact hashes are retained.
 
-The five Turnip patches fix fence ownership and wait-any behavior, implement
+The Turnip patches fix fence ownership and wait-any behavior, implement
 an opt-in KGSL-to-DRM synchronization bridge, enable that bridge in the
-KGSL-only build, and connect an explicitly selected DRM display to KGSL WSI. Submission still uses KGSL. The DRM device supplies binary and
+KGSL-only build, connect an explicitly selected DRM display to KGSL WSI, and
+use the modern KGSL GPU-object allocation interfaces. Submission still uses KGSL. The DRM device supplies binary and
 timeline synchronization objects; it does not replace the KGSL GPU driver.
 
 The bridge requires `-Dfreedreno-kgsl-drm-sync=true` at build time and
@@ -159,3 +161,52 @@ No physical compositor service is enabled by this change. DMA allocation,
 GPU rendering, PRIME import/modifiers, correct binocular output and timing,
 tracking/calibration, thermal behavior, exact-device boot acceptance and recovery
 remain required. Virtual results do not establish flash readiness.
+
+## Physical Android GPU acceptance
+
+On October 10, the source-built Android Turnip candidate passes actual GPU
+buffer transfers and offscreen shader rendering on both connected development
+headsets. Each test runs as the ordinary ADB shell with enforcing SELinux,
+using a temporary process-local driver and exact firmware guards.
+
+| Device | Stock firmware | GPU | Tested result |
+|---|---|---|---|
+| Quest 3 | `52083180032000520` | Adreno 740v3 | 32 buffer/fence checks; 16 shader-rendered frames |
+| Neo3 Pro Eye | `smartcm.1696861506` / 5.8.4.0 | Adreno 650 | 32 buffer/fence checks; 16 shader-rendered frames |
+
+The initial Quest candidate enumerates its GPU but fails `vkCreateDevice` with
+`VK_ERROR_OUT_OF_DEVICE_MEMORY`. Patch 0006 adapts the
+[community GPUOBJ allocator change](https://github.com/Jbbrack03/Quest-3-Turnip-Driver/blob/83cd874f3449d091fca51d25389f88f520a7f2f3/0001-android-carry-Quest-3-KGSL-compatibility-patches.patch)
+to the existing Armada KGSL changes. Allocation, address queries, release and
+memory-type probing use the modern ioctl family. An additional error path frees
+an allocation whose address query fails before publishing the BO. A bounded
+userspace-injected query error on each physical headset verifies a successful
+release of that exact object, followed by normal process exit.
+
+The initial Pico candidate cannot load because Android 10 lacks the exported
+`atrace_get_enabled_tags` function used by newer platform headers. The separate
+[Android tracing patch](../patches/mesa/android/README.md) restores the old ABI
+for API 29 builds. Both headsets use their actual system libcutils; no stub
+library is installed or used at runtime.
+
+Each transfer checks every word of a 1 MiB GPU-written buffer after a bounded
+fence wait. The rendering test executes vertex and fragment shaders into a
+64-by-64 image, varies a push constant between red and yellow, and keeps the
+right half blue. Every pixel is checked across 16 frames. Exported captures
+match the stock-driver baseline. These small offscreen tests do not measure
+headset frame pacing, thermal behavior, compositor presentation or scanout.
+
+Both stock Vulkan drivers lack the queried opaque-FD semaphore sharing and
+direct-display capabilities. Opening the SDE DRM render node from the shell
+returns `EACCES` on both devices; its synchronization capabilities therefore
+remain unmeasured. Explicitly enabling `TU_KGSL_DRM_SYNC` with that inaccessible
+node fails initialization, preserving the bridge's refusal behavior.
+
+The tested Android candidate has SHA-256
+`b1db70afb1cf54fde2996b6ff60a2a26d576bcc8e45e088f529060a6c2eea3da`.
+Build commands, negative baselines, driver/dependency hashes, pixel captures
+and cleanup receipts are retained in `output/headset-gpu-20261010-v1`.
+Firmware, boot identity, locked/green state and enforcement are unchanged;
+the temporary device files are removed. This validates a Bionic build under
+stock Android, not the glibc driver in a booted Armada kernel. Custom boot,
+DRM synchronization, display ownership and physical VR remain separate gates.

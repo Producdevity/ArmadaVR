@@ -1,0 +1,133 @@
+Subject: [PATCH] turnip: use GPUOBJ allocation on KGSL
+
+Based on Jbbrack03's KGSL allocator change in commit
+b09a4535fb17ec86ed0261d866b6136a388b2620 of the Quest 3 Turnip driver.
+The legacy allocation ioctl is unavailable under the tested stock Quest policy.
+Use the newer allocation, address-query and release interfaces, including the
+memory-type capability probe. Release the allocation if its address query fails
+before publishing a BO or adding it to the debug inventory.
+
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -286,8 +286,10 @@
+       }
+    }
+ 
+-   struct kgsl_gpumem_alloc_id req = {
+-      .size = size,
++   /* HorizonOS denies the legacy GPUMEM_ALLOC_ID ioctl to untrusted apps.
++    * GPUOBJ_ALLOC/INFO/FREE are allowlisted and use the same KGSL backing. */
++   struct kgsl_gpuobj_alloc req = {
++       .size = size,
+    };
+ 
+    if (mem_property & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) {
+@@ -309,10 +311,25 @@
+    int ret;
+ 
+    ret = safe_ioctl(dev->physical_device->local_fd,
+-                    IOCTL_KGSL_GPUMEM_ALLOC_ID, &req);
++                    IOCTL_KGSL_GPUOBJ_ALLOC, &req);
+    if (ret) {
+       return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+-                       "GPUMEM_ALLOC_ID failed (%s)", strerror(errno));
++                       "GPUOBJ_ALLOC failed (%s)", strerror(errno));
++   }
++
++   uint64_t gpuaddr = 0;
++   if (!lazy_vma && !(flags & TU_BO_ALLOC_REPLAYABLE)) {
++      struct kgsl_gpuobj_info info = { .id = req.id };
++      ret = safe_ioctl(dev->physical_device->local_fd,
++                       IOCTL_KGSL_GPUOBJ_INFO, &info);
++      if (ret) {
++         int error = errno;
++         struct kgsl_gpuobj_free release = { .id = req.id };
++         safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_GPUOBJ_FREE, &release);
++         return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
++                          "GPUOBJ_INFO failed (%s)", strerror(error));
++      }
++      gpuaddr = info.gpuaddr;
+    }
+ 
+    struct tu_bo* bo = tu_device_lookup_bo(dev, req.id);
+@@ -321,7 +338,7 @@
+    *bo = (struct tu_bo) {
+       .gem_handle = req.id,
+       .size = req.mmapsize,
+-      .iova = req.gpuaddr,
++      .iova = gpuaddr,
+       .name = tu_debug_bos_add(dev, req.mmapsize, name),
+       .refcnt = 1,
+       .shared_fd = -1,
+@@ -473,14 +490,14 @@
+ 
+    TU_RMV(bo_destroy, dev, bo);
+ 
+-   struct kgsl_gpumem_free_id req = {
++   struct kgsl_gpuobj_free req = {
+       .id = bo->gem_handle
+    };
+ 
+    /* Tell sparse array that entry is free */
+    memset(bo, 0, sizeof(*bo));
+ 
+-   safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_GPUMEM_FREE_ID, &req);
++   safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_GPUOBJ_FREE, &req);
+ }
+ 
+ static VkResult
+@@ -532,18 +549,17 @@
+       if (result != VK_SUCCESS)
+          return result;
+    } else {
+-      /* For some cursed reason, the ioctl doesn't return the GPU address so
+-       * we have to query it.
+-       */
+-      struct kgsl_gpumem_get_info info = {
++      /* GPUOBJ_ALLOC does not return the GPU address. Use its matching
++       * allowlisted INFO ioctl instead of the legacy GPUMEM query. */
++      struct kgsl_gpuobj_info info = {
+          .id = req.id,
+       };
+ 
+       ret = safe_ioctl(dev->physical_device->local_fd,
+-                       IOCTL_KGSL_GPUMEM_GET_INFO, &info);
++                       IOCTL_KGSL_GPUOBJ_INFO, &info);
+       if (ret) {
+          return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+-                          "GPUMEM_GET_INFO failed (%s)", strerror(errno));
++                          "GPUOBJ_INFO failed (%s)", strerror(errno));
+       }
+ 
+       bo->iova = info.gpuaddr;
+@@ -585,12 +601,12 @@
+ static bool
+ kgsl_is_memory_type_supported(int fd, uint32_t flags)
+ {
+-   struct kgsl_gpumem_alloc_id req_alloc = {
++   struct kgsl_gpuobj_alloc req_alloc = {
++      .size = 0x1000,
+       .flags = flags,
+-      .size = 0x1000,
+-   };
+-
+-   int ret = safe_ioctl(fd, IOCTL_KGSL_GPUMEM_ALLOC_ID, &req_alloc);
++   };
++
++   int ret = safe_ioctl(fd, IOCTL_KGSL_GPUOBJ_ALLOC, &req_alloc);
+    if (ret) {
+       return false;
+    }
+@@ -602,9 +618,9 @@
+     */
+    bool supported = (req_alloc.flags & flags) == flags;
+ 
+-   struct kgsl_gpumem_free_id req_free = { .id = req_alloc.id };
+-
+-   safe_ioctl(fd, IOCTL_KGSL_GPUMEM_FREE_ID, &req_free);
++   struct kgsl_gpuobj_free req_free = { .id = req_alloc.id };
++
++   safe_ioctl(fd, IOCTL_KGSL_GPUOBJ_FREE, &req_free);
+ 
+    return supported;
+ }

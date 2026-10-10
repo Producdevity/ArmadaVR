@@ -5,7 +5,7 @@ tests, but no validated Quest installation or recovery procedure.
 
 ## Current Quest 3
 
-The October 9 read-only ADB check found an authorized USB-connected Quest 3
+The October 10 read-only ADB check found an authorized USB-connected Quest 3
 (`eureka`):
 
 | Property | Reported value |
@@ -294,8 +294,11 @@ drivers, accepted Quest boot and independent recovery remain unverified.
    verified return to stock Android, under a separate device-execution plan.
 3. **Finish physical kernel and driver support.** Validate the selected panel
    and board overlay, UFS, USB, ADSP services, firmware loading, GPU and display
-   fences, audio, Wi-Fi, battery/charging, fan and thermal shutdown. Existing
-   compilation and simulated-sensor results do not establish hardware operation.
+   fences, audio, Wi-Fi, battery/charging, fan and thermal shutdown. The
+   [Android Turnip candidate](turnip.md#physical-android-gpu-acceptance) now passes
+   real GPU transfers and offscreen shader rendering on both stock headsets.
+   That isolates the GPU userspace prerequisite; it does not validate the
+   custom kernel, physical display, other drivers or simulated sensors.
 4. **Implement tracking and controllers.** Integrate synchronized cameras and
    IMU streams, device calibration, 6DoF prediction, distortion and display
    timing. Validate both controllers' pairing, poses, every required input,
