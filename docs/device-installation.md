@@ -160,8 +160,9 @@ The [official recovery index](https://steamdeck-images.steamos.cloud/recovery/)
 now lists Steam Frame `20260922.5153644-0.3.0` images. Offline extraction obtained
 native ARM64 SteamVR client/server/compositor binaries and the Android ARM64
 client. [ABI, native server and virtual-controller checks](steamvr-arm64.md) pass
-on the Quest QEMU transport kernel; native compositor presentation and physical
-Quest portability remain unverified. The
+on the Quest QEMU transport kernel. Native software compositor presentation,
+both-hand dashboard/Library interaction and Windows stereo tests now also pass;
+physical Quest portability remains unverified. The
 [Podman/FUSE writable-mount lifecycle](android-containers.md) also passes on the
 unchanged Quest test kernel. A separate authenticated Steam installation now
 supplies Lepton's matching payload; [Android boot, Binder services, context
@@ -169,9 +170,11 @@ persistence, software APK rendering and network provisioning](android-containers
 pass with four version-specific integration patches. Normal APK launch and baked
 restart also pass with retained data, including a saved counter of 2 that becomes
 4 after further input. A synthetic Steam compatibility launch also preserves
-that data through default cleanup without retention flags. Actual games, clean
-init shutdown, Android XR and hardware graphics remain unverified. Frame images and its
-QDL programmer target Frame hardware.
+that data through default cleanup without retention flags. Android OpenXR Vulkan
+and GLES stereo rendering now pass in the VM. A private
+init diagnostic also exits cleanly, but a matching source-built init remains
+outstanding. Actual games and hardware graphics remain unverified. Frame images
+and its QDL programmer target Frame hardware.
 
 **Standalone game compatibility can be studied on stock Android.**
 [GameNative's Quest XR releases](https://github.com/utkarshdalal/GameNative/releases)

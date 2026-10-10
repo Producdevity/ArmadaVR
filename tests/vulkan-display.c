@@ -227,7 +227,7 @@ int main(int argc, char **argv) {
     free(ext);
     const char *ie[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_EXTENSION_NAME,
                         VK_KHR_DISPLAY_EXTENSION_NAME, VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-                        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME};
+                        VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, VK_EXT_DISPLAY_SURFACE_COUNTER_EXTENSION_NAME};
     const char *layer = "VK_LAYER_KHRONOS_validation";
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                              .pApplicationName = "vulkan-display",
@@ -242,7 +242,7 @@ int main(int argc, char **argv) {
     VkInstanceCreateInfo ici = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
                                 .pNext = &dbg,
                                 .pApplicationInfo = &app,
-                                .enabledExtensionCount = 5,
+                                .enabledExtensionCount = 6,
                                 .ppEnabledExtensionNames = ie,
                                 .enabledLayerCount = 1,
                                 .ppEnabledLayerNames = &layer};
@@ -307,6 +307,7 @@ int main(int argc, char **argv) {
            visual->blue_mask == 0xff);
     xcb_window_t window;
     VkSurfaceKHR surface;
+    VkDisplayKHR clock_display = VK_NULL_HANDLE;
     VkDisplaySurfaceCreateInfoKHR display_info = {0};
     xcb_generic_error_t *xe = NULL;
     if (display_path) {
@@ -315,6 +316,7 @@ int main(int argc, char **argv) {
         assert(n == 1);
         VkDisplayPropertiesKHR display;
         CHECK(displays(physical, &n, &display));
+        clock_display = display.display;
         assert(n == 1 && display.physicalResolution.width == 1024 &&
                display.physicalResolution.height == 512 &&
                !strcmp(display.displayName, "Armada virtual X11 display"));
@@ -408,7 +410,7 @@ int main(int argc, char **argv) {
     free(q);
     assert(family != UINT32_MAX);
     const char *de[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_PRESENT_ID_EXTENSION_NAME,
-                        VK_KHR_PRESENT_WAIT_EXTENSION_NAME};
+                        VK_KHR_PRESENT_WAIT_EXTENSION_NAME, VK_EXT_DISPLAY_CONTROL_EXTENSION_NAME};
     float priority = 1;
     VkDeviceQueueCreateInfo qci = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
                                    .queueFamilyIndex = family,
@@ -418,7 +420,7 @@ int main(int argc, char **argv) {
                               .pNext = &timeline,
                               .queueCreateInfoCount = 1,
                               .pQueueCreateInfos = &qci,
-                              .enabledExtensionCount = 3,
+                              .enabledExtensionCount = 4,
                               .ppEnabledExtensionNames = de};
     VkDevice device;
     CHECK(vkCreateDevice(physical, &dci, NULL, &device));
@@ -482,6 +484,18 @@ int main(int argc, char **argv) {
                                          .compositeAlpha = alpha,
                                          .presentMode = VK_PRESENT_MODE_FIFO_KHR,
                                          .clipped = VK_TRUE};
+    VkSwapchainCounterCreateInfoEXT counters = {.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_COUNTER_CREATE_INFO_EXT,
+                                               .surfaceCounters = VK_SURFACE_COUNTER_VBLANK_BIT_EXT};
+    PFN_vkGetPhysicalDeviceSurfaceCapabilities2EXT get_caps =
+        (PFN_vkGetPhysicalDeviceSurfaceCapabilities2EXT)vkGetInstanceProcAddr(
+            instance, "vkGetPhysicalDeviceSurfaceCapabilities2EXT");
+    VkSurfaceCapabilities2EXT counter_caps = {.sType = VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_EXT};
+    assert(get_caps);
+    CHECK(get_caps(physical, surface, &counter_caps));
+    assert(counter_caps.supportedSurfaceCounters ==
+           (display_path ? VK_SURFACE_COUNTER_VBLANK_BIT_EXT : 0));
+    if (display_path)
+        swapinfo.pNext = &counters;
     VkSwapchainKHR swapchain;
     CHECK(vkCreateSwapchainKHR(device, &swapinfo, NULL, &swapchain));
     n = 0;
@@ -589,6 +603,69 @@ int main(int argc, char **argv) {
                pixel & 0xffffff, expected);
         assert((pixel & 0xffffff) == expected);
     }
+    if (display_path) {
+        PFN_vkRegisterDisplayEventEXT register_event = (void *)vkGetDeviceProcAddr(device, "vkRegisterDisplayEventEXT");
+        PFN_vkRegisterDeviceEventEXT register_device = (void *)vkGetDeviceProcAddr(device, "vkRegisterDeviceEventEXT");
+        PFN_vkGetSwapchainCounterEXT counter = (void *)vkGetDeviceProcAddr(device, "vkGetSwapchainCounterEXT");
+        PFN_vkDisplayPowerControlEXT power = (void *)vkGetDeviceProcAddr(device, "vkDisplayPowerControlEXT");
+        assert(register_event && register_device && counter && power);
+        unsigned before = fd_count();
+        VkDisplayEventInfoEXT event = { .sType = VK_STRUCTURE_TYPE_DISPLAY_EVENT_INFO_EXT,
+                                       .displayEvent = VK_DISPLAY_EVENT_TYPE_FIRST_PIXEL_OUT_EXT };
+        uint64_t first, previous, current;
+        CHECK(counter(device, swapchain, VK_SURFACE_COUNTER_VBLANK_BIT_EXT, &first));
+        previous = first;
+        uint64_t begin = nanos();
+        for (unsigned sample = 0; sample < 32; sample++) {
+            VkFence fence;
+            CHECK(register_event(device, clock_display, &event, NULL, &fence));
+            VkResult status = vkGetFenceStatus(device, fence);
+            assert(status == VK_SUCCESS || status == VK_NOT_READY);
+            CHECK(vkWaitForFences(device, 1, &fence, VK_TRUE, 2000000000));
+            CHECK(vkGetFenceStatus(device, fence));
+            CHECK(counter(device, swapchain, VK_SURFACE_COUNTER_VBLANK_BIT_EXT, &current));
+            assert(current > previous);
+            printf("CLOCK_EVENT sample=%u msc=%llu delta=%llu\n", sample,
+                   (unsigned long long)current, (unsigned long long)(current-previous));
+            previous = current;
+            vkDestroyFence(device, fence, NULL);
+        }
+        uint64_t duration = nanos() - begin;
+        double rate = (current - first) * 1e9 / duration;
+        printf("CLOCK_RATE hz=%f elapsed_ns=%llu ticks=%llu\n", rate,
+               (unsigned long long)duration, (unsigned long long)(current-first));
+        assert(duration > 250000000 && rate > 50 && rate < 70);
+        VkFence pair[2];
+        for (unsigned i = 0; i < 2; i++) CHECK(register_event(device, clock_display, &event, NULL, &pair[i]));
+        CHECK(vkWaitForFences(device, 2, pair, VK_FALSE, 2000000000));
+        CHECK(vkWaitForFences(device, 2, pair, VK_TRUE, 2000000000));
+        for (unsigned i = 0; i < 2; i++) vkDestroyFence(device, pair[i], NULL);
+        for (unsigned i = 0; i < 32; i++) {
+            VkFence fence;
+            CHECK(register_event(device, clock_display, &event, NULL, &fence));
+            vkDestroyFence(device, fence, NULL);
+        }
+        VkDeviceEventInfoEXT hotplug = {.sType = VK_STRUCTURE_TYPE_DEVICE_EVENT_INFO_EXT,
+                                       .deviceEvent = VK_DEVICE_EVENT_TYPE_DISPLAY_HOTPLUG_EXT};
+        VkFence unchanged;
+        CHECK(register_device(device, &hotplug, NULL, &unchanged));
+        assert(vkWaitForFences(device, 1, &unchanged, VK_TRUE, 1000000) == VK_TIMEOUT);
+        vkDestroyFence(device, unchanged, NULL);
+        for (unsigned i = 0; i < 3; i++) {
+            VkDisplayPowerInfoEXT pi = {.sType = VK_STRUCTURE_TYPE_DISPLAY_POWER_INFO_EXT,
+                .powerState = i == 2 ? VK_DISPLAY_POWER_STATE_ON_EXT :
+                              i == 1 ? VK_DISPLAY_POWER_STATE_SUSPEND_EXT : VK_DISPLAY_POWER_STATE_OFF_EXT};
+            CHECK(power(device, clock_display, &pi));
+            xcb_get_window_attributes_reply_t *attr = xcb_get_window_attributes_reply(
+                connection, xcb_get_window_attributes(connection, window), NULL);
+            assert(attr && attr->map_state == (i == 2 ? XCB_MAP_STATE_VIEWABLE : XCB_MAP_STATE_UNMAPPED));
+            free(attr);
+        }
+        unsigned after = fd_count();
+        printf("CLOCK_FENCES_PASS before_fds=%u after_fds=%u\n", before, after);
+        assert(before == after);
+    }
+
     printf("submitted_pending_timeouts=%u\n", pending_timeouts);
     assert(pending_timeouts > 0);
     CHECK(vkDeviceWaitIdle(device));
@@ -600,15 +677,33 @@ int main(int argc, char **argv) {
     vkDestroyFence(device, submitted, NULL);
     vkDestroyCommandPool(device, pool, NULL);
     vkDestroySwapchainKHR(device, swapchain, NULL);
-    vkDestroyDevice(device, NULL);
     vkDestroySurfaceKHR(instance, surface, NULL);
     if (display_path) {
         for (int retry = 0; retry < 80 && display_window(connection, screen->root); retry++)
             usleep(10000);
         assert(!display_window(connection, screen->root));
+        PFN_vkDisplayPowerControlEXT set_power =
+            (PFN_vkDisplayPowerControlEXT)vkGetDeviceProcAddr(device, "vkDisplayPowerControlEXT");
+        VkDisplayPowerInfoEXT off = {.sType = VK_STRUCTURE_TYPE_DISPLAY_POWER_INFO_EXT,
+                                     .powerState = VK_DISPLAY_POWER_STATE_OFF_EXT};
+        CHECK(set_power(device, clock_display, &off));
         CHECK(vkCreateDisplayPlaneSurfaceKHR(instance, &display_info, NULL, &surface));
         VkSurfaceCapabilitiesKHR recreated;
         CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &recreated));
+        xcb_window_t powered_window = display_window(connection, screen->root);
+        assert(powered_window);
+        xcb_get_window_attributes_reply_t *powered_attr = xcb_get_window_attributes_reply(
+            connection, xcb_get_window_attributes(connection, powered_window), NULL);
+        assert(powered_attr && powered_attr->map_state == XCB_MAP_STATE_UNMAPPED);
+        free(powered_attr);
+        off.powerState = VK_DISPLAY_POWER_STATE_ON_EXT;
+        CHECK(set_power(device, clock_display, &off));
+        powered_attr = xcb_get_window_attributes_reply(
+            connection, xcb_get_window_attributes(connection, powered_window), NULL);
+        assert(powered_attr && powered_attr->map_state == XCB_MAP_STATE_VIEWABLE);
+        free(powered_attr);
+        puts("DISPLAY_POWER_BEFORE_SURFACE_PASS");
+
         assert(display_window(connection, screen->root));
         vkDestroySurfaceKHR(instance, surface, NULL);
         for (int retry = 0; retry < 80 && display_window(connection, screen->root); retry++)
@@ -620,6 +715,7 @@ int main(int argc, char **argv) {
         xcb_destroy_window(connection, window);
         xcb_flush(connection);
     }
+    vkDestroyDevice(device, NULL);
     xcb_disconnect(connection);
     destroy_debug(instance, messenger, NULL);
     vkDestroyInstance(instance, NULL);

@@ -91,6 +91,43 @@ stereo colors. All 223 host tests also pass. Final evidence is in
 `output/frame-native-wsi-20261010-v22/`; an earlier capture of a fade transition
 is retained with the corrected sampler comparison.
 
+### Virtual display clock
+
+The native compositor also needs `VK_EXT_display_control` and
+`VK_EXT_display_surface_counter` in the virtual-display mode. Without them,
+its fallback vblank thread increments the frame counter in an unpaced loop.
+A baseline comparison measured about 8.3 million increments per second, and
+57 of 59 Android predicted-display intervals collapsed to one nanosecond.
+
+`patches/mesa/0006-lavapipe-virtual-display-clock.patch` supplies event fences
+and a counter from actual X11 Present MSC notifications. It does not replace
+missing events with immediate success or a guessed timer. The fixed virtual
+display has no hotplug events; its hotplug fence remains unsignaled. Power
+controls map or unmap its owned X11 window, including surfaces created while
+powered off. Counter capability is limited to the owned virtual surface.
+This remains an X11 software test backend, not physical display control.
+
+The standalone regression covers event status and waits, wait-any/wait-all,
+pending-fence destruction, hotplug timeout, power transitions and recreation,
+ordinary XCB capability isolation, rendered pixels and descriptor cleanup.
+Fresh native SteamVR backends with the final driver measure 60.011 and 59.996
+counter increments per second for Android GLES and Vulkan respectively. Both
+submit 60 frames, capture stereo color changes, restore private test settings
+and exit normally. Neither has one-nanosecond predicted intervals. Software
+rendering still misses compositor deadlines: median predicted-frame spacing is
+about 50 ms, with 150 ms GLES and 84 ms Vulkan 95th percentiles in these bounded
+runs. This establishes a clock correction, not frame-rate acceptance. Evidence and failed comparisons are
+retained in `output/native-clock-followup-20261010-v1/`.
+
+Windows HelloXR also passes with this driver on separate fresh native backends:
+590 left-hand and 606 right-hand submissions, 108/119 haptic events, dashboard
+focus transfer and restoration, visible trigger response, and normal menu-button
+exit. The prefixes use separate writable overlays over an unchanged initialized
+prefix. Both runs leave no VR, FEX or Wine processes. The service harness must
+keep standard input open: HelloXR treats EOF as its quit key. Its earlier
+pre-frame exit is retained as a failed harness comparison. All 233 host tests
+pass; the captured Windows evidence is in the same clock-followup directory.
+
 ### Native dashboard startup
 
 A fresh VM with the rebuilt maintained ARM64 device bundle now renders the

@@ -1,0 +1,299 @@
+--- a/src/gallium/frontends/lavapipe/lvp_device.c
++++ b/src/gallium/frontends/lavapipe/lvp_device.c
+@@ -136,6 +136,7 @@
+ #if defined(VK_USE_PLATFORM_XCB_KHR) && defined(VK_USE_PLATFORM_DISPLAY_KHR)
+    if (debug_get_bool_option("LVP_VIRTUAL_DISPLAY", false)) {
+       extensions.KHR_display = true;
++      extensions.EXT_display_surface_counter = true;
+       extensions.KHR_wayland_surface = false;
+       extensions.KHR_xlib_surface = false;
+       extensions.KHR_win32_surface = false;
+@@ -1526,6 +1527,7 @@
+    const bool present_wait = instance->extensions.KHR_display;
+    device->vk.supported_extensions.KHR_present_id = present_wait;
+    device->vk.supported_extensions.KHR_present_wait = present_wait;
++   device->vk.supported_extensions.EXT_display_control = present_wait;
+ #endif
+ #if defined(HAVE_LIBDRM) && defined(HAVE_LINUX_UDMABUF_H)
+    int dmabuf_bits = DRM_PRIME_CAP_EXPORT | DRM_PRIME_CAP_IMPORT;
+--- a/src/gallium/frontends/lavapipe/lvp_wsi.c
++++ b/src/gallium/frontends/lavapipe/lvp_wsi.c
+@@ -28,6 +28,10 @@
+ #include <xcb/xcb.h>
+ #include <xcb/present.h>
+ #include <xcb/xfixes.h>
++#include <poll.h>
++#include <errno.h>
++#include "vk_fence.h"
++#include "util/os_time.h"
+ #include "util/u_debug.h"
+ 
+ struct lvp_virtual_mode {
+@@ -40,6 +44,7 @@
+    struct lvp_physical_device *physical;
+    xcb_connection_t *connection;
+    xcb_screen_t *screen;
++   VkDisplayPowerStateEXT power_state;
+    uint32_t surface_count;
+    xcb_window_t window;
+ };
+@@ -103,6 +108,7 @@
+    }
+    vk_object_base_instance_init(physical->vk.instance, &display->base, VK_OBJECT_TYPE_DISPLAY_KHR);
+    vk_object_base_instance_init(physical->vk.instance, &display->mode.base, VK_OBJECT_TYPE_DISPLAY_MODE_KHR);
++   display->power_state = VK_DISPLAY_POWER_STATE_ON_EXT;
+    display->physical = physical;
+    display->connection = connection;
+    display->screen = it.data;
+@@ -272,12 +278,20 @@
+       display->window = window;
+       created_window = true;
+       const char title[] = "Armada virtual X11 display";
+-      xcb_change_property(display->connection, XCB_PROP_MODE_REPLACE, window,
+-         XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, sizeof(title)-1, title);
+-      error = xcb_request_check(display->connection, xcb_map_window_checked(display->connection, window));
++      error = xcb_request_check(display->connection,
++         xcb_change_property_checked(display->connection, XCB_PROP_MODE_REPLACE, window,
++            XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, sizeof(title)-1, title));
+       if (error) {
+          free(error);
+          goto fail;
++      }
++      if (display->power_state == VK_DISPLAY_POWER_STATE_ON_EXT) {
++         error = xcb_request_check(display->connection,
++            xcb_map_window_checked(display->connection, window));
++         if (error) {
++            free(error);
++            goto fail;
++         }
+       }
+    }
+    owned->window = display->window;
+@@ -394,6 +408,227 @@
+    return vk_outarray_status(&out);
+ }
+ 
++struct lvp_display_sync {
++   struct vk_sync base;
++   simple_mtx_t mutex;
++   xcb_connection_t *connection;
++   xcb_special_event_t *events;
++   xcb_window_t window;
++   uint32_t event_id, serial, stamp;
++   uint64_t msc, ust;
++   bool signaled;
++};
++static VkResult
++lvp_display_sync_init(struct vk_device *device, struct vk_sync *base, uint64_t initial)
++{
++   struct lvp_display_sync *sync = (void *)base;
++   simple_mtx_init(&sync->mutex, mtx_plain);
++   sync->connection = NULL;
++   sync->events = NULL;
++   sync->signaled = false;
++   return VK_SUCCESS;
++}
++static void
++lvp_display_sync_finish(struct vk_device *device, struct vk_sync *base)
++{
++   struct lvp_display_sync *sync = (void *)base;
++   if (sync->events)
++      xcb_unregister_for_special_event(sync->connection, sync->events);
++   if (sync->connection)
++      xcb_disconnect(sync->connection);
++   simple_mtx_destroy(&sync->mutex);
++}
++static VkResult
++lvp_display_sync_wait(struct vk_device *device, struct vk_sync *base,
++                      uint64_t value, enum vk_sync_wait_flags flags, uint64_t deadline)
++{
++   struct lvp_display_sync *sync = (void *)base;
++   VkResult result = VK_TIMEOUT;
++   simple_mtx_lock(&sync->mutex);
++   for (;;) {
++      if (sync->signaled) { result = VK_SUCCESS; break; }
++      if (xcb_connection_has_error(sync->connection)) { result = VK_ERROR_DEVICE_LOST; break; }
++      xcb_generic_event_t *raw = xcb_poll_for_special_event(sync->connection, sync->events);
++      if (raw) {
++         xcb_present_complete_notify_event_t *event = (void *)raw;
++         if ((raw->response_type & 0x7f) == XCB_GE_GENERIC &&
++             event->event_type == XCB_PRESENT_COMPLETE_NOTIFY &&
++             event->kind == XCB_PRESENT_COMPLETE_KIND_NOTIFY_MSC &&
++             event->serial == sync->serial && event->event == sync->event_id &&
++             event->window == sync->window) {
++            sync->msc = event->msc;
++            sync->ust = event->ust;
++            sync->signaled = true;
++         }
++         free(raw);
++         continue;
++      }
++      uint64_t now = os_time_get_nano();
++      if (now >= deadline) break;
++      uint64_t remaining = deadline - now;
++      struct timespec timeout = { .tv_sec = remaining / 1000000000,
++                                  .tv_nsec = remaining % 1000000000 };
++      struct pollfd fd = { .fd = xcb_get_file_descriptor(sync->connection), .events = POLLIN };
++      int ret = ppoll(&fd, 1, deadline == UINT64_MAX ? NULL : &timeout, NULL);
++      if (ret < 0 && errno != EINTR) { result = VK_ERROR_DEVICE_LOST; break; }
++      if (ret > 0 && (fd.revents & (POLLERR | POLLHUP | POLLNVAL))) {
++         result = VK_ERROR_DEVICE_LOST;
++         break;
++      }
++   }
++   simple_mtx_unlock(&sync->mutex);
++   return result;
++}
++static const struct vk_sync_type lvp_display_sync_type = {
++   .size = sizeof(struct lvp_display_sync),
++   .features = VK_SYNC_FEATURE_BINARY | VK_SYNC_FEATURE_CPU_WAIT,
++   .init = lvp_display_sync_init,
++   .finish = lvp_display_sync_finish,
++   .wait = lvp_display_sync_wait,
++};
++static VkResult
++lvp_display_sync_request(struct lvp_display_sync *sync, uint64_t target)
++{
++   sync->signaled = false;
++   sync->serial++;
++   xcb_generic_error_t *error = xcb_request_check(sync->connection,
++      xcb_present_notify_msc_checked(sync->connection, sync->window, sync->serial, target, 0, 0));
++   if (error) { free(error); return VK_ERROR_DEVICE_LOST; }
++   xcb_flush(sync->connection);
++   return VK_SUCCESS;
++}
++static VkResult
++lvp_display_sync_create(struct vk_device *device, struct lvp_virtual_display *display,
++                        struct vk_sync **out)
++{
++   VkResult result = vk_sync_create(device, &lvp_display_sync_type, 0, 0, out);
++   if (result != VK_SUCCESS) return result;
++   struct lvp_display_sync *sync = (void *)*out;
++   int screen_index = 0;
++   sync->connection = xcb_connect(NULL, &screen_index);
++   if (xcb_connection_has_error(sync->connection)) { result = VK_ERROR_DEVICE_LOST; goto fail; }
++   xcb_screen_iterator_t screen = xcb_setup_roots_iterator(xcb_get_setup(sync->connection));
++   for (int i = 0; i < screen_index && screen.rem; i++) xcb_screen_next(&screen);
++   if (!screen.rem || screen.data->root != display->screen->root) { result = VK_ERROR_DEVICE_LOST; goto fail; }
++   sync->window = screen.data->root;
++   sync->event_id = xcb_generate_id(sync->connection);
++   sync->events = xcb_register_for_special_xge(sync->connection, &xcb_present_id,
++                                               sync->event_id, &sync->stamp);
++   if (!sync->events) { result = VK_ERROR_OUT_OF_HOST_MEMORY; goto fail; }
++   xcb_generic_error_t *error = xcb_request_check(sync->connection,
++      xcb_present_select_input_checked(sync->connection, sync->event_id, sync->window,
++                                        XCB_PRESENT_EVENT_MASK_COMPLETE_NOTIFY));
++   if (error) { free(error); result = VK_ERROR_DEVICE_LOST; goto fail; }
++   result = lvp_display_sync_request(sync, 0);
++   if (result == VK_SUCCESS)
++      result = vk_sync_wait(device, &sync->base, 0, VK_SYNC_WAIT_COMPLETE,
++                            os_time_get_nano() + 1000000000);
++   if (result == VK_SUCCESS) return result;
++fail:
++   vk_sync_destroy(device, *out);
++   *out = NULL;
++   return result == VK_TIMEOUT ? VK_ERROR_UNKNOWN : result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_RegisterDisplayEventEXT(VkDevice handle, VkDisplayKHR handle_display,
++                            const VkDisplayEventInfoEXT *event,
++                            const VkAllocationCallbacks *allocator, VkFence *out)
++{
++   VK_FROM_HANDLE(lvp_device, device, handle);
++   struct lvp_virtual_display *display = lvp_device_physical(device)->virtual_display;
++   if (!display) return wsi_RegisterDisplayEventEXT(handle, handle_display, event, allocator, out);
++   if (handle_display != lvp_virtual_display_to_handle(display) ||
++       event->displayEvent != VK_DISPLAY_EVENT_TYPE_FIRST_PIXEL_OUT_EXT)
++      return VK_ERROR_UNKNOWN;
++   struct vk_fence *fence;
++   const VkFenceCreateInfo info = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
++   VkResult result = vk_fence_create(&device->vk, &info, allocator, &fence);
++   if (result != VK_SUCCESS) return result;
++   result = lvp_display_sync_create(&device->vk, display, &fence->temporary);
++   if (result == VK_SUCCESS) {
++      struct lvp_display_sync *sync = (void *)fence->temporary;
++      result = lvp_display_sync_request(sync, sync->msc + 1);
++   }
++   if (result == VK_SUCCESS) *out = vk_fence_to_handle(fence);
++   else vk_fence_destroy(&device->vk, fence, allocator);
++   return result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetSwapchainCounterEXT(VkDevice handle, VkSwapchainKHR swapchain,
++                          VkSurfaceCounterFlagBitsEXT counter, uint64_t *out)
++{
++   VK_FROM_HANDLE(lvp_device, device, handle);
++   struct lvp_virtual_display *display = lvp_device_physical(device)->virtual_display;
++   if (!display) return wsi_GetSwapchainCounterEXT(handle, swapchain, counter, out);
++   if (counter != VK_SURFACE_COUNTER_VBLANK_BIT_EXT) return VK_ERROR_UNKNOWN;
++   struct vk_sync *sync = NULL;
++   VkResult result = lvp_display_sync_create(&device->vk, display, &sync);
++   if (result == VK_SUCCESS) {
++      *out = ((struct lvp_display_sync *)sync)->msc;
++      vk_sync_destroy(&device->vk, sync);
++   }
++   return result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_RegisterDeviceEventEXT(VkDevice handle, const VkDeviceEventInfoEXT *event,
++                           const VkAllocationCallbacks *allocator, VkFence *out)
++{
++   VK_FROM_HANDLE(lvp_device, device, handle);
++   if (!lvp_device_physical(device)->virtual_display)
++      return wsi_RegisterDeviceEventEXT(handle, event, allocator, out);
++   if (event->deviceEvent != VK_DEVICE_EVENT_TYPE_DISPLAY_HOTPLUG_EXT) return VK_ERROR_UNKNOWN;
++   struct vk_fence *fence;
++   const VkFenceCreateInfo info = { .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
++   VkResult result = vk_fence_create(&device->vk, &info, allocator, &fence);
++   /* The fixed virtual display cannot be hotplugged. */
++   if (result == VK_SUCCESS) *out = vk_fence_to_handle(fence);
++   return result;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_DisplayPowerControlEXT(VkDevice handle, VkDisplayKHR handle_display,
++                           const VkDisplayPowerInfoEXT *info)
++{
++   VK_FROM_HANDLE(lvp_device, device, handle);
++   struct lvp_virtual_display *display = lvp_device_physical(device)->virtual_display;
++   if (!display) return wsi_DisplayPowerControlEXT(handle, handle_display, info);
++   if (handle_display != lvp_virtual_display_to_handle(display)) return VK_ERROR_UNKNOWN;
++   simple_mtx_lock(&virtual_surface_lock);
++   xcb_generic_error_t *error = NULL;
++   if (display->window) {
++      xcb_void_cookie_t cookie = info->powerState == VK_DISPLAY_POWER_STATE_ON_EXT ?
++         xcb_map_window_checked(display->connection, display->window) :
++         xcb_unmap_window_checked(display->connection, display->window);
++      error = xcb_request_check(display->connection, cookie);
++   }
++   if (!error) display->power_state = info->powerState;
++   simple_mtx_unlock(&virtual_surface_lock);
++   bool failed = error != NULL;
++   free(error);
++   return failed ? VK_ERROR_UNKNOWN : VK_SUCCESS;
++}
++VKAPI_ATTR VkResult VKAPI_CALL
++lvp_GetPhysicalDeviceSurfaceCapabilities2EXT(VkPhysicalDevice physical, VkSurfaceKHR surface,
++                                            VkSurfaceCapabilities2EXT *out)
++{
++   VkSurfaceCapabilitiesKHR caps;
++   VkResult result = lvp_GetPhysicalDeviceSurfaceCapabilitiesKHR(physical, surface, &caps);
++   if (result != VK_SUCCESS) return result;
++   out->minImageCount = caps.minImageCount;
++   out->maxImageCount = caps.maxImageCount;
++   out->currentExtent = caps.currentExtent;
++   out->minImageExtent = caps.minImageExtent;
++   out->maxImageExtent = caps.maxImageExtent;
++   out->maxImageArrayLayers = caps.maxImageArrayLayers;
++   out->supportedTransforms = caps.supportedTransforms;
++   out->currentTransform = caps.currentTransform;
++   out->supportedCompositeAlpha = caps.supportedCompositeAlpha;
++   out->supportedUsageFlags = caps.supportedUsageFlags;
++   out->supportedSurfaceCounters = lvp_is_virtual_surface(surface) ?
++      VK_SURFACE_COUNTER_VBLANK_BIT_EXT : 0;
++   return VK_SUCCESS;
++}
++
++
+ #else
+ static VkResult lvp_virtual_display_init(struct lvp_physical_device *physical) { return VK_SUCCESS; }
+ static void lvp_virtual_display_finish(struct lvp_physical_device *physical) {}
