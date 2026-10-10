@@ -35,10 +35,12 @@ verification succeeds against the certificate in the recovery image's
 the recovery image itself was acquired over official HTTPS and has not received
 independent manufacturer-signature authentication. No update installer ran.
 
-The image actually packages systemd `257.7-2.2`. Its
-[upstream requirements](https://github.com/systemd/systemd/blob/v257/README)
-have a minimum kernel version of 3.15 and recommend 5.4. This makes Frame userspace
-a candidate to test with Pico's 4.19 vendor source; the current Fedora/systemd 259
+The image actually packages systemd `257.7-2.2`. Its shipped binary warns that
+its required kernel baseline is 5.4. A subsequent
+[Pico kernel test](pico-firmware.md#kernel-build-and-stock-driver-dependencies) runs that manager and
+executor as PID 1, verifies cgroup v2 and service isolation, and powers down.
+That limited result makes Frame userspace a candidate for further integration
+with Pico's 4.19 vendor source; the current Fedora/systemd 259
 combination has an [upstream minimum of 5.4](https://github.com/systemd/systemd/blob/v259/README).
 Selected systemd features may still need backports, and
 neither the nominal version floor nor the Frame image proves Pro Eye boot or

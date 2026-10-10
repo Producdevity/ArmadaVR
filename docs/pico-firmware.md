@@ -300,6 +300,21 @@ otherwise dereferences absent Qualcomm boot-information memory. WALT topology
 and missing SoC-information warnings remain. These VM accommodations do not
 establish physical driver compatibility.
 
+The unchanged Pico Linux Image also runs the official Frame repair image's
+systemd `257.7-2.2` as PID 1 in a separate diskless fixture. Its manager and
+executor start a service in cgroup v2 with `NoNewPrivileges`, private network
+and mount namespaces, private temporary files and `ProtectSystem=strict`.
+The probe verifies that a write under `/usr` fails with `EROFS` and its temporary
+file is absent from PID 1's view. Systemd then synchronizes, detaches filesystems
+and powers down. The complete test passes in 5.7 seconds under TCG.
+
+This is a minimal manager/service test, not a boot of the full Frame userspace.
+The shipped binary warns that its required kernel baseline is 5.4. Unsupported
+newer cgroup attributes are logged; optional kmod and BPF libraries are absent
+from this fixture. Android startup, a complete graphical session and production
+service isolation on the Pico kernel still need verification. A version number
+or upstream minimum alone cannot establish those behaviors.
+
 A separate test on the same Linux build loads the unchanged recovery SELinux
 policy. A normal kernel-to-init transition succeeds; the enforcing policy denies
 a root write to a DAC-writable tmpfs file, preserves its bytes and powers off.
@@ -358,7 +373,7 @@ includes vendor graphics and platform code but omits the board DTS directory;
 the [source profile](../profiles/kernel/pico-neo3.json) refuses that incomplete
 source DT build. Authenticated stock trees provide board inputs, but do not
 establish compatibility with the older public source. Frame's actual systemd
-257.7 is a userspace candidate for 4.19;
+257.7 passes the limited manager/service test on 4.19 described above;
 the current Fedora/systemd 259 environment needs a newer kernel or a different
 userspace baseline. See the [Frame firmware comparison](steam-frame.md#october-8-firmware-comparison).
 
