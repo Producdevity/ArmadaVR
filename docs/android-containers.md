@@ -277,3 +277,37 @@ Native Android graphics, OpenXR, actual game saves and physical-device support
 are not established by this software-rendered APK test. Earlier failures and
 original inputs remain intact; physical devices, host filesystem shares and
 USB passthrough were absent from this VM.
+
+## Android OpenXR runtime connection
+
+A native Android test APK now loads Frame SteamVR 2.17.10's Bionic ARM64
+runtime through its delivered OpenXR loader. It creates an instance, discovers
+the simulated HMD and enumerates two 624×624 stereo views. An OpenGL ES 3.0
+context and OpenXR graphics session also initialize successfully.
+
+The runtime uses abstract Unix sockets, which are scoped to a network
+namespace. With SteamVR outside Lepton's private namespace, instance creation
+fails with `XR_ERROR_RUNTIME_FAILURE` and connection refused. Starting the
+owned native backend inside that same private namespace resolves the
+connection. The guest's host network namespace remains separate, and the
+runtime correctly translates the Android client PID. This is a controlled VM
+comparison; persistent Steam/Lepton session orchestration is not implemented.
+
+Stereo rendering remains blocked by the delivered software drivers:
+
+- SwiftShader's GLES implementation lacks the external-memory and semaphore
+  entrypoints used during SteamVR swapchain allocation. Selecting the
+  advertised sRGB format reaches that failure; plain `GL_RGBA8` is unsupported.
+- Its Vulkan 1.1 driver supports opaque-FD color-image import/export, but lacks
+  `VK_KHR_timeline_semaphore` and `VK_KHR_image_format_list` required by this
+  runtime.
+- A headless session starts and exits normally, but its frame calls return
+  zero timestamps. The pose queries therefore fail with `XR_ERROR_TIME_INVALID`;
+  this is not pose or timing acceptance.
+
+Evidence and failed comparisons are retained in
+`output/android-openxr-followup-20261010-v1/evidence-v2`. All 129 archived files
+were checksum-verified. Android shutdown, original launcher hashes, normal VM
+power-off and unchanged parent/kernel/runtime inputs were checked separately.
+These tests retain the private diagnostic init described above and establish
+neither Android stereo rendering nor physical-device readiness.
