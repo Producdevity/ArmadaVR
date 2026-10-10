@@ -326,7 +326,8 @@ def run(args):
     inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")
     inputs["tools/turnip-artifact.py"] = builder.digest(ROOT / "tools/turnip-artifact.py")
     inputs["tools/prepare-quest-firmware.py"] = builder.digest(ROOT / "tools/prepare-quest-firmware.py")
-    image = json.loads(subprocess.check_output([args.engine, "image", "inspect", args.image], text=True))[0]
+    image = json.loads(subprocess.check_output(
+        [args.engine, "image", "inspect", args.image], text=True, timeout=30))[0]
     if image["Architecture"] != "arm64" or image["Os"] != "linux":
         raise ValueError("Root build image must be Linux ARM64")
     export_source = None
