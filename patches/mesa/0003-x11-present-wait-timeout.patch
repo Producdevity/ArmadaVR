@@ -1,0 +1,11 @@
+--- a/src/vulkan/wsi/wsi_common_x11.c
++++ b/src/vulkan/wsi/wsi_common_x11.c
+@@ -2567,7 +2567,7 @@
+       int ret = u_cnd_monotonic_timedwait(&chain->present_progress_cond,
+                                           &chain->present_progress_mutex,
+                                           &abs_timespec);
+-      if (ret == ETIMEDOUT) {
++      if (ret == thrd_timedout) {
+          result = VK_TIMEOUT;
+          break;
+       }

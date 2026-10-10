@@ -30,9 +30,9 @@ SDK libraries, Scout and the ARM64 runtime launcher service.
 
 The [native ARM64 runtime investigation](steamvr-arm64.md) subsequently obtained
 SteamVR 2.17.10 from Valve's Frame repair image. Native virtual devices and Vulkan
-sharing pass; compositor presentation remains blocked by the VM's missing direct
-display and present-wait support. The translated desktop runtime remains a VM
-test baseline.
+sharing pass. A private virtual-display backend now also produces pixel-verified
+native stereo output; presentation timing, validation and maintained integration
+remain open. The translated desktop runtime remains a VM test baseline.
 
 The FEX graphics-provider root filesystem is the verified Arch Linux SquashFS
 from `profiles/vr-runtime.json`, mounted read-only at
@@ -79,7 +79,7 @@ limit or OOM events. This bounded session is not a long-term stability test.
 
 Evidence and failed comparisons remain in `output/library-render-20261010-v1/`.
 Steam library game launch, a reproducible complete image, sustained reliability,
-native Frame composition and physical controller/headset acceptance remain open.
+native Frame integration and physical controller/headset acceptance remain open.
 
 ### Launching the authenticated client
 

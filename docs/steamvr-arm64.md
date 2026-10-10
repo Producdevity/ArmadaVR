@@ -10,6 +10,47 @@ establish native compositor portability or headset performance.
 Valve documents Proton/FEX for Windows x86 games and forwarding graphics calls
 to native libraries in its [Frame compatibility guide](https://partner.steamgames.com/doc/steamhardware/steamframe/compatibility?l=english).
 
+## Native software rendering — October 10, 2026
+
+The unmodified ARM64 server and compositor from Frame's SteamVR 2.17.10 now
+render the stereo test in QEMU. A private Lavapipe candidate supplies a real
+XCB-backed `VK_KHR_display` surface and common WSI present-ID/wait support.
+The compositor creates its swapchain and both distortion meshes, then accepts
+120 stereo submissions with valid virtual poses. Captured 1024 × 512 output
+shows the expected red left eye and blue right eye at both brightness levels.
+Center pixels are `(64, 13, 5)` / `(5, 13, 64)` and
+`(204, 13, 5)` / `(5, 13, 204)`, matching the submitted colors.
+
+This test enables `enableLinuxVulkanAsync` to supply the compositor's compute
+queue. Disabling `motionSmoothing` alone does not prevent Qualcomm optical-flow
+initialization: the perception library aborts on QEMU's hardware identifier.
+Omitting that optional library from a disposable VM copy exercises the
+compositor's existing initialization-failure path, allowing rendering to proceed.
+The acquired runtime and source disk remain unchanged. This is a virtual test
+configuration, not a replacement for headset tracking or optical-flow support.
+
+The investigation also found a Mesa 26.1.8 timeout bug. Its X11 present wait
+compares the C11 condition-variable helper's result with POSIX `ETIMEDOUT`.
+The helper returns `thrd_timedout`, so an ordinary deadline expiry incorrectly
+becomes `VK_ERROR_DEVICE_LOST`. `patches/mesa/0003-x11-present-wait-timeout.patch`
+corrects that comparison. A real presentation regression fails on the old code
+after GPU completion and passes with the correction: all 12 pending waits
+return `VK_TIMEOUT`, later waits complete, and the displayed pixels are correct.
+It passes on ordinary XCB and twice on the virtual display, with no descriptor
+leak or validation errors in those standalone tests.
+
+The native compositor still exceeds its fixed 15 ms wait deadline with software
+rendering. Its bundled validation layer also reports a device-feature-chain
+duplication, a two-image swapchain below the reported minimum, descriptor-array
+and acquire-semaphore errors, plus unknown private presentation structures.
+These are separate from the standalone test's clean result. The virtual-display
+candidate remains private pending contract, lifecycle and integration work.
+Native dashboard, Windows-on-native-runtime, sustained timing, physical drivers
+and boot/recovery acceptance remain open; no flash readiness follows from this
+software result. Evidence and negative comparisons are retained in
+`output/native-wsi-followup-20261010-v1/` and
+`output/frame-native-wsi-20261010-v1/` through `v14/`.
+
 ## Official Frame runtime obtained — October 7, 2026
 
 Valve's [official repair image](https://steamdeck-images.steamos.cloud/recovery/steamframe-oobe-repair-20260922.5153644-0.3.0.img.zip)
