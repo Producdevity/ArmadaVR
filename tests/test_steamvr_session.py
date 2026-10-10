@@ -259,6 +259,75 @@ class SessionTests(unittest.TestCase):
             self.assertTrue(settings["driver_armada_virtual"]["simulateHeadset"])
             self.assertFalse((runtime / "config").exists())
 
+    def native_presentation_fixture(self, root):
+        runtime, bundle = self.native_fixture(root)
+        compositor = runtime / "bin/linuxarm64/vrcompositor"
+        (bundle / "steamvr-presentation.json").write_text(json.dumps({"architecture": "aarch64",
+            "compositor_sha256": hashlib.sha256(compositor.read_bytes()).hexdigest()}))
+        self.native_manifest(bundle)
+        return runtime, bundle
+
+    def test_native_presentation_keeps_device_profile_and_original_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime, bundle = self.native_presentation_fixture(Path(temporary))
+            settings = session.validate_native_inputs(runtime, bundle)
+            original = (bundle / "steamvr-virtual.json").read_bytes()
+            configured = session.prepare_native_presentation(runtime, bundle, settings)
+            self.assertTrue(configured["steamvr"]["startCompositorFromAppLaunch"])
+            self.assertTrue(configured["steamvr"]["enableLinuxVulkanAsync"])
+            self.assertFalse(settings["steamvr"]["startCompositorFromAppLaunch"])
+            self.assertFalse(configured["steamvr"]["activateMultipleDrivers"])
+            self.assertTrue(configured["driver_armada_virtual"]["simulateHeadset"])
+            self.assertEqual((bundle / "steamvr-virtual.json").read_bytes(), original)
+            perception = runtime / "drivers/cv/bin/linuxarm64/libArcturusPerception.so"
+            perception.parent.mkdir(parents=True)
+            perception.write_bytes(b"preserve original")
+            with self.assertRaisesRegex(ValueError, "disposable virtual-test runtime"):
+                session.prepare_native_presentation(runtime, bundle, settings)
+            self.assertEqual(perception.read_bytes(), b"preserve original")
+
+    def test_native_presentation_refuses_unknown_compositor_and_unchecked_profile(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runtime, bundle = self.native_presentation_fixture(Path(temporary))
+            settings = session.validate_native_inputs(runtime, bundle)
+            (runtime / "bin/linuxarm64/vrcompositor").write_bytes(b"different compositor")
+            with self.assertRaisesRegex(ValueError, "verified Frame ARM64 compositor"):
+                session.prepare_native_presentation(runtime, bundle, settings)
+            manifest = json.loads((bundle / "build.json").read_text())
+            del manifest["sha256"]["steamvr-presentation.json"]
+            (bundle / "build.json").write_text(json.dumps(manifest))
+            with self.assertRaisesRegex(ValueError, "checked runtime profile"):
+                session.prepare_native_presentation(runtime, bundle, settings)
+
+    def test_native_monitor_selects_arm64_qt_without_changing_compositor_environment(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            runtime, _bundle = self.native_fixture(root)
+            qt = root / "qt"
+            for name in ("lib/libQt5Core.so.5", "lib/libQt5Gui.so.5", "lib/libQt5Widgets.so.5",
+                         "plugins/platforms/libqxcb.so"):
+                path = qt / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes((runtime / "bin/linuxarm64/vrclient.so").read_bytes())
+            (runtime / "bin/linuxarm64/vrmonitor").write_text("fixture")
+            helper = runtime / "bin/vrwebhelper/linuxarm64/vrwebhelper.sh"
+            helper.parent.mkdir(parents=True)
+            helper.write_text("fixture")
+            env = {"LD_LIBRARY_PATH": "/runtime/lib", "VK_DRIVER_FILES": "/icd.json"}
+            selected = session.native_monitor_environment(runtime, qt, env)
+            self.assertEqual(selected["LD_LIBRARY_PATH"], f"{qt / 'lib'}:/runtime/lib")
+            self.assertEqual(selected["QT_QPA_PLATFORM_PLUGIN_PATH"], str(qt / "plugins"))
+            self.assertEqual(env["LD_LIBRARY_PATH"], "/runtime/lib")
+            self.assertEqual(selected["VK_DRIVER_FILES"], "/icd.json")
+            plugin = qt / "plugins/platforms/libqxcb.so"
+            plugin.write_bytes(plugin.read_bytes()[:18] + b"\x3e\x00")
+            with self.assertRaisesRegex(ValueError, "not AArch64"):
+                session.native_monitor_environment(runtime, qt, env)
+            plugin.unlink()
+            plugin.symlink_to(runtime / "bin/linuxarm64/vrclient.so")
+            with self.assertRaisesRegex(ValueError, "external native Qt"):
+                session.native_monitor_environment(runtime, qt, env)
+
     def test_native_bundle_rejects_modified_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
             runtime, bundle = self.native_fixture(Path(temporary))

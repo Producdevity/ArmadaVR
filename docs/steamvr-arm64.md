@@ -47,9 +47,9 @@ These are separate from the standalone test's clean result. The virtual-display
 backend has since been narrowed to FIFO presentation with a valid two-image
 minimum; that removes the swapchain image-count validation error. The other
 compositor diagnostics remain unresolved.
-Native dashboard interaction, Windows-on-native-runtime, sustained timing,
-physical drivers and boot/recovery acceptance remain open; no flash readiness follows from this
-software result. Evidence and negative comparisons are retained in
+The later tests below add native dashboard interaction and Windows rendering.
+Sustained timing, physical drivers and boot/recovery acceptance remain open;
+no flash readiness follows from this software result. Evidence and negative comparisons are retained in
 `output/native-wsi-followup-20261010-v1/` and
 `output/frame-native-wsi-20261010-v1/` through `v14/`.
 
@@ -115,10 +115,64 @@ the original runtime and Frame firmware remain unchanged.
 Evidence is retained in `output/frame-native-wsi-20261010-v23/` through `v26/`,
 including the missing-library, Qt-symbol and loopback failures. The maintained
 bundle also repeats the exact stereo colors and both-controller input/haptic
-checks. Authenticated Library content and Windows rendering on this native
-backend still require separate acceptance. The monitor
+checks. Authenticated Library content still requires separate native acceptance.
+The monitor
 did not emit the older runtime's Ready marker, so that marker is not counted as
 passed. This result does not establish physical drivers or flash readiness.
+
+### Native launcher and Windows applications
+
+The maintained launcher provides an explicit software presentation mode:
+
+```sh
+python3 /path/to/native-bundle/steamvr-session.py --native-presentation \
+    --runtime /path/to/disposable/SteamVR --bundle /path/to/native-bundle \
+    --icd /path/to/lvp_icd.aarch64.json --native-qt /path/to/qt
+```
+
+The Qt directory must contain compatible ARM64 libraries under `lib/` and the
+XCB platform plugin under `plugins/platforms/`. The X11, CEF and loopback
+requirements above still apply. The default display is private Xvfb;
+`--virtual-display window` selects Xephyr. To run the finite stereo submission
+test instead of the dashboard, replace `--native-qt` with
+`--probe /path/to/native-bundle/steamvr-probe`.
+
+This mode verifies the Frame compositor checksum and the built bundle. It
+requires a disposable runtime copy without the optional Qualcomm perception
+library and never removes that library itself. Device-only checks retain their
+original profile. Presentation enables asynchronous Vulkan and the application's
+compositor initialization path in a temporary profile. Controller preflight stays
+in `--native-devices`: running it before presentation can automatically start a
+second compositor and dashboard, so presentation starts its own components
+directly after room setup. Logs are retained in
+`~/.local/state/armada-vr/steamvr-native.log`.
+
+Windows HelloXR now renders both eyes through FEX and Proton while the server,
+compositor and dashboard run directly as ARM64. Separate fresh backends and
+prefixes pass left- and right-controller trigger input, haptics, dashboard focus,
+return to the application and menu-button exit. The runs submit 403 and 400
+frames respectively and both exit zero. Reviewed captures show the controller
+cube changing size, the native Now Playing dashboard, and the original scene
+restored after dismissal. Each hand's haptic counter increases from 0 to 75.
+
+Two environment distinctions are required. `LVP_VIRTUAL_DISPLAY=1` belongs to
+the compositor; Windows applications use `0` so Wine can request its ordinary
+window-system extensions. `startCompositorFromAppLaunch` must be true for
+OpenXR: disabling it skips client initialization even when the compositor is
+already running, causing a null shared-state lock in the Frame client. The
+native webhelper must also start explicitly because the delivered runtime has
+no x86 webhelper at the path an x86 application attempts to launch.
+
+The Windows environment is still an integration prototype; the maintained
+Windows launcher currently selects the translated backend. Evidence and the
+failed comparisons are retained in `output/frame-native-wsi-20261010-v30/`
+through `v42/`, with reviewed acceptance records in `v41/` and `v42/`.
+The maintained presentation launcher subsequently passes the right-hand Windows
+run with 399 submissions, normal menu exit, and no SteamVR or X server processes
+left after interrupting the launcher. The failed duplicate-startup comparison
+is retained in `v45/`; the corrected run is in `v46/`.
+All original disks, firmware and runtime files remain unchanged. These are
+bounded software tests, not headset performance or installation acceptance.
 
 ## Official Frame runtime obtained — October 7, 2026
 

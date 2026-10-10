@@ -64,6 +64,7 @@ if [[ "$target" == x86_64 ]]; then
     cp profiles/steamvr-presentation.json profiles/steamvr-runtime.json "$out/"
 else
     install -m755 "$work/vulkan-interop" "$work/vulkan-external-sync" "$work/vulkan-external-image" "$out/"
+    cp profiles/steamvr-native-presentation.json "$out/steamvr-presentation.json"
 fi
 sha256sum src/steamvr-probe.cpp src/steamvr-controllers.cpp src/steamvr-headset.h "$sdk/openvr.h" "$sdk/openvr_driver.h" \
     "$out/steamvr-probe" "$out/armada_virtual/bin/$architecture/driver_armada_virtual.so" > "$out/sha256.txt"
@@ -86,7 +87,8 @@ if sys.argv[2] == 'x86_64':
                 'tools/run-steamvr-windows.py', 'tools/fetch-xpresent.py',
                 'patches/xpresent/0001-steamvr-initial-timing.patch']
 else:
-    sources += ['src/vulkan-interop.c', 'tests/vulkan-external-sync.c', 'tests/vulkan-external-image.c']
+    sources += ['src/vulkan-interop.c', 'tests/vulkan-external-sync.c', 'tests/vulkan-external-image.c',
+                'profiles/steamvr-native-presentation.json']
 (out / 'build.json').write_text(json.dumps({'target': 'steamvr-virtual-' + sys.argv[2], 'sha256': files,
     'sources_sha256': {name: hashlib.sha256(Path(name).read_bytes()).hexdigest() for name in sources},
     'openvr': json.loads(Path('profiles/openvr.json').read_text())}, indent=2) + '\n')

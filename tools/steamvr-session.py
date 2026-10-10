@@ -321,15 +321,60 @@ def validate_native_inputs(runtime, bundle):
     return settings
 
 
+def prepare_native_presentation(runtime, bundle, settings):
+    profile_path = bundle / "steamvr-presentation.json"
+    manifest = json.loads((bundle / "build.json").read_text())
+    if "steamvr-presentation.json" not in manifest.get("sha256", {}):
+        raise ValueError("Native presentation requires its checked runtime profile")
+    profile = json.loads(profile_path.read_text())
+    with (runtime / "bin/linuxarm64/vrcompositor").open("rb") as stream:
+        checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+    if profile.get("architecture") != "aarch64" or checksum != profile.get("compositor_sha256"):
+        raise ValueError("Native presentation requires the verified Frame ARM64 compositor")
+    if (runtime / "drivers/cv/bin/linuxarm64/libArcturusPerception.so").exists():
+        raise ValueError("Use a disposable virtual-test runtime copy without libArcturusPerception.so; preserve the original")
+    configured = json.loads(json.dumps(settings))
+    configured["steamvr"].update(enableLinuxVulkanAsync=True, motionSmoothing=False,
+                                startCompositorFromAppLaunch=True)
+    return configured
+
+
+def native_monitor_environment(runtime, qt_root, env):
+    if qt_root is None:
+        raise ValueError("Native dashboard requires --native-qt with compatible lib and plugins directories")
+    runtime, qt_root = runtime.resolve(strict=True), qt_root.resolve(strict=True)
+    for relative in ("lib/libQt5Core.so.5", "lib/libQt5Gui.so.5", "lib/libQt5Widgets.so.5",
+                     "plugins/platforms/libqxcb.so"):
+        path = qt_root / relative
+        if not path.is_file() or not path.resolve().is_relative_to(qt_root):
+            raise ValueError(f"Missing or external native Qt dependency: {relative}")
+        with path.open("rb") as stream:
+            header = stream.read(20)
+        if header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\xb7\x00":
+            raise ValueError(f"Native Qt dependency is not AArch64 ELF: {relative}")
+    for relative in ("bin/linuxarm64/vrmonitor", "bin/vrwebhelper/linuxarm64/vrwebhelper.sh"):
+        path = runtime / relative
+        if not path.is_file() or not path.resolve().is_relative_to(runtime):
+            raise ValueError(f"Missing or external native UI component: {relative}")
+    return env | {"LD_LIBRARY_PATH": f"{qt_root / 'lib'}:{env['LD_LIBRARY_PATH']}",
+                  "QT_QPA_PLATFORM_PLUGIN_PATH": str(qt_root / "plugins"), "QT_QPA_PLATFORM": "xcb"}
+
+
 def run_native(args):
     if platform.system() != "Linux" or platform.machine() not in ("aarch64", "arm64"):
         raise ValueError("Native session requires AArch64 Linux")
     if os.geteuid() == 0:
         raise ValueError("Run native checks as an unprivileged user")
-    if not args.runtime or args.probe or args.resolver or args.debug_compositor or args.virtual_display or args.steam_client:
-        raise ValueError("Native checks require --runtime and do not accept FEX or presentation options")
+    if not args.runtime or args.resolver or args.debug_compositor or args.steam_client:
+        raise ValueError("Native checks require --runtime and do not accept FEX or Steam client options")
+    if not args.native_presentation and (args.probe or args.virtual_display or args.native_qt):
+        raise ValueError("Native display, probe and Qt options require --native-presentation")
     runtime, bundle = args.runtime.resolve(strict=True), args.bundle.resolve(strict=True)
     settings = validate_native_inputs(runtime, bundle)
+    if args.native_presentation:
+        settings = prepare_native_presentation(runtime, bundle, settings)
+        if args.probe and args.probe.resolve() != bundle / "steamvr-probe":
+            raise ValueError("Native presentation must use the probe from its checked bundle")
     if not args.icd.is_file() or not args.render_node.exists():
         raise ValueError("Native checks require an existing Vulkan ICD and DRM render node")
     state = Path.home() / ".local/state/armada-vr"
@@ -363,6 +408,10 @@ def run_native(args):
             with (state / "steamvr-native.log").open("ab", buffering=0) as log:
                 previous = {sig: signal.signal(sig, interrupted) for sig in (signal.SIGINT, signal.SIGTERM)}
                 try:
+                    if args.native_presentation:
+                        env.update(LVP_VIRTUAL_DISPLAY="1", MESA_VK_WSI_SW_PRESENT="1", LIBGL_ALWAYS_SOFTWARE="1")
+                        display, env = start_display(args.virtual_display or "headless", directory / "run", env, log)
+                        processes.append(display)
                     def execute(command, timeout):
                         subprocess.run(command, env=env, cwd=binaries, stdin=subprocess.DEVNULL,
                                        stdout=log, stderr=subprocess.STDOUT, check=True, timeout=timeout)
@@ -372,13 +421,43 @@ def run_native(args):
                         return 0
                     execute([str(bundle / "vulkan-interop")], 20)
                     execute([str(bundle / "vulkan-external-sync")], 20)
-                    processes.append(subprocess.Popen([str(binaries / "vrserver"), "-keepalive"], env=env,
-                        cwd=binaries, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True))
+                    def launch(command, process_env=env):
+                        process = subprocess.Popen(command, env=process_env, cwd=binaries, stdin=subprocess.DEVNULL,
+                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                        processes.append(process)
+                        return process
+                    server = launch([str(binaries / "vrserver"), "-keepalive"])
                     time.sleep(2)
-                    if processes[0].poll() is not None:
+                    if server.poll() is not None:
                         raise RuntimeError("Native vrserver exited before device acceptance")
-                    for mode in ("--setup-room", "--controllers"):
+                    modes = ("--setup-room",) if args.native_presentation else ("--setup-room", "--controllers")
+                    for mode in modes:
                         execute([str(bundle / "steamvr-probe"), str(binaries / "libopenvr_api.so"), mode], 45)
+                    if args.native_presentation:
+                        compositor = launch([str(binaries / "vrcompositor"), "-disablewatchdogs"])
+                        wait_for_startup(processes, directory / "logs/vrcompositor.txt", 0, args.startup_timeout)
+                        execute([str(bundle / "steamvr-probe"), str(binaries / "libopenvr_api.so"), "--connect"], 30)
+                        if args.probe:
+                            execute([str(args.probe.resolve()), str(binaries / "libopenvr_api.so"), "--frames"], 90)
+                            print("Native stereo submissions passed; captured pixels and physical hardware require separate verification.", flush=True)
+                            return 0
+                        monitor_env = native_monitor_environment(runtime, args.native_qt, env)
+                        monitor = launch([str(binaries / "vrmonitor"), "-nokillprocess"], monitor_env)
+                        webhelper = launch([str(runtime / "bin/vrwebhelper/linuxarm64/vrwebhelper.sh"),
+                                            "-lang=en_us", "-forceOnPaint=cpu"])
+                        execute([str(bundle / "steamvr-probe"), str(binaries / "libopenvr_api.so"), "--dashboard"], 65)
+                        print(f"Native virtual dashboard is visible. Registry: {registry}", flush=True)
+                        deadline = time.monotonic() + args.session_timeout
+                        while time.monotonic() < deadline:
+                            if monitor.poll() is not None:
+                                return monitor.returncode
+                            exited = [(name, process.returncode) for name, process in
+                                      (("vrserver", server), ("vrcompositor", compositor),
+                                       ("vrwebhelper", webhelper), ("display", display)) if process.poll() is not None]
+                            if exited:
+                                raise RuntimeError(f"Native SteamVR components exited during the session: {exited}")
+                            time.sleep(0.5)
+                        raise TimeoutError("Native SteamVR session reached its configured lifetime")
                     print("Native virtual devices and Vulkan sharing passed; rendering is not verified.", flush=True)
                     return 0
                 finally:
@@ -394,8 +473,10 @@ def run_native(args):
 
 
 def run(args):
-    if args.native_devices or args.native_preflight:
+    if args.native_devices or args.native_preflight or args.native_presentation:
         return run_native(args)
+    if args.native_qt:
+        raise ValueError("--native-qt requires --native-presentation")
     if args.steam_client and (not args.virtual_display or args.probe):
         raise ValueError("Steam client launch requires the virtual display and cannot run with --probe")
     client = args.client.resolve()
@@ -589,6 +670,8 @@ def main():
     native = parser.add_mutually_exclusive_group()
     native.add_argument("--native-devices", action="store_true", help="Test native ARM64 simulated devices and sharing without starting a compositor")
     native.add_argument("--native-preflight", action="store_true", help="Query native direct-display prerequisites without starting SteamVR")
+    native.add_argument("--native-presentation", action="store_true", help="Run the verified native compositor with the software virtual display")
+    parser.add_argument("--native-qt", type=Path, help="Compatible native Qt root containing lib and plugins directories")
     args = parser.parse_args()
     if not 1 <= args.startup_timeout <= 900 or not 1 <= args.session_timeout <= 14400:
         parser.error("Startup timeout must be 1–900 seconds and session timeout 1–14400 seconds")
