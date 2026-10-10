@@ -293,7 +293,7 @@ connection. The guest's host network namespace remains separate, and the
 runtime correctly translates the Android client PID. This is a controlled VM
 comparison; persistent Steam/Lepton session orchestration is not implemented.
 
-Stereo rendering remains blocked by the delivered software drivers:
+The delivered software drivers do not meet the runtime's requirements:
 
 - SwiftShader's GLES implementation lacks the external-memory and semaphore
   entrypoints used during SteamVR swapchain allocation. Selecting the
@@ -309,5 +309,35 @@ Evidence and failed comparisons are retained in
 `output/android-openxr-followup-20261010-v1/evidence-v2`. All 129 archived files
 were checksum-verified. Android shutdown, original launcher hashes, normal VM
 power-off and unchanged parent/kernel/runtime inputs were checked separately.
-These tests retain the private diagnostic init described above and establish
-neither Android stereo rendering nor physical-device readiness.
+These initial connection tests retain the private diagnostic init described
+above; their results do not establish stereo rendering or device readiness.
+
+## Android Vulkan stereo rendering
+
+A subsequent isolated VM test replaces the software Vulkan driver with a
+private Android build of Mesa 26.1.8 and the repository's Lavapipe sharing
+patches. It uses the installed Android NDK and checksum-pinned Android LLVM
+21.1.8 dependencies. Original Lepton and SteamVR inputs remain unchanged.
+This build is an experimental test input, not an installed product driver.
+
+Android now exposes the required timeline-semaphore and image-format-list
+extensions. The actual Frame Android OpenXR runtime creates both swapchains,
+submits 60 stereo layers with valid view poses, and exits normally. An
+independent observer records 59 compositor presents from the Android client's
+translated host PID. Captured compositor output shows red/blue eyes followed
+by yellow/blue after the application changes its left-eye image. Closing the
+virtual dashboard is required for the scene to gain focus and become visible;
+the earlier obscured comparison is retained as a failure.
+
+This establishes basic Android Vulkan stereo rendering, not usable frame
+timing. Predicted display times jump and then advance by only one nanosecond
+for 56 of 59 intervals. Compositor present-wait errors and implausible dropped
+frame counts also remain. Positive, increasing timestamps alone are therefore
+insufficient timing acceptance.
+
+Evidence is retained in `output/android-mesa-followup-20261010-v1/evidence-v1`
+and `vulkan-rendering-acceptance-v1.json`; all 160 archived files were
+checksum-verified. Android and OpenXR shutdown succeed with the same private
+diagnostic init. GLES integration, controller actions, persistent namespace
+orchestration, matching source-built init, games and physical headset graphics
+still require validation. Neither headset is flash-ready from this result.
