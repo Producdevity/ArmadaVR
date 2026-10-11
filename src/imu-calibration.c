@@ -67,3 +67,79 @@ bool imu_rectify_vector(const float rectification[9], const float offset[3],
         calibrated[axis] = result[axis];
     return true;
 }
+
+static double dot3(const double left[3], const double right[3])
+{
+    return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
+}
+
+bool imu_split_rectification(const double rectification[9], double rotation[9],
+                             double correction[9])
+{
+    if (!rectification || !rotation || !correction || rotation == correction)
+        return false;
+    double scale = 0;
+    for (unsigned i = 0; i < 9; ++i) {
+        if (!isfinite(rectification[i]))
+            return false;
+        scale = fmax(scale, fabs(rectification[i]));
+    }
+    if (scale == 0)
+        return false;
+    double columns[3][3], q[3][3], r[9] = {0};
+    for (unsigned column = 0; column < 3; ++column)
+        for (unsigned row = 0; row < 3; ++row)
+            columns[column][row] = rectification[row * 3 + column] / scale;
+    r[0] = hypot(hypot(columns[0][0], columns[0][1]), columns[0][2]);
+    if (r[0] <= 1e-12)
+        return false;
+    for (unsigned i = 0; i < 3; ++i)
+        q[0][i] = columns[0][i] / r[0];
+    r[1] = dot3(q[0], columns[1]);
+    for (unsigned i = 0; i < 3; ++i)
+        q[1][i] = columns[1][i] - q[0][i] * r[1];
+    double residual = dot3(q[0], q[1]);
+    r[1] += residual;
+    for (unsigned i = 0; i < 3; ++i)
+        q[1][i] -= q[0][i] * residual;
+    r[4] = hypot(hypot(q[1][0], q[1][1]), q[1][2]);
+    if (r[4] <= 1e-12)
+        return false;
+    for (unsigned i = 0; i < 3; ++i)
+        q[1][i] /= r[4];
+    q[2][0] = q[0][1] * q[1][2] - q[0][2] * q[1][1];
+    q[2][1] = q[0][2] * q[1][0] - q[0][0] * q[1][2];
+    q[2][2] = q[0][0] * q[1][1] - q[0][1] * q[1][0];
+    double norm = hypot(hypot(q[2][0], q[2][1]), q[2][2]);
+    if (norm <= 1e-12)
+        return false;
+    for (unsigned i = 0; i < 3; ++i)
+        q[2][i] /= norm;
+    r[2] = dot3(q[0], columns[2]);
+    r[5] = dot3(q[1], columns[2]);
+    r[8] = dot3(q[2], columns[2]);
+    if (r[8] <= 1e-12)
+        return false;
+    for (unsigned row = 0; row < 3; ++row) {
+        for (unsigned column = 0; column < 3; ++column) {
+            double value = 0;
+            for (unsigned k = 0; k < 3; ++k)
+                value += q[k][row] * r[k * 3 + column];
+            if (!isfinite(value) || fabs(value - columns[column][row]) > 1e-12)
+                return false;
+        }
+    }
+    for (unsigned i = 0; i < 9; ++i) {
+        r[i] *= scale;
+        if (!isfinite(r[i]))
+            return false;
+    }
+    if (r[0] <= 0 || r[4] <= 0 || r[8] <= 0)
+        return false;
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned column = 0; column < 3; ++column) {
+            rotation[row * 3 + column] = q[column][row];
+            correction[row * 3 + column] = r[row * 3 + column];
+        }
+    return true;
+}

@@ -130,7 +130,14 @@ converted sensor-event payload.
 
 Trying both routes concurrently yielded raw records but no converted queue
 events. They are therefore captured separately; a same-sample scale comparison
-has not passed. The live analysis supplies explicit candidate scale parameters,
+has not passed. A later test with two independent processes and the queue started
+first produced 7,211 queue events and zero direct records. Direct registration
+and shutdown both returned zero; the probe correctly rejected the empty capture.
+The contention therefore also occurs across clients, not only within one process.
+Both captures and their receipts are in
+`output/quest-imu-parameters-20261011-v1/independent-clients/`.
+
+The live analysis supplies explicit candidate scale parameters,
 including 128 LSB/degree C, and does not claim those values were read from the
 MCU. Reading the active parameters, validating axes with labeled motion, camera
 capture and tracking integration remain required.
@@ -321,6 +328,21 @@ runtime matrices. That mapping, timing corrections and calibration selection
 remain open. Host and ARM64 Linux sanitizer tests also pass 801 temperature
 cases plus input validation, matrix-axis and output-preservation checks.
 
+The constructor also calls a matrix split at ELF `0xae3b90`. Isolated execution
+establishes `matrix = Q * R`: `Q` is a proper rotation and `R` is upper triangular
+with positive diagonal entries. `imu_split_rectification` implements that split
+with row-major inputs/outputs, rejecting reflections, near-singular pivots and
+non-finite results without changing outputs. The stock helper uses column-major
+storage. The maintained implementation agrees with 4,100 original calls,
+including full 3D rotations and all four factory/online accelerometer/gyro
+matrices, within `8.881784197001252e-16` per component. Another 12,288 scale and
+rotation cases plus rejection checks pass host and ARM64 sanitizers.
+
+This resolves the decomposition used by one constructor branch. The active
+branch, the order of its rotation composition and the final camera-to-IMU
+mapping remain unverified; the new helper does not choose them. Sources,
+decompilation and comparisons are in `output/quest-imu-parameters-20261011-v1/`.
+
 ### Earlier configuration and library evidence
 
 The read-only stock file
@@ -349,11 +371,29 @@ Opening camera 50 as the ADB shell succeeds. Bounded YUV capture attempts at
 temporary wake. Their sessions close normally. A subsequent active
 `media.camera` dump stalls, the probe times out, and the virtual-camera provider
 then exits. The normal stock reboot restores all three camera IDs and an idle
-bridge on the same firmware with verified boot green. No frame was obtained;
-repeat capture should first use a proper passthrough-enabled application, as
-required by Meta's [Camera API prerequisites](https://developers.meta.com/vr/documentation/spatial-sdk/spatial-sdk-pca-overview/).
+bridge on the same firmware with verified boot green. No shell-probe frame was
+obtained. Meta's [Camera API prerequisites](https://developers.meta.com/vr/documentation/spatial-sdk/spatial-sdk-pca-overview/)
+require passthrough to be enabled.
 Do not repeat the active camera dump. Metadata, probe sources, failures and
 recovery receipts remain in `output/quest-live-sensors-20261011-v1/`.
+
+A subsequent bounded foreground Android diagnostic, with the passthrough
+feature, both camera permissions, a preview surface and a YUV image reader,
+received nine actual 1280x960 frames from camera 50. Its setup follows Meta's
+[native Android sample](https://github.com/meta-quest/Meta-Passthrough-Camera-API-Samples/tree/f079db625e3bb60a811d4f36f6af200cb83e330b).
+It records image timestamps, exposure metadata and sampled brightness, without
+saving images. Capture ends when Android pauses the activity; the bridge then
+returns to its stopped state without a reboot. The short capture does not
+establish sustained frame rate, camera-to-IMU synchronization or image quality.
+
+Two launches after incremental APK replacement did not reach application
+startup. A normal APK replacement reached startup, but Android paused it before
+creating the preview surface. A system Guardian dialog was active around these
+attempts; its causal role remains an inference. Camera 51 and repeatable sustained
+capture still require a foreground test with the headset worn. App sources,
+APKs, lifecycle logs and original measurements are retained under the private
+`camera-app/` evidence directory. The diagnostic is stopped; stock firmware and
+verified boot remain unchanged.
 
 ### Exact-build stock interface evidence
 
