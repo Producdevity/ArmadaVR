@@ -206,6 +206,33 @@ integration requirements. No physical camera image or tracking pose is validated
 by this mathematical comparison. Private analysis is retained in
 `output/quest-tracking-524-20261011-v1/calibration-analysis/`.
 
+### Temperature offsets and IMU rectification
+
+The same tracking library contains `viper::PiecewiseLinearTemperatureImuModel`.
+Its sample method at ELF `0x1f0f670` interpolates the three raw offset components
+linearly between neighboring temperature rows, clamps to the nearest endpoint
+outside the table, and then computes `rectification * (raw - offset)`. A
+one-row table gives a constant offset. Accelerometer and gyroscope use separate
+tables and matrices. The constructor copies float matrices; the sample method
+uses their column-major internal representation.
+
+[`imu-calibration.c`](../src/imu-calibration.c) provides checked temperature lookup
+and vector rectification with an explicit row-major matrix API. It rejects
+non-finite input, unordered tables and arithmetic overflow without changing the
+output. Unlike stock's first-row fallback for non-finite temperature, the new
+helper rejects that sample. A caller must explicitly convert the calibration
+into the agreed units and frame before using these functions.
+
+Comparisons cover 20,036 original stock samples, or 40,072 acceleration/gyro
+vectors, including the unit's full temperature tables, exact row temperatures,
+both out-of-range endpoints and constant tables. The largest component
+difference is `1.9073486328125e-6`, within float rounding. Both implementations
+receive the same explicitly prepared matrices; this does not prove how the
+stock JSON parser maps `DeviceFromImu` and `RectificationMatrix` into those
+runtime matrices. That mapping, timing corrections and calibration selection
+remain open. Host and ARM64 Linux sanitizer tests also pass 801 temperature
+cases plus input validation, matrix-axis and output-preservation checks.
+
 ### Earlier configuration and library evidence
 
 The read-only stock file
