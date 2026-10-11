@@ -1,0 +1,18 @@
+--- a/liblepton/liblepton.sh
++++ b/liblepton/liblepton.sh
+@@ -72,7 +72,14 @@
+         println "Clearing baked app data due to ${REASON}"
+ 
+         prepare_baked_data_for_removal $@
+-        rm -rf "$(get_baked_app_data_dir $@)"
++        local BAKED_DATA_DIR="$(get_baked_app_data_dir "$@")"
++        if [[ -L "${BAKED_DATA_DIR}" ]]; then
++            return 1
++        fi
++        if [[ -d "${BAKED_DATA_DIR}" ]]; then
++            chmod -R u+rwX -- "${BAKED_DATA_DIR}" || return
++        fi
++        rm -rf -- "${BAKED_DATA_DIR}"
+     fi
+ }
+ 

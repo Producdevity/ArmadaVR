@@ -144,8 +144,8 @@ def prepare(args):
     if header[:6] != b"\x7fELF\x02\x01" or header[16:20] != b"\x03\x00\xb7\x00":
         raise ValueError("Android init must be a native ARM64 position-independent ELF")
     patches = patch_identity()
-    if len(patches) != 10:
-        raise ValueError("Expected the ten reviewed Lepton patches")
+    if len(patches) != 11:
+        raise ValueError("Expected the eleven reviewed Lepton patches")
     replacements = {}
     with tempfile.TemporaryDirectory(prefix="armada-lepton-") as temporary:
         work = Path(temporary)

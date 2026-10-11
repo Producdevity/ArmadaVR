@@ -17,7 +17,7 @@ Expected original launcher files:
 | `liblepton/baking.sh` | `e5d11e2c3027f1a067225fd6141bbd95fe527734290cac38c722ed42d056c4b5` |
 
 From the execution-copy directory, check the original hashes and run
-`git apply --check` with all ten patches before applying them in numbered order. Refuse another
+`git apply --check` with all eleven patches before applying them in numbered order. Refuse another
 launcher version rather than applying with fuzz or assuming compatibility.
 
 The shared-memory patch uses memfd because this launcher does not mount ashmem
@@ -110,6 +110,13 @@ repair that binary. The [Android init source patch](../android-init/README.md)
 changes that terminal call to `_exit(0)`. A complete source-built init now passes
 the baseline comparison, APK input/save/restart and Android GLES/Vulkan OpenXR
 tests in the VM. Both corrections are needed for clean default cleanup.
+
+The final cleanup patch makes directories owner-searchable before discarding
+baked data. Android can leave `ssh/empty` at mode `0600`; a FUSE overlay marker
+inside it then survives `rm -rf` with a permission error. The permission change
+applies only when baked data is being deleted. Explicit retention remains
+unchanged, a symlink at the baked-data root is refused, and recursive chmod
+does not follow symlinks encountered inside the tree.
 The reconstructed engineering build is separate from the original acquired
 image; Valve's exact resolved image manifest and release integration remain open.
 
