@@ -177,3 +177,39 @@ bool syncboss_imu_decode_direct(const void *data, size_t length, unsigned versio
     *record = result;
     return true;
 }
+
+enum syncboss_imu_stream_status syncboss_imu_stream_accept(
+    struct syncboss_imu_stream *stream, const struct syncboss_imu_direct_record *record,
+    int64_t now_ns, int64_t max_age_ns, uint32_t *dropped)
+{
+    if (!stream || !record || !dropped || max_age_ns <= 0 || now_ns < 0 ||
+        record->counter == 0 || record->sample.device_id != 0 ||
+        record->timestamp_ns < 0 || record->delivery_ns < record->timestamp_ns ||
+        now_ns < record->delivery_ns || !isfinite(record->sample.temperature_c))
+        return SYNCBOSS_IMU_INVALID;
+    for (unsigned axis = 0; axis < 3; ++axis)
+        if (!isfinite(record->sample.acceleration_m_s2[axis]) ||
+            !isfinite(record->sample.angular_velocity_rad_s[axis]))
+            return SYNCBOSS_IMU_INVALID;
+    if (now_ns - record->timestamp_ns > max_age_ns)
+        return SYNCBOSS_IMU_STALE;
+    uint32_t missing = 0;
+    if (stream->initialized) {
+        uint64_t distance = record->counter >= stream->counter ?
+            record->counter - stream->counter :
+            (uint64_t)UINT32_MAX - stream->counter + record->counter;
+        if (distance == 0 || distance >= UINT64_C(0x80000000) ||
+            record->sample.timestamp_ticks <= stream->timestamp_ticks ||
+            record->timestamp_ns <= stream->timestamp_ns ||
+            record->delivery_ns < stream->delivery_ns)
+            return SYNCBOSS_IMU_OUT_OF_ORDER;
+        missing = (uint32_t)(distance - 1);
+    }
+    stream->initialized = true;
+    stream->counter = record->counter;
+    stream->timestamp_ticks = record->sample.timestamp_ticks;
+    stream->timestamp_ns = record->timestamp_ns;
+    stream->delivery_ns = record->delivery_ns;
+    *dropped = missing;
+    return SYNCBOSS_IMU_ACCEPTED;
+}

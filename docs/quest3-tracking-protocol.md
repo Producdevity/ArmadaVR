@@ -152,6 +152,21 @@ offset underflow/overflow, both supported driver headers and all four payload
 versions. Live capture is stock Android driver evidence, not native ArmadaVR
 boot or physical tracking acceptance.
 
+`syncboss_imu_stream_accept` provides a separate gate before tracking consumption.
+It rejects future or inverted timestamps, non-finite samples, duplicate/reordered
+counters, MCU-clock regressions and samples older than a caller-supplied limit.
+Accepted counter gaps report missing records, including the nonzero-counter wrap
+from `UINT32_MAX` to 1. Rejection leaves the previous stream state intact; a new
+channel or MCU restart requires an explicit reset. It does not infer clock
+freshness from unchanged offsets or silently join different channel lifetimes.
+
+Replay of all 12,032 live records passes with a 5 ms age limit and each recorded
+delivery time as simulated consumption time. Injected duplicates and stale
+records are rejected, and 87 deliberately removed records are counted exactly.
+This is replay validation, not a measured real-time tracking consumer. Synthetic
+sanitizer tests additionally exercise counter wrap, invalid inputs and timestamp
+limits. The preserved replay is `output/quest-live-sensors-20261011-v1/stream-replay.json`.
+
 [`syncboss_direct_channel_mcu_defs.h`](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/mcu/syncboss/syncboss_direct_channel_mcu_defs.h)
 defines `SPI_PACKET_TYPE_IMU_DATA` as **80** and restricts that direct-channel
 implementation's supported packet range to this identifier. This is an upstream

@@ -60,4 +60,28 @@ bool syncboss_imu_decode_direct(const void *data, size_t length, unsigned versio
                                 const struct syncboss_imu_parameters *parameters,
                                 struct syncboss_imu_direct_record *record);
 
+struct syncboss_imu_stream {
+    bool initialized;
+    uint32_t counter;
+    uint64_t timestamp_ticks;
+    int64_t timestamp_ns;
+    int64_t delivery_ns;
+};
+
+enum syncboss_imu_stream_status {
+    SYNCBOSS_IMU_ACCEPTED,
+    SYNCBOSS_IMU_INVALID,
+    SYNCBOSS_IMU_STALE,
+    SYNCBOSS_IMU_OUT_OF_ORDER,
+};
+
+/* Zero-initialize a new channel's stream. now_ns must use CLOCK_MONOTONIC.
+ * max_age_ns bounds capture-to-consumption age; it must be positive. The caller
+ * serializes access. Accepted counter gaps report lost records, including across
+ * UINT32_MAX -> 1. Rejected records change neither stream nor dropped. A new
+ * channel or MCU reset requires an explicit stream reset by the caller. */
+enum syncboss_imu_stream_status syncboss_imu_stream_accept(
+    struct syncboss_imu_stream *stream, const struct syncboss_imu_direct_record *record,
+    int64_t now_ns, int64_t max_age_ns, uint32_t *dropped);
+
 #endif

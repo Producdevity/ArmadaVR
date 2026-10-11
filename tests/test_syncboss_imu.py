@@ -29,3 +29,6 @@ class SyncbossImuTests(unittest.TestCase):
 
     def test_direct_decoder(self):
         self.run_fixture("syncboss-direct", "direct-channel framing and clock checks passed")
+
+    def test_stream_ordering(self):
+        self.run_fixture("syncboss-stream", "stream freshness and ordering checks passed")
