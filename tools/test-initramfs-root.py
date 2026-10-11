@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 import time
@@ -27,6 +28,10 @@ def machine_options(build, accel):
     accel = accel or ("hvf" if platform.system() == "Darwin" else "tcg")
     return ["-machine", "virt", "-accel", accel,
             "-cpu", "host" if accel in ("hvf", "kvm") else "max", "-smp", "2", "-m", "1024"]
+
+
+def service_failures(log):
+    return sorted(set(re.findall(r"([\w@.:-]+\.service): Failed (?:at step|with result)", log)))
 
 
 def run(args):
@@ -109,6 +114,9 @@ def run(args):
             case["elapsed_seconds"] = round(time.monotonic() - started, 3)
             case["backing_image_unchanged"] = builder.digest(disk) == report["root_sha256"]
             log = (output / (name + ".log")).read_text(errors="replace")
+            case["service_failures"] = service_failures(log)
+            if case["service_failures"]:
+                raise RuntimeError(f"Root handoff {name} has failed services: {', '.join(case['service_failures'])}")
             passed = "ARMADA_ROOT_OVERLAY_PASS" in log
             expected = passed if name == "overlay" else (
                 not passed and "/dev/disk/by-label/absent-root does not exist" in log and "Powering off." in log)

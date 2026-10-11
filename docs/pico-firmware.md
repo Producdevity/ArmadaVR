@@ -310,15 +310,33 @@ for NULL while preserving `earlycon=off`. Three isolated boots with bare,
 explicit PL011 and off arguments each reach the Frame service probe described
 below and shut down normally. The original panic remains in the local evidence.
 
-The current Fedora initramfs has two additional compatibility failures on 4.19.
+The current Fedora initramfs exposed two additional compatibility failures on 4.19.
 A syscall trace shows `statx` succeeds without mount IDs, followed by an
 unsupported file-handle lookup and an unavailable `/proc/self/fdinfo` fallback
 before procfs is mounted. Systemd cannot mount its early API filesystems.
 A diagnostic-only procfs pre-mount advances startup, but every service executor
 fails: glibc's `pidfd_spawn` probes `waitid(P_PIDFD)`, which returns `EINVAL`,
-and reports `ENOSYS` to systemd. The production initramfs has no pre-mount
-workaround. Full root handoff and Lepton startup remain unverified on this
-kernel; successful static or Frame service tests do not cover these failures.
+and reports `ENOSYS` to systemd.
+
+The Linux variant now backports mount IDs and mount-root attributes from
+upstream Linux, preserving the 256-byte `statx` ABI. Process descriptors use
+the final Linux 5.4 stable implementation, adapted to Pico's fork and signal
+interfaces: open, clone, poll, signal and `waitid(P_PIDFD)` work in both ARM64
+and ARM32 compatibility mode. The virtual regression covers permission and
+signal checks, close-on-exec, repeated exit/reap cycles, bad-pointer and full
+descriptor-table cleanup, and a thread-group leader exiting before its last
+thread. The older Pico kernel fails the negative control; the Quest kernel and
+patched Pico kernel pass. This does not add `clone3` or change the vendor-only
+build.
+
+Fedora now mounts its API filesystems, starts service executors, and switches
+to a RAM overlay root with zero backing-disk writes. The overall boot test is
+still rejected: systemd259 credential setup calls `fsopen`, which this kernel
+does not implement. Journal, sysctl and temporary-file setup consequently fail.
+The missing-root case powers off without changing its disk, but its expected
+diagnostic is unavailable because logging failed. The test runner now rejects
+failed services even when the root-handoff marker is present. No production
+pre-mount workaround or disabled credential protection is used.
 
 The unchanged Pico Linux Image also runs the official Frame repair image's
 systemd `257.7-2.2` as PID 1 in a separate diskless fixture. Its manager and
@@ -327,6 +345,12 @@ and mount namespaces, private temporary files and `ProtectSystem=strict`.
 The probe verifies that a write under `/usr` fails with `EROFS` and its temporary
 file is absent from PID 1's view. Systemd then synchronizes, detaches filesystems
 and powers down. The complete test passes in 5.7 seconds under TCG.
+
+The same Valve binaries also pass a credential-isolation test on the patched
+virtual kernel: the service reads its supplied credential, attempts to truncate
+it and receives `EROFS`, then passes the existing namespace and filesystem
+checks before normal shutdown. This 5.6-second test establishes a compatible
+credential path, not a complete Frame root filesystem boot.
 
 This is a minimal manager/service test, not a boot of the full Frame userspace.
 The shipped binary warns that its required kernel baseline is 5.4. Unsupported

@@ -1,0 +1,758 @@
+Subject: [PATCH] pid: backport process descriptors for Linux service startup
+
+Adapt pidfd open, clone, poll, signal and wait support from Linux 5.4
+stable 9e3157c56ec7917e6a80ea53a8bd752e0037f2cb. This includes delayed
+fd installation, cgroup failure cleanup and exit-before-notify ordering.
+Original work: Christian Brauner, Jann Horn, Joel Fernandes, Daniel
+Colascione, Suren Baghdasaryan and upstream contributors.
+
+Keep Pico's existing fork signature and 128-byte siginfo representation.
+Wire ARM64 and ARM32 compatibility numbers without adding clone3.
+Both pidfd signal paths retain existing task permission checks.
+
+--- a/arch/arm64/include/asm/unistd.h
++++ b/arch/arm64/include/asm/unistd.h
+@@ -49,7 +49,7 @@
+ #define __ARM_NR_compat_set_tls		(__ARM_NR_COMPAT_BASE + 5)
+ #define __ARM_NR_COMPAT_END		(__ARM_NR_COMPAT_BASE + 0x800)
+ 
+-#define __NR_compat_syscalls		399
++#define __NR_compat_syscalls		435
+ #endif
+ 
+ #define __ARCH_WANT_SYS_CLONE
+--- a/arch/arm64/include/asm/unistd32.h
++++ b/arch/arm64/include/asm/unistd32.h
+@@ -820,6 +820,11 @@
+ #define __NR_rseq 398
+ __SYSCALL(__NR_rseq, sys_rseq)
+ 
++#define __NR_pidfd_send_signal 424
++__SYSCALL(__NR_pidfd_send_signal, sys_pidfd_send_signal)
++#define __NR_pidfd_open 434
++__SYSCALL(__NR_pidfd_open, sys_pidfd_open)
++
+ /*
+  * Please add new compat syscalls above this comment and update
+  * __NR_compat_syscalls in asm/unistd.h.
+--- a/fs/proc/base.c
++++ b/fs/proc/base.c
+@@ -3604,6 +3604,14 @@
+ 	return d_splice_alias(inode, dentry);
+ }
+ 
++struct pid *tgid_pidfd_to_pid(const struct file *file)
++{
++	if (file->f_op != &proc_tgid_base_operations)
++		return ERR_PTR(-EBADF);
++
++	return proc_pid(file_inode(file));
++}
++
+ struct dentry *proc_pid_lookup(struct inode *dir, struct dentry * dentry, unsigned int flags)
+ {
+ 	struct task_struct *task;
+--- a/include/linux/pid.h
++++ b/include/linux/pid.h
+@@ -2,6 +2,7 @@
+ #ifndef _LINUX_PID_H
+ #define _LINUX_PID_H
+ 
++#include <linux/wait.h>
+ #include <linux/rculist.h>
+ 
+ enum pid_type
+@@ -60,12 +61,17 @@
+ 	unsigned int level;
+ 	/* lists of tasks that use this pid */
+ 	struct hlist_head tasks[PIDTYPE_MAX];
++	wait_queue_head_t wait_pidfd;
+ 	struct rcu_head rcu;
+ 	struct upid numbers[1];
+ };
+ 
+ extern struct pid init_struct_pid;
+ 
++extern const struct file_operations pidfd_fops;
++struct file;
++extern struct pid *pidfd_pid(const struct file *file);
++
+ static inline struct pid *get_pid(struct pid *pid)
+ {
+ 	if (pid)
+@@ -75,6 +81,11 @@
+ 
+ extern void put_pid(struct pid *pid);
+ extern struct task_struct *pid_task(struct pid *pid, enum pid_type);
++static inline bool pid_has_task(struct pid *pid, enum pid_type type)
++{
++	return !hlist_empty(&pid->tasks[type]);
++}
++
+ extern struct task_struct *get_pid_task(struct pid *pid, enum pid_type);
+ 
+ extern struct pid *get_task_pid(struct task_struct *task, enum pid_type type);
+--- a/include/linux/proc_fs.h
++++ b/include/linux/proc_fs.h
+@@ -74,6 +74,8 @@
+ 						    proc_write_t write,
+ 						    void *data);
+ 
++extern struct pid *tgid_pidfd_to_pid(const struct file *file);
++
+ #else /* CONFIG_PROC_FS */
+ 
+ static inline void proc_root_init(void)
+@@ -114,6 +116,11 @@
+ #define proc_create_net(name, mode, parent, state_size, ops) ({NULL;})
+ #define proc_create_net_single(name, mode, parent, show, data) ({NULL;})
+ 
++static inline struct pid *tgid_pidfd_to_pid(const struct file *file)
++{
++	return ERR_PTR(-EBADF);
++}
++
+ #endif /* CONFIG_PROC_FS */
+ 
+ #ifdef CONFIG_PROC_UID
+--- a/include/linux/syscalls.h
++++ b/include/linux/syscalls.h
+@@ -618,6 +618,9 @@
+ /* kernel/signal.c */
+ asmlinkage long sys_restart_syscall(void);
+ asmlinkage long sys_kill(pid_t pid, int sig);
++asmlinkage long sys_pidfd_open(pid_t pid, unsigned int flags);
++asmlinkage long sys_pidfd_send_signal(int pidfd, int sig,
++				      siginfo_t __user *info, unsigned int flags);
+ asmlinkage long sys_tkill(pid_t pid, int sig);
+ asmlinkage long sys_tgkill(pid_t tgid, pid_t pid, int sig);
+ asmlinkage long sys_sigaltstack(const struct sigaltstack __user *uss,
+--- a/include/uapi/asm-generic/unistd.h
++++ b/include/uapi/asm-generic/unistd.h
+@@ -737,8 +737,13 @@
+ #define __NR_rseq 293
+ __SYSCALL(__NR_rseq, sys_rseq)
+ 
++#define __NR_pidfd_send_signal 424
++__SYSCALL(__NR_pidfd_send_signal, sys_pidfd_send_signal)
++#define __NR_pidfd_open 434
++__SYSCALL(__NR_pidfd_open, sys_pidfd_open)
++
+ #undef __NR_syscalls
+-#define __NR_syscalls 294
++#define __NR_syscalls 435
+ 
+ /*
+  * 32 bit systems traditionally used different
+--- a/include/uapi/linux/sched.h
++++ b/include/uapi/linux/sched.h
+@@ -10,6 +10,7 @@
+ #define CLONE_FS	0x00000200	/* set if fs info shared between processes */
+ #define CLONE_FILES	0x00000400	/* set if open files shared between processes */
+ #define CLONE_SIGHAND	0x00000800	/* set if signal handlers and blocked signals shared */
++#define CLONE_PIDFD	0x00001000	/* set if a pidfd should be placed in parent */
+ #define CLONE_PTRACE	0x00002000	/* set if we want to let tracing continue on the child too */
+ #define CLONE_VFORK	0x00004000	/* set if the parent wants the child to wake it up on mm_release */
+ #define CLONE_PARENT	0x00008000	/* set if we want to have the same parent as the cloner */
+--- a/include/uapi/linux/wait.h
++++ b/include/uapi/linux/wait.h
+@@ -17,6 +17,7 @@
+ #define P_ALL		0
+ #define P_PID		1
+ #define P_PGID		2
++#define P_PIDFD		3
+ 
+ 
+ #endif /* _UAPI_LINUX_WAIT_H */
+--- a/kernel/exit.c
++++ b/kernel/exit.c
+@@ -719,6 +719,7 @@
+ 	if (group_dead)
+ 		kill_orphaned_pgrp(tsk->group_leader, NULL);
+ 
++	tsk->exit_state = EXIT_ZOMBIE;
+ 	if (unlikely(tsk->ptrace)) {
+ 		int sig = thread_group_leader(tsk) &&
+ 				thread_group_empty(tsk) &&
+@@ -732,9 +733,10 @@
+ 		autoreap = true;
+ 	}
+ 
+-	tsk->exit_state = autoreap ? EXIT_DEAD : EXIT_ZOMBIE;
+-	if (tsk->exit_state == EXIT_DEAD)
++	if (autoreap) {
++		tsk->exit_state = EXIT_DEAD;
+ 		list_add(&tsk->ptrace_entry, &dead);
++	}
+ 
+ 	/* mt-exec, de_thread() is waiting for group leader */
+ 	if (unlikely(tsk->signal->notify_count < 0))
+@@ -1551,6 +1553,23 @@
+ 	return retval;
+ }
+ 
++static struct pid *pidfd_get_pid(unsigned int fd)
++{
++	struct fd f;
++	struct pid *pid;
++
++	f = fdget(fd);
++	if (!f.file)
++		return ERR_PTR(-EBADF);
++
++	pid = pidfd_pid(f.file);
++	if (!IS_ERR(pid))
++		get_pid(pid);
++
++	fdput(f);
++	return pid;
++}
++
+ static long kernel_waitid(int which, pid_t upid, struct waitid_info *infop,
+ 			  int options, struct rusage *ru)
+ {
+@@ -1573,18 +1592,28 @@
+ 		type = PIDTYPE_PID;
+ 		if (upid <= 0)
+ 			return -EINVAL;
++
++		pid = find_get_pid(upid);
+ 		break;
+ 	case P_PGID:
+ 		type = PIDTYPE_PGID;
+ 		if (upid <= 0)
+ 			return -EINVAL;
++
++		pid = find_get_pid(upid);
++		break;
++	case P_PIDFD:
++		type = PIDTYPE_PID;
++		if (upid < 0)
++			return -EINVAL;
++
++		pid = pidfd_get_pid(upid);
++		if (IS_ERR(pid))
++			return PTR_ERR(pid);
+ 		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+-
+-	if (type < PIDTYPE_MAX)
+-		pid = find_get_pid(upid);
+ 
+ 	wo.wo_type	= type;
+ 	wo.wo_pid	= pid;
+--- a/kernel/fork.c
++++ b/kernel/fork.c
+@@ -11,6 +11,9 @@
+  * management can be a bitch. See 'mm/memory.c': 'copy_page_range()'
+  */
+ 
++#include <linux/poll.h>
++#include <linux/seq_file.h>
++#include <linux/anon_inodes.h>
+ #include <linux/slab.h>
+ #include <linux/sched/autogroup.h>
+ #include <linux/sched/mm.h>
+@@ -1688,6 +1691,124 @@
+ 		free_task(tsk);
+ }
+ 
++struct pid *pidfd_pid(const struct file *file)
++{
++	if (file->f_op == &pidfd_fops)
++		return file->private_data;
++
++	return ERR_PTR(-EBADF);
++}
++
++static int pidfd_release(struct inode *inode, struct file *file)
++{
++	struct pid *pid = file->private_data;
++
++	file->private_data = NULL;
++	put_pid(pid);
++	return 0;
++}
++
++#ifdef CONFIG_PROC_FS
++static void pidfd_show_fdinfo(struct seq_file *m, struct file *f)
++{
++	struct pid *pid = f->private_data;
++	struct pid_namespace *ns;
++	pid_t nr = -1;
++
++	if (likely(pid_has_task(pid, PIDTYPE_PID))) {
++		ns = proc_pid_ns(file_inode(m->file));
++		nr = pid_nr_ns(pid, ns);
++	}
++
++	seq_put_decimal_ll(m, "Pid:\t", nr);
++	seq_putc(m, '\n');
++}
++#endif
++
++/*
++ * Poll support for process exit notification.
++ */
++static __poll_t pidfd_poll(struct file *file, struct poll_table_struct *pts)
++{
++	struct task_struct *task;
++	struct pid *pid = file->private_data;
++	__poll_t poll_flags = 0;
++
++	poll_wait(file, &pid->wait_pidfd, pts);
++
++	rcu_read_lock();
++	task = pid_task(pid, PIDTYPE_PID);
++	/*
++	 * Inform pollers only when the whole thread group exits.
++	 * If the thread group leader exits before all other threads in the
++	 * group, then poll(2) should block, similar to the wait(2) family.
++	 */
++	if (!task || (task->exit_state && thread_group_empty(task)))
++		poll_flags = EPOLLIN | EPOLLRDNORM;
++	rcu_read_unlock();
++
++	return poll_flags;
++}
++
++const struct file_operations pidfd_fops = {
++	.release = pidfd_release,
++	.poll = pidfd_poll,
++#ifdef CONFIG_PROC_FS
++	.show_fdinfo = pidfd_show_fdinfo,
++#endif
++};
++
++/**
++ * __pidfd_prepare - allocate a new pidfd_file and reserve a pidfd
++ * @pid:   the struct pid for which to create a pidfd
++ * @flags: flags of the new @pidfd
++ * @pidfd: the pidfd to return
++ *
++ * Allocate a new file that stashes @pid and reserve a new pidfd number in the
++ * caller's file descriptor table. The pidfd is reserved but not installed yet.
++
++ * The helper doesn't perform checks on @pid which makes it useful for pidfds
++ * created via CLONE_PIDFD where @pid has no task attached when the pidfd and
++ * pidfd file are prepared.
++ *
++ * If this function returns successfully the caller is responsible to either
++ * call fd_install() passing the returned pidfd and pidfd file as arguments in
++ * order to install the pidfd into its file descriptor table or they must use
++ * put_unused_fd() and fput() on the returned pidfd and pidfd file
++ * respectively.
++ *
++ * This function is useful when a pidfd must already be reserved but there
++ * might still be points of failure afterwards and the caller wants to ensure
++ * that no pidfd is leaked into its file descriptor table.
++ *
++ * Return: On success, a reserved pidfd is returned from the function and a new
++ *         pidfd file is returned in the last argument to the function. On
++ *         error, a negative error code is returned from the function and the
++ *         last argument remains unchanged.
++ */
++static int __pidfd_prepare(struct pid *pid, unsigned int flags, struct file **ret)
++{
++	int pidfd;
++	struct file *pidfd_file;
++
++	if (flags & ~(O_NONBLOCK | O_RDWR | O_CLOEXEC))
++		return -EINVAL;
++
++	pidfd = get_unused_fd_flags(O_RDWR | O_CLOEXEC);
++	if (pidfd < 0)
++		return pidfd;
++
++	pidfd_file = anon_inode_getfile("[pidfd]", &pidfd_fops, pid,
++					flags | O_RDWR | O_CLOEXEC);
++	if (IS_ERR(pidfd_file)) {
++		put_unused_fd(pidfd);
++		return PTR_ERR(pidfd_file);
++	}
++	get_pid(pid); /* held by pidfd_file now */
++	*ret = pidfd_file;
++	return pidfd;
++}
++
+ /*
+  * This creates a new process as a copy of the old one,
+  * but does not actually start it yet.
+@@ -1700,15 +1821,17 @@
+ 					unsigned long clone_flags,
+ 					unsigned long stack_start,
+ 					unsigned long stack_size,
++					int __user *parent_tidptr,
+ 					int __user *child_tidptr,
+ 					struct pid *pid,
+ 					int trace,
+ 					unsigned long tls,
+ 					int node)
+ {
+-	int retval;
++	int pidfd = -1, retval;
+ 	struct task_struct *p;
+ 	struct multiprocess_signals delayed;
++	struct file *pidfile = NULL;
+ 
+ 	/*
+ 	 * Don't allow sharing the root directory with processes in a different
+@@ -1755,6 +1878,10 @@
+ 				current->nsproxy->pid_ns_for_children))
+ 			return ERR_PTR(-EINVAL);
+ 	}
++
++	if ((clone_flags & CLONE_PIDFD) &&
++	    (clone_flags & (CLONE_DETACHED | CLONE_PARENT_SETTID | CLONE_THREAD)))
++		return ERR_PTR(-EINVAL);
+ 
+ 	/*
+ 	 * Force any signals received before this point to be delivered
+@@ -1962,6 +2089,23 @@
+ 		}
+ 	}
+ 
++	/*
++	 * This has to happen after we've potentially unshared the file
++	 * descriptor table (so that the pidfd doesn't leak into the child
++	 * if the fd table isn't shared).
++	 */
++	if (clone_flags & CLONE_PIDFD) {
++		/* Note that no task has been attached to @pid yet. */
++		retval = __pidfd_prepare(pid, O_RDWR | O_CLOEXEC, &pidfile);
++		if (retval < 0)
++			goto bad_fork_free_pid;
++		pidfd = retval;
++
++		retval = put_user(pidfd, parent_tidptr);
++		if (retval)
++			goto bad_fork_put_pidfd;
++	}
++
+ #ifdef CONFIG_BLOCK
+ 	p->plug = NULL;
+ #endif
+@@ -2022,7 +2166,7 @@
+ 	 */
+ 	retval = cgroup_can_fork(p);
+ 	if (retval)
+-		goto bad_fork_free_pid;
++		goto bad_fork_cgroup_threadgroup_change_end;
+ 
+ 	/*
+ 	 * From this point on we must avoid any synchronous user-space
+@@ -2123,6 +2267,9 @@
+ 	syscall_tracepoint_update(p);
+ 	write_unlock_irq(&tasklist_lock);
+ 
++	if (pidfile)
++		fd_install(pidfd, pidfile);
++
+ 	proc_fork_connector(p);
+ 	cgroup_post_fork(p);
+ 	cgroup_threadgroup_change_end(current);
+@@ -2137,8 +2284,14 @@
+ 	spin_unlock(&current->sighand->siglock);
+ 	write_unlock_irq(&tasklist_lock);
+ 	cgroup_cancel_fork(p);
++bad_fork_cgroup_threadgroup_change_end:
++	cgroup_threadgroup_change_end(current);
++bad_fork_put_pidfd:
++	if (clone_flags & CLONE_PIDFD) {
++		fput(pidfile);
++		put_unused_fd(pidfd);
++	}
+ bad_fork_free_pid:
+-	cgroup_threadgroup_change_end(current);
+ 	if (pid != &init_struct_pid)
+ 		free_pid(pid);
+ bad_fork_cleanup_thread:
+@@ -2205,7 +2358,7 @@
+ struct task_struct *fork_idle(int cpu)
+ {
+ 	struct task_struct *task;
+-	task = copy_process(CLONE_VM, 0, 0, NULL, &init_struct_pid, 0, 0,
++	task = copy_process(CLONE_VM, 0, 0, NULL, NULL, &init_struct_pid, 0, 0,
+ 			    cpu_to_node(cpu));
+ 	if (!IS_ERR(task)) {
+ 		init_idle_pids(task);
+@@ -2253,7 +2406,7 @@
+ 	}
+ 
+ 	p = copy_process(clone_flags, stack_start, stack_size,
+-			 child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
++			 parent_tidptr, child_tidptr, NULL, trace, tls, NUMA_NO_NODE);
+ 	add_latent_entropy();
+ 
+ 	if (IS_ERR(p))
+--- a/kernel/pid.c
++++ b/kernel/pid.c
+@@ -26,6 +26,8 @@
+  *
+  */
+ 
++#include <linux/file.h>
++#include <linux/anon_inodes.h>
+ #include <linux/mm.h>
+ #include <linux/export.h>
+ #include <linux/slab.h>
+@@ -214,6 +216,8 @@
+ 	for (type = 0; type < PIDTYPE_MAX; ++type)
+ 		INIT_HLIST_HEAD(&pid->tasks[type]);
+ 
++	init_waitqueue_head(&pid->wait_pidfd);
++
+ 	upid = pid->numbers + ns->level;
+ 	spin_lock_irq(&pidmap_lock);
+ 	if (!(ns->pid_allocated & PIDNS_ADDING))
+@@ -451,6 +455,73 @@
+ 	return idr_get_next(&ns->idr, &nr);
+ }
+ 
++/**
++ * pidfd_create() - Create a new pid file descriptor.
++ *
++ * @pid:  struct pid that the pidfd will reference
++ *
++ * This creates a new pid file descriptor with the O_CLOEXEC flag set.
++ *
++ * Note, that this function can only be called after the fd table has
++ * been unshared to avoid leaking the pidfd to the new process.
++ *
++ * Return: On success, a cloexec pidfd is returned.
++ *         On error, a negative errno number will be returned.
++ */
++static int pidfd_create(struct pid *pid)
++{
++	int fd;
++
++	fd = anon_inode_getfd("[pidfd]", &pidfd_fops, get_pid(pid),
++			      O_RDWR | O_CLOEXEC);
++	if (fd < 0)
++		put_pid(pid);
++
++	return fd;
++}
++
++/**
++ * pidfd_open() - Open new pid file descriptor.
++ *
++ * @pid:   pid for which to retrieve a pidfd
++ * @flags: flags to pass
++ *
++ * This creates a new pid file descriptor with the O_CLOEXEC flag set for
++ * the process identified by @pid. Currently, the process identified by
++ * @pid must be a thread-group leader. This restriction currently exists
++ * for all aspects of pidfds including pidfd creation (CLONE_PIDFD cannot
++ * be used with CLONE_THREAD) and pidfd polling (only supports thread group
++ * leaders).
++ *
++ * Return: On success, a cloexec pidfd is returned.
++ *         On error, a negative errno number will be returned.
++ */
++SYSCALL_DEFINE2(pidfd_open, pid_t, pid, unsigned int, flags)
++{
++	int fd, ret;
++	struct pid *p;
++
++	if (flags)
++		return -EINVAL;
++
++	if (pid <= 0)
++		return -EINVAL;
++
++	p = find_get_pid(pid);
++	if (!p)
++		return -ESRCH;
++
++	ret = 0;
++	rcu_read_lock();
++	if (!pid_task(p, PIDTYPE_TGID))
++		ret = -EINVAL;
++	rcu_read_unlock();
++
++	fd = ret ?: pidfd_create(p);
++	put_pid(p);
++	return fd;
++}
++
+ void __init pid_idr_init(void)
+ {
+ 	/* Verify no one has done anything silly: */
+--- a/kernel/signal.c
++++ b/kernel/signal.c
+@@ -10,6 +10,8 @@
+  *		to allow signals to be sent reliably.
+  */
+ 
++#include <linux/proc_fs.h>
++#include <linux/file.h>
+ #include <linux/slab.h>
+ #include <linux/export.h>
+ #include <linux/init.h>
+@@ -1812,6 +1814,15 @@
+ 	return ret;
+ }
+ 
++static void do_notify_pidfd(struct task_struct *task)
++{
++	struct pid *pid;
++
++	WARN_ON(task->exit_state == 0);
++	pid = task_pid(task);
++	wake_up_all(&pid->wait_pidfd);
++}
++
+ /*
+  * Let a parent know about the death of a child.
+  * For a stopped/continued status change, use do_notify_parent_cldstop instead.
+@@ -1834,6 +1845,8 @@
+ 
+ 	BUG_ON(!tsk->ptrace &&
+ 	       (tsk->group_leader != tsk || !thread_group_empty(tsk)));
++
++	do_notify_pidfd(tsk);
+ 
+ 	if (sig != SIGCHLD) {
+ 		/*
+@@ -3299,6 +3312,127 @@
+ 	return kill_something_info(sig, &info, pid);
+ }
+ 
++/*
++ * Verify that the signaler and signalee either are in the same pid namespace
++ * or that the signaler's pid namespace is an ancestor of the signalee's pid
++ * namespace.
++ */
++static bool access_pidfd_pidns(struct pid *pid)
++{
++	struct pid_namespace *active = task_active_pid_ns(current);
++	struct pid_namespace *p = ns_of_pid(pid);
++
++	for (;;) {
++		if (!p)
++			return false;
++		if (p == active)
++			break;
++		p = p->parent;
++	}
++
++	return true;
++}
++
++static int copy_siginfo_from_user_any(struct siginfo *kinfo, siginfo_t *info)
++{
++#ifdef CONFIG_COMPAT
++	/*
++	 * Avoid hooking up compat syscalls and instead handle necessary
++	 * conversions here. Note, this is a stop-gap measure and should not be
++	 * considered a generic solution.
++	 */
++	if (in_compat_syscall())
++		return copy_siginfo_from_user32(
++			kinfo, (struct compat_siginfo __user *)info);
++#endif
++	return copy_from_user(kinfo, info, sizeof(*kinfo)) ? -EFAULT : 0;
++}
++
++static struct pid *pidfd_to_pid(const struct file *file)
++{
++	struct pid *pid;
++
++	pid = pidfd_pid(file);
++	if (!IS_ERR(pid))
++		return pid;
++
++	return tgid_pidfd_to_pid(file);
++}
++
++/**
++ * sys_pidfd_send_signal - Signal a process through a pidfd
++ * @pidfd:  file descriptor of the process
++ * @sig:    signal to send
++ * @info:   signal info
++ * @flags:  future flags
++ *
++ * The syscall currently only signals via PIDTYPE_PID which covers
++ * kill(<positive-pid>, <signal>. It does not signal threads or process
++ * groups.
++ * In order to extend the syscall to threads and process groups the @flags
++ * argument should be used. In essence, the @flags argument will determine
++ * what is signaled and not the file descriptor itself. Put in other words,
++ * grouping is a property of the flags argument not a property of the file
++ * descriptor.
++ *
++ * Return: 0 on success, negative errno on failure
++ */
++SYSCALL_DEFINE4(pidfd_send_signal, int, pidfd, int, sig,
++		siginfo_t __user *, info, unsigned int, flags)
++{
++	int ret;
++	struct fd f;
++	struct pid *pid;
++	struct siginfo kinfo;
++
++	/* Enforce flags be set to 0 until we add an extension. */
++	if (flags)
++		return -EINVAL;
++
++	f = fdget(pidfd);
++	if (!f.file)
++		return -EBADF;
++
++	/* Is this a pidfd? */
++	pid = pidfd_to_pid(f.file);
++	if (IS_ERR(pid)) {
++		ret = PTR_ERR(pid);
++		goto err;
++	}
++
++	ret = -EINVAL;
++	if (!access_pidfd_pidns(pid))
++		goto err;
++
++	if (info) {
++		ret = copy_siginfo_from_user_any(&kinfo, info);
++		if (unlikely(ret))
++			goto err;
++
++		ret = -EINVAL;
++		if (unlikely(sig != kinfo.si_signo))
++			goto err;
++
++		/* Only allow sending arbitrary signals to yourself. */
++		ret = -EPERM;
++		if ((task_pid(current) != pid) &&
++		    (kinfo.si_code >= 0 || kinfo.si_code == SI_TKILL))
++			goto err;
++	} else {
++		clear_siginfo(&kinfo);
++		kinfo.si_signo = sig;
++		kinfo.si_code = SI_USER;
++		kinfo.si_pid = task_tgid_vnr(current);
++		kinfo.si_uid = from_kuid_munged(current_user_ns(), current_uid());
++	}
++
++	ret = kill_pid_info(sig, &kinfo, pid);
++
++err:
++	fdput(f);
++	return ret;
++}
++
+ static int
+ do_send_specific(pid_t tgid, pid_t pid, int sig, struct siginfo *info)
+ {
+--- a/kernel/sys_ni.c
++++ b/kernel/sys_ni.c
+@@ -360,6 +360,8 @@
+ COND_SYSCALL_COMPAT(quotactl32);
+ COND_SYSCALL(vm86);
+ COND_SYSCALL(kexec_file_load);
++COND_SYSCALL(pidfd_open);
++COND_SYSCALL(pidfd_send_signal);
+ 
+ /* s390 */
+ COND_SYSCALL(s390_pci_mmio_read);
