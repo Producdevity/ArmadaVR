@@ -320,9 +320,23 @@ as the camera's pose relative to the headset. Meta's
 [Camera API overview](https://developers.meta.com/horizon/documentation/spatial-sdk/spatial-sdk-pca-overview/)
 limits this interface to the forward-facing RGB cameras through Android Camera2.
 It does not document the raw tracking-camera calibration files or the IMU frame.
-Inference: this could supply a later RGB metadata cross-check on the unchanged
-stock OS, but cannot replace a camera-to-IMU calibration or a Linux camera driver.
-No app was installed and no camera was opened for this investigation.
+The current-build native Camera2 metadata probe enumerates IDs 1, 50 and 51.
+IDs 50/51 expose RGB intrinsics and camera poses whose translations match the
+recovered calibration entries 4/5. This is a metadata correspondence, not a
+verified camera-to-IMU transform or Linux camera driver. Android reports an
+unknown timestamp source and does not expose the Fisheye62 coefficients through
+the standard distortion tag.
+
+Opening camera 50 as the ADB shell succeeds. Bounded YUV capture attempts at
+320x240 and native 1280x960 produce no image callbacks, both asleep and after a
+temporary wake. Their sessions close normally. A subsequent active
+`media.camera` dump stalls, the probe times out, and the virtual-camera provider
+then exits. The normal stock reboot restores all three camera IDs and an idle
+bridge on the same firmware with verified boot green. No frame was obtained;
+repeat capture should first use a proper passthrough-enabled application, as
+required by Meta's [Camera API prerequisites](https://developers.meta.com/vr/documentation/spatial-sdk/spatial-sdk-pca-overview/).
+Do not repeat the active camera dump. Metadata, probe sources, failures and
+recovery receipts remain in `output/quest-live-sensors-20261011-v1/`.
 
 ### Exact-build stock interface evidence
 
