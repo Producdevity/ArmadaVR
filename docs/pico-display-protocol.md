@@ -245,6 +245,22 @@ acceptance evidence in `output/pico-panel-gpio-20261012-v1/acceptance.json`.
 This verifies build integration and virtual ABI behavior. Physical panel/mux
 operation, custom boot and independent recovery remain unverified.
 
+Patch `0030-panel-regulator-reference.patch` keeps a failed first regulator
+enable from acquiring a software reference. Previously, the next attempt
+skipped the hardware operation and reported success while the rails remained
+off. A successful retry and nested references retain the existing behavior.
+The regression applies the actual patch to the upstream routine and exercises
+768 retry/reference sequences: the original produces 20,352 invariant failures,
+the fixed routine none. macOS and ARM64 Linux sanitizer checks, full object
+compilation with `-Werror` and all 321 repository tests pass. Evidence is in
+`output/pico-panel-startup-20261012-v1/`.
+
+This fix does not verify the lower helper's partial-enable rollback or disable
+error handling. The vendor's disabled panel-reset rollback also remains under
+review because its comment records a sleep-to-active shutdown regression.
+Changing those paths requires checking the charge regulator and suspend
+sequence together.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.

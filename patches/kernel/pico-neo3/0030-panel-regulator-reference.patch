@@ -1,0 +1,21 @@
+Subject: drm/msm: do not retain a failed regulator enable
+
+A failed first enable must leave the group unreferenced so the next panel
+startup retries its regulators instead of reporting success with rails off.
+
+---
+diff --git a/techpack/display/msm/dsi/dsi_pwr.c b/techpack/display/msm/dsi/dsi_pwr.c
+--- a/techpack/display/msm/dsi/dsi_pwr.c
++++ b/techpack/display/msm/dsi/dsi_pwr.c
+@@ -377,8 +377,10 @@
+ 	if (enable) {
+ 		if (regs->refcount == 0) {
+ 			rc = dsi_pwr_enable_vregs(regs, true);
+-			if (rc)
++			if (rc) {
+ 				DSI_ERR("failed to enable regulators\n");
++				return rc;
++			}
+ 		}
+ 		regs->refcount++;
+ 	} else {
