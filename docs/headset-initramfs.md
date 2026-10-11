@@ -36,6 +36,13 @@ helper, unit, enable link, firmware checksum manifest and mapper binaries.
 Activation also requires `armada.quest=usb-root`, emitted by the offline assembler
 for this variant.
 
+For Pico, `--pico-firmware DIRECTORY` includes a private Adreno 650 bundle made
+by `tools/prepare-pico-firmware.py`. This option requires the pinned Neo3 kernel
+and excludes Quest firmware and startup services. Both firmware options verify
+the bundle before and after construction and compare every extracted firmware
+file with its manifest. Pico's GPU firmware does not provide DSP, audio, WLAN
+or tracking startup. See [Pico firmware](pico-firmware.md#pico-gpu-firmware).
+
 The root handoff currently uses a dedicated ext4 root selected by label, with
 journal loading disabled and writable state held in RAM:
 

@@ -89,11 +89,12 @@ def inspect_adsp_files(directory):
     return records, services
 
 
-def gmu_blocks(data):
+def gmu_blocks(data, ranges=None):
     if not 0 < len(data) <= 32 * 1024**2:
         raise ValueError("GMU firmware exceeds size limit")
-    ranges = ((0, 0x4000), (0x4000, 0x1000000), (0x10004000, 0x10008000),
-              (0x60000000, 0x80000000), (0xc0000000, 0xe0000000))
+    if ranges is None:
+        ranges = ((0, 0x4000), (0x4000, 0x1000000), (0x10004000, 0x10008000),
+                  (0x60000000, 0x80000000), (0xc0000000, 0xe0000000))
     blocks, allocated = [], []
     offset, payloads = 0, 0
     while offset < len(data):
@@ -106,7 +107,7 @@ def gmu_blocks(data):
         region = next((i for i, (start, end) in enumerate(ranges)
                        if start <= address and address + extent <= end), None)
         if extent and (address % 4 or region is None):
-            raise ValueError("GMU block is outside the Gen7 virtual address ranges")
+            raise ValueError("GMU block is outside the selected virtual address ranges")
         if not size:
             if payloads:
                 raise ValueError("GMU metadata must precede payload blocks")

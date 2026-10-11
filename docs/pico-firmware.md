@@ -1,6 +1,6 @@
 # Pico Neo3 Pro and Pro Eye firmware and boot access
 
-Checked October 11, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
+Checked October 12, 2026. Quest 3 remains in scope; Neo3 Pro Eye
 bring-up is active on the connected development unit. It was identified
 physically as Pro Eye; its generic Android model alone does not distinguish
 enterprise variants. Neo3 Pro requires its own inventory and calibration backups.
@@ -78,6 +78,49 @@ user/PID/UTS namespaces, `binfmt_misc` and `devtmpfs`. It enforces module
 signatures and has module versioning. A compatible custom kernel is needed for
 the Linux userspace; stock modules cannot simply be reused with a changed ABI.
 No storage mutation commands have been sent to the unit.
+
+## Pico GPU firmware
+
+The published Adreno 650 driver requests `a650_sqe.fw`, `a650_gmu.bin` and
+the split `a650_zap` image. These files are present in the exact b1977 vendor
+partition. Its reconstructed SHA-256 is
+`5907191cfa33227c0a2ad93f1a9aad8bb18ebdeb80ff16cc287225814a57b249`.
+The complete data and stored hash tree verify against the authenticated top-level
+VBMeta descriptor; changing the root digest is rejected. Vendor uses the
+top-level VBMeta, unlike system's chained `vbmeta_system`. FEC repair and device
+restoration are outside this check.
+
+Prepare the private bundle after authenticating and reconstructing the vendor
+image:
+
+```sh
+python3 -B tools/prepare-pico-firmware.py VENDOR.img \
+  --output NEW_FIRMWARE_DIRECTORY \
+  --sha256 5907191cfa33227c0a2ad93f1a9aad8bb18ebdeb80ff16cc287225814a57b249 \
+  --reference-build smartcm.1696861506
+```
+
+The preparer uses bounded, read-only `debugfs` extraction in an offline container.
+It includes only the MDT, its two required segments, SQE and GMU files. It checks
+segment lengths, aligned SQE words and the A650 GMU address ranges, allocations
+and block boundaries. The GMU user range differs from Quest's Gen7 range.
+The manifest records the source identity and each output hash; it does not claim
+that a per-file signature or hardware compatibility was independently verified.
+Firmware binaries remain outside Git.
+
+Pass this bundle to `tools/build-headset-initramfs.py --pico-firmware DIRECTORY`.
+The builder refuses a different kernel source revision, a Quest kernel or Quest
+startup services. The physical kernel through patch `0030` now has an initramfs
+containing all 38 matching modules and all five GPU firmware files. Its SHA-256 is
+`7d029ef1e3a96f50fbd017a2505717a50ad3f9db6793f8f67f59cded241ffd1b`.
+The separate QEMU variant passes volatile-root handoff and both missing-root
+shutdown cases with unchanged backing disks. All 327 host tests pass, including
+malformed bundles and cross-target refusal. Evidence is in
+`output/pico-firmware-20261012-v1/`.
+
+These checks close the early GPU firmware packaging gap. They do not execute
+the firmware on the replacement kernel, prove panel output, supply the remaining
+DSP/radio firmware or establish boot/recovery readiness.
 
 ## EDL identity and partition backups
 

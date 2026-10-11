@@ -22,6 +22,10 @@ spec = importlib.util.spec_from_file_location("quest_firmware", Path(__file__).w
 firmware = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(firmware)
 
+spec = importlib.util.spec_from_file_location("pico_firmware", Path(__file__).with_name("prepare-pico-firmware.py"))
+pico_firmware = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pico_firmware)
+
 spec = importlib.util.spec_from_file_location("systemd_runtime", Path(__file__).with_name("systemd-runtime.py"))
 systemd_runtime = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(systemd_runtime)
@@ -57,6 +61,27 @@ def inputs(kernel):
     if not names or any(not re.fullmatch(r"[0-9A-Za-z_-]+", name) for name in names):
         raise ValueError("Invalid kernel module name")
     return report, hashes, version, names
+
+
+def firmware_input(kernel, quest_directory, pico_directory, quest_services):
+    if quest_directory and pico_directory:
+        raise ValueError("Choose one target's firmware bundle")
+    if pico_directory:
+        profile = json.loads((ROOT / "profiles/kernel/pico-neo3.json").read_text())
+        if (quest_services or kernel.get("repository") != profile["repository"] or
+                kernel.get("commit") != profile["commit"]):
+            raise ValueError("Pico firmware requires the pinned Neo3 kernel without Quest services")
+        validator, directory = pico_firmware, pico_directory
+    else:
+        validator, directory = firmware, quest_directory
+        if quest_directory or quest_services:
+            profile = json.loads((ROOT / "profiles/kernel/quest3.json").read_text())
+            if kernel.get("repository") != profile["repository"] or kernel.get("commit") != profile["commit"]:
+                raise ValueError("Quest firmware and services require the pinned Quest kernel")
+    manifest = validator.validate(directory) if directory else None
+    if quest_services and not manifest:
+        raise ValueError("Quest startup services require a verified firmware bundle")
+    return directory, manifest, validator
 
 
 SCRIPT = r'''
@@ -167,10 +192,9 @@ def run(args):
     runtime_helper_sha = digest(Path(systemd_runtime.__file__)) if runtime_dir else None
     if runtime_dir and any(c in str(runtime_dir) for c in (",", ":")):
         raise ValueError("Systemd runtime path must not contain commas or colons")
-    firmware_dir = args.firmware.absolute() if args.firmware else None
-    firmware_manifest = firmware.validate(firmware_dir) if firmware_dir else None
-    if args.quest_services and not firmware_manifest:
-        raise ValueError("Quest startup services require a verified firmware bundle")
+    firmware_dir, firmware_manifest, validator = firmware_input(
+        report, args.firmware.absolute() if args.firmware else None,
+        args.pico_firmware.absolute() if args.pico_firmware else None, args.quest_services)
     quest_hashes = {name: digest(ROOT / name) for name in QUEST_INPUTS} if args.quest_services else {}
     if firmware_dir and any(c in str(firmware_dir) for c in (",", ":")):
         raise ValueError("Firmware path must not contain commas or colons")
@@ -185,7 +209,8 @@ def run(args):
               "container_image": image, "builder_sha256": digest(Path(__file__)),
               "volatile_root_dependency_sha256": digest(VOLATILE_ROOT),
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
-              "firmware_validator_sha256": digest(Path(firmware.__file__)),
+              "firmware_validator_sha256": digest(Path(validator.__file__)),
+              "qcom_firmware_helper_sha256": digest(Path(firmware.__file__)),
               "systemd_runtime_sha256": runtime_sha, "systemd_runtime_helper_sha256": runtime_helper_sha}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                "--cpus", "2", "--pids-limit", "256",
@@ -216,8 +241,11 @@ def run(args):
         if (digest(kernel / "build.json") != result["kernel_build_sha256"] or
                 any(digest(kernel / name) != value for name, value in hashes.items())):
             raise ValueError("Kernel inputs changed during initramfs construction")
-        if firmware_dir and firmware.validate(firmware_dir) != firmware_manifest:
+        if firmware_dir and validator.validate(firmware_dir) != firmware_manifest:
             raise ValueError("Firmware inputs changed during initramfs construction")
+        if (digest(Path(validator.__file__)) != result["firmware_validator_sha256"] or
+                digest(Path(firmware.__file__)) != result["qcom_firmware_helper_sha256"]):
+            raise ValueError("Firmware validators changed during initramfs construction")
         if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
             raise ValueError("Quest startup inputs changed during construction")
         if digest(VOLATILE_ROOT) != result["volatile_root_dependency_sha256"]:
@@ -244,7 +272,9 @@ if __name__ == "__main__":
     parser.add_argument("kernel", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--systemd-runtime", type=Path, help="prepared private systemd runtime matching this initramfs template")
-    parser.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
+    group.add_argument("--pico-firmware", type=Path, help="prepared Neo3 Adreno 650 firmware; requires the Pico kernel")
     parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
     parser.add_argument("--image", default="localhost/armada-vr:vm")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
