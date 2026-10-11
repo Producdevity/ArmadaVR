@@ -182,8 +182,43 @@ Evidence is in `output/pico-panel-selection-20261012-v1/`.
 This correlates stock userspace identity with a candidate panel; the live FDT,
 physical GPIO state and replacement display operation remain unverified.
 The candidate is a merged tree. Installing it as a base and applying the stock
-overlay again would overwrite the selection; boot-container integration must
-preserve the bootloader's base/overlay contract.
+overlay again would overwrite the selection.
+
+[`bind-pico-overlay.py`](../tools/bind-pico-overlay.py) carries the same changes
+into the stock overlay instead. It requires explicit hashes of both the base
+and overlay, and the same panel, bridge, display and previous-default paths.
+Each changed node must belong to exactly one overlay fragment. The new bridge
+phandle uses overlay-local numbering; the added panel reference includes its
+local relocation. The existing default-panel relocation is preserved. Applying
+the result must match the complete directly bound tree, including memory and
+boot CPU metadata. Unrelated overlay properties and both inputs remain intact.
+
+The authenticated base3/overlay0 pair passes this transformation. The new overlay
+has SHA-256 `d0a87072661435731896f78e17b5eed0b5a3fe634de53bb9665423d84d999b2e`.
+Its merged properties exactly match the Sharp120 candidate above; its binary
+hash differs because libfdt orders the edited properties differently. Synthetic
+compiled overlays also pass relocation at three different base phandle ranges;
+ambiguous targets, wrong hashes and missing relocation data are refused.
+This produces an offline overlay candidate, not verified bootloader acceptance.
+
+[`repack-dtbo.py`](../tools/repack-dtbo.py) replaces one explicitly hashed entry
+in a contiguous Android v0 overlay table. It preserves the entry order,
+identifiers and every other overlay byte, and requires an explicit output size
+limit. Data after the original table, including AVB metadata and partition
+padding, is omitted: the result is unsigned. A same-payload replacement exactly
+reproduces the original table, and growth/shrink tests cover every entry position.
+
+The b1977 table now packages the modified overlay at index0; all other 15
+overlays match stock. Its 4,292,934-byte unsigned container has SHA-256
+`882ccd3b646e68628286a14250786d11aa106246967fce7a31f2340c8ba469f3`.
+The paired Android v2 container keeps all seven original boot DTBs and includes
+the physical kernel and GPU-bearing initramfs. Unpacking both containers and
+applying the stock-reported base3/overlay0 pair reproduces the intended Sharp120
+tree. The new boot container is 62,164,992 bytes, SHA-256
+`13b69e7d09b10f341258ac35d733fb1f21946ebbdfb136528c7de569d851cd49`.
+The pair has no root filesystem or verified custom-boot/recovery acceptance.
+Its receipt is `output/pico-panel-selection-20261012-v1/container-pair.json`;
+no image was sent to a headset.
 
 The complete kernel and all 38 modules compile with this patch. Module signatures
 match the certificate embedded in the new Image, 2,715 imported symbol versions
