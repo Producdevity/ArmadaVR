@@ -40,7 +40,8 @@ def service_failures(log):
 def missing_root_failure(log):
     log = re.sub(r"\x1b\[[0-9;]*m", "", log)
     return ("/dev/disk/by-label/absent-root does not exist" in log or
-            "Timed out waiting for device /dev/disk/by-label/absent-root." in log)
+            re.search(r"Timed out waiting for device (?:[^\r\n]+ - )?"
+                      r"/dev/disk/by-label/absent-root\.", log) is not None)
 
 
 def run(args):
@@ -60,9 +61,11 @@ def run(args):
         raise ValueError("Choose a new output directory and paths without commas or colons")
     output.mkdir(parents=True)
     fixture = ROOT / "tests/initramfs-root/init.c"
+    console = ROOT / "tests/initramfs-root/console.conf"
     report = {"status": "started", "scope": "QEMU initramfs root handoff", "hardware_boot_verified": False,
               "kernel_sha256": hashes["Image"], "initramfs_sha256": artifact["sha256"],
               "fixture_sha256": builder.digest(fixture), "runner_sha256": builder.digest(Path(__file__)),
+              "console_fixture_sha256": builder.digest(console),
               "commands": [], "cases": []}
     try:
         boot_initrd = initramfs / "initramfs.img"
@@ -87,9 +90,20 @@ def run(args):
         (output / "root/root-identity").write_text("armada-root-fixture\n")
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "256m",
                    "--pids-limit", "64", "--entrypoint", "sh", "-v", f"{output}:/output", initrd["container_image"], "-c",
-                   "truncate -s 32M /output/root.ext4 && mkfs.ext4 -q -F -L armada-vr-root -d /output/root /output/root.ext4"]
+                   "set -eu; truncate -s 32M /output/root.ext4; "
+                   "mkfs.ext4 -q -F -L armada-vr-root -d /output/root /output/root.ext4; "
+                   "for unit in dracut-initqueue dracut-emergency emergency rescue; do "
+                   "directory=/output/console/etc/systemd/system/$unit.service.d; mkdir -p \"$directory\"; "
+                   "cp /output/console.conf \"$directory/console.conf\"; done; "
+                   "cd /output/console; find . -print0 | LC_ALL=C sort -z | "
+                   "cpio --null -o -H newc --reproducible --owner=0:0 | gzip -n > /output/console.cpio.gz"]
         report["commands"].append(command)
+        shutil.copyfile(console, output / "console.conf")
         subprocess.run(command, check=True, timeout=60)
+        test_initrd = output / "test-initramfs.img"
+        test_initrd.write_bytes(boot_initrd.read_bytes() + (output / "console.cpio.gz").read_bytes())
+        boot_initrd = test_initrd
+        report["test_initramfs_sha256"] = builder.digest(boot_initrd)
         report["root_sha256"] = builder.digest(output / "root.ext4")
         for name, label, device_timeout in (("overlay", "armada-vr-root", 10),
                                             ("missing-root", "absent-root", 30),

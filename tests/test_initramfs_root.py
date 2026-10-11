@@ -28,7 +28,8 @@ class RootMachineTests(unittest.TestCase):
 class RootServiceTests(unittest.TestCase):
     def test_missing_root_reports_either_dracut_or_device_timeout(self):
         for log in ("Warning: /dev/disk/by-label/absent-root does not exist",
-                    "Timed out waiting for device \x1b[0;1;39m/dev/disk/by-label/absent-root\x1b[0m."):
+                    "Timed out waiting for device \x1b[0;1;39m/dev/disk/by-label/absent-root\x1b[0m.",
+                    "[ TIME ] Timed out waiting for device dev-d…e - /dev/disk/by-label/absent-root."):
             with self.subTest(log=log):
                 self.assertTrue(root_test.missing_root_failure(log))
         for log in ("root=LABEL=absent-root", "Expecting device /dev/disk/by-label/absent-root...",

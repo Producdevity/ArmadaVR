@@ -70,6 +70,10 @@ root identity, writes and syncs a file, checks zero block-device writes and
 powers off. The runner also compares the entire disk's checksum before/after.
 The missing-root case must report the absent device and perform a controlled
 power-off without changing its backing image.
+The test appends a logging-only initramfs fragment to route dracut's output
+directly to the serial console. Forced power-off can otherwise discard queued
+journal messages, hiding the absent-root diagnostic. Both the supplied and
+test initramfs hashes are recorded; the supplied artifact remains unchanged.
 
 `--vendor-ramdisk PATH` additionally tests the vendor-prefix/generic-initramfs
 concatenation used by the Android v4 container contract. This exercises Linux's
