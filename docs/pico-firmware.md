@@ -38,6 +38,34 @@ python3 -B tools/verify-ota.py STOCK_OTA.zip \
 
 This authenticates the archive and selected metadata. It does not execute or
 validate the block updater, establish rollback acceptance, or prove restoration.
+
+The full system partition can now be reconstructed offline from the authenticated
+package using the bounded BLOCK OTA extractor:
+
+```sh
+python3 -B tools/extract-block-ota.py STOCK_OTA.zip system \
+    --output output/pico-stock-system \
+    --expected-sha256 88669fe996510a879305d980ed4ba626c908ccc06ecead466393c3eadb58a8b6 \
+    --expected-device PICOA7H10 --expected-build smartcm.1696861506
+```
+
+This requires the `brotli` command and a new output directory. Authenticate the
+OTA first; the supplied hash binds extraction to those checked bytes. The tool
+accepts only full version-4 `new`, `zero` and `erase` transfers, checks complete
+nonoverlapping block coverage and refuses incremental data. It streams one image
+at a time with a partition-size-plus-2-GiB free-space check. Discarded ranges are
+represented as zero-filled host holes; that does not specify their physical
+contents after a device discard.
+
+The b1977 system image reconstructs to 4,442,832,896 bytes with SHA-256
+`8a2437adb10135fe0ed5c4a3a0db4e50caffe4a87ad5c799f2e4c73b695eacbb`.
+Its data and stored hash tree verify against the signed `vbmeta_system` descriptor,
+whose signing key matches the authenticated parent VBMeta chain. A changed root
+digest is rejected. FEC repair, updater execution and device restoration remain
+untested. Evidence is in `output/pico-block-ota-20261011-v1`. Selected driver files
+are retained privately; all three earlier device-read controller libraries match
+their reconstructed system copies byte for byte.
+
 The package has an Android v2 boot image, six SoC base DTBs plus an RTIC data FDT,
 and sixteen board overlays. Its signed VBMeta matches the boot and DTBO hashes;
 the images' own `NONE` authentication headers do not authorize unsigned boot.
