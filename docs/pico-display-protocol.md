@@ -59,6 +59,21 @@ Qualcomm with zero and the external VXR7200 path with one. It coordinates panel
 blanking, panel power/reset, switching delays and backlight restoration. Those
 operations cannot safely be reduced to an isolated GPIO write.
 
+[`vxr7200-power.c`](../src/vxr7200-power.c) implements the rail sequence through
+synchronous GPIO and delay callbacks. It starts with unknown power state and
+requires a successful power-off before enabling. An enable failure attempts all
+three shutdown steps; any shutdown error leaves state unknown and prevents a
+subsequent enable until shutdown succeeds. Repeated requests for the known state
+do not toggle the rails. The caller must own the GPIOs, hold bridge reset
+asserted and serialize these operations with display switching and suspend.
+This component does not select pins, change the mux or release reset.
+
+The normal sequence matches the original helper in 4,096 isolated comparisons.
+Host and ARM64 Linux sanitizer tests cover 124 failure scenarios, including a
+failed operation that nevertheless changes its simulated GPIO and failures at
+every shutdown step. These tests verify ordering and error handling; they do
+not measure physical rail timing or establish safe panel integration.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
