@@ -31,7 +31,10 @@ def machine_options(build, accel):
 
 
 def service_failures(log):
-    return sorted(set(re.findall(r"([\w@.:-]+\.service): Failed (?:at step|with result)", log)))
+    log = re.sub(r"\x1b\[[0-9;]*m", "", log)
+    failures = re.findall(r"([\w@.:-]+\.service): Failed (?:at step|with result)", log)
+    failures += re.findall(r"\[FAILED\]\s+([^\r\n]+)", log)
+    return sorted(set(failures))
 
 
 def run(args):

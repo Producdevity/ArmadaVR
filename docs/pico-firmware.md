@@ -352,6 +352,21 @@ it and receives `EROFS`, then passes the existing namespace and filesystem
 checks before normal shutdown. This 5.6-second test establishes a compatible
 credential path, not a complete Frame root filesystem boot.
 
+A subsequent diagnostic initramfs uses those matched Valve systemd commands,
+their private dependency closure and original service units with the existing
+dracut scripts. It passes normal root handoff and the missing-root shutdown
+case, with no failed services and byte-identical backing disks. Journald, udev,
+sysctl and temporary-file setup start successfully. The normal case also
+reports zero block writes. Small static ELF launchers retain each command's
+argument zero and select its private loader; shell wrappers fail because
+systemd opens its executor through a close-on-exec file descriptor.
+
+This diagnostic establishes a userspace compatibility option. The maintained
+builder still produces the Fedora259 initramfs, and the complete Pico root and
+Lepton environment have not yet been integrated with the Valve dependency
+closure. These boot results do not establish a production image or a hardware
+recovery path.
+
 This is a minimal manager/service test, not a boot of the full Frame userspace.
 The shipped binary warns that its required kernel baseline is 5.4. Unsupported
 newer cgroup attributes are logged; optional kmod and BPF libraries are absent

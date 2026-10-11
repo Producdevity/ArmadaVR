@@ -44,3 +44,7 @@ ARMADA_ROOT_OVERLAY_PASS
 reboot: Power down
 """
         self.assertEqual(root_test.service_failures(log), [])
+
+    def test_console_failure_is_rejected_after_journal_takes_over(self):
+        log = "[\x1b[0;1;31mFAILED\x1b[0m] Failed to start \x1b[0;1;39mApply Kernel Variables\x1b[0m.\r\n"
+        self.assertEqual(root_test.service_failures(log), ["Failed to start Apply Kernel Variables."])
