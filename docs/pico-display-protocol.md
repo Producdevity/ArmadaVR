@@ -171,9 +171,9 @@ does not change the successful sequence or the existing power-rollback policy.
 The original code reproduces both masked errors; all 17 corrected startup
 cases pass macOS and ARM64 sanitizer tests. The complete panel object compiles
 with `-Werror` against the accepted kernel headers and has the same undefined
-symbols. The patch applies without fuzz. This later patch has not yet been
-included in a new full Image or physically tested; the earlier Image hash above
-still identifies the preserved `0025` build. Evidence is in
+symbols. The patch applies without fuzz. The earlier Image hash above identifies
+the preserved `0025` build; the complete build through `0027` is recorded below.
+Startup-failure evidence is in
 `output/pico-panel-errors-20261011-v1/`.
 
 Patch `0027-panel-shutdown-errors.patch` preserves the first failure from panel
@@ -187,9 +187,23 @@ is off, since stock sets it before attempting shutdown.
 All 49,152 fault combinations pass macOS and ARM64 sanitizer tests with the
 operation sequence preserved. The original routine masks or replaces the first
 error in 37,152 of those cases. The full panel object compiles with `-Werror`
-and unchanged imports against the accepted kernel. This patch, like `0026`,
-still requires a full Image build and physical validation. Evidence is in
+and unchanged imports against the accepted kernel. Physical validation remains
+open. Shutdown-failure evidence is in
 `output/pico-panel-shutdown-20261011-v1/`.
+
+The full Linux-userspace kernel through `0027` subsequently compiled in 558.7
+seconds using the pinned compiler and a 4 GiB memory limit. All 18 output hashes,
+38 module signatures, 2,715 imported symbol versions and dependency closure
+pass verification. A modified signed payload is rejected. The exact Image
+boots and shuts down the isolated diskless Android ABI fixture in 5.56 seconds.
+Its SHA-256 is
+`ae8d5a0d2ad579fd30da2ce47786208cb45187b9aab3690fa9a7c5c6207c9823`;
+the build receipt SHA-256 is
+`77d0fac6fa723c64b8ec60a642c20b86b9cb3a609ad3bf4f98ab18afd99230ed`.
+Artifacts are in `output/kernel/pico-neo3/linux-panel-errors-20261011-v1/`, with
+acceptance evidence in `output/pico-panel-errors-build-20261011-v1/`. No headset
+was booted with this Image. Panel selection, GPIO behavior and display/power
+acceptance remain physical requirements.
 
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
