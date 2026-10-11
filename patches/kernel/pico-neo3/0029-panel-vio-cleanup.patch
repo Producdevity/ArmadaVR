@@ -1,0 +1,28 @@
+Subject: drm/msm: release Pico panel VIO after backlight GPIO failure
+
+A failed backlight GPIO request occurs after VIO has been acquired. Release
+VIO before unwinding the earlier panel pins so the next probe can succeed.
+
+---
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -341,7 +341,7 @@
+ 		if (rc) {
+ 			DSI_WARN("request for panel_blk_gpio failed, rc=%d\n",
+ 				 rc);
+-			goto error_release_vio_enable;
++			goto error_release_blk_enable;
+ 		}
+ 	}
+ 	/*Added by gavin.zhao for sx2130 lcd blk enable end*/
+@@ -359,6 +359,9 @@
+ 
+ 	goto error;
+ 	/*Added by gavin.zhao for sx2130 lcd vio enable begin*/
++error_release_blk_enable:
++	if (gpio_is_valid(panel->panel_vio_gpio))
++		gpio_free(panel->panel_vio_gpio);
+ error_release_vio_enable:
+ 	if (gpio_is_valid(r_config->lcd_mode_sel_gpio))
+ 		gpio_free(r_config->lcd_mode_sel_gpio);

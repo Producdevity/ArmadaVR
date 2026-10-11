@@ -222,6 +222,16 @@ it without fuzz to the accepted full source. The complete panel object compiles
 with `-Werror` and unchanged undefined symbols. Evidence is preserved in
 `output/pico-display-lifecycle-20261011-v1/`.
 
+Patch `0029-panel-vio-cleanup.patch` fixes the lower-level GPIO acquisition
+failure: when the backlight pin cannot be requested, the previously acquired
+VIO pin is released before the earlier pins. All 128 optional-pin combinations
+are exercised with three injected errors and repeated retries. The original
+routine leaks VIO in 3,072 of 43,008 cases; the patched routine leaks none.
+The optional panel-test pin retains its existing nonfatal failure policy.
+Host and ARM64 Linux sanitizers, GNU patch application and full panel-object
+compilation with `-Werror` pass. Evidence is in
+`output/pico-panel-gpio-20261012-v1/`.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
