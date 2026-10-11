@@ -1,0 +1,269 @@
+Subject: misc: add Pico station interrupt notifications
+
+Preserve the stock stationdev poll interface and DT binding. Keep file
+references alive across removal and give each reader its own event cursor.
+
+---
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -75,3 +75,5 @@
+ obj-$(CONFIG_QTI_MAXIM_FAN_CONTROLLER) += max31760.o
+ obj-$(CONFIG_QTI_XR_SMRTVWR_MISC) += qxr-stdalonevwr.o
+ obj-$(CONFIG_FPR_FPC)		+= fpr_FingerprintCard/
++
++obj-$(CONFIG_PICO_STATION) += pico-station.o
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -648,3 +648,12 @@
+ 	      transport. This driver presents the link to Linux as a character device
+ 	      which can be written to or read from to access the shared memory. An ioctl
+ 	      on the device is used to send a virtual interrupt to the partner cell.
++
++config PICO_STATION
++	tristate "Pico station interrupt notifications"
++	depends on OF && GPIOLIB
++	help
++	  Expose station-sync rising edges through poll on /dev/stationdev
++	  for the Pico Neo3 controller service. Each open file receives its
++	  own notifications and is disconnected when the device is removed.
++	  Controller data, pairing and haptics use separate transports.
+diff --git a/drivers/misc/pico-station.c b/drivers/misc/pico-station.c
+new file mode 100644
+--- /dev/null
++++ b/drivers/misc/pico-station.c
+@@ -0,0 +1,233 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#include <linux/atomic.h>
++#include <linux/fs.h>
++#include <linux/gpio.h>
++#include <linux/interrupt.h>
++#include <linux/kref.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of_gpio.h>
++#include <linux/platform_device.h>
++#include <linux/poll.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++
++struct pico_station {
++	struct kref references;
++	wait_queue_head_t wait;
++	atomic_t sequence;
++	int irq;
++	bool removed;
++};
++
++struct pico_station_file {
++	struct pico_station *station;
++	spinlock_t lock;
++	int sequence;
++};
++
++static DEFINE_MUTEX(station_lock);
++static struct pico_station *station_device;
++static struct class *station_class;
++static int station_major;
++
++static void station_free(struct kref *reference)
++{
++	struct pico_station *station =
++		container_of(reference, struct pico_station, references);
++
++	kfree(station);
++}
++
++static irqreturn_t station_interrupt(int irq, void *cookie)
++{
++	struct pico_station *station = cookie;
++
++	atomic_inc(&station->sequence);
++	wake_up_interruptible(&station->wait);
++	return IRQ_HANDLED;
++}
++
++static int station_open(struct inode *inode, struct file *file)
++{
++	struct pico_station_file *reader;
++	struct pico_station *station;
++	int error;
++
++	reader = kzalloc(sizeof(*reader), GFP_KERNEL);
++	if (!reader)
++		return -ENOMEM;
++	mutex_lock(&station_lock);
++	station = station_device;
++	if (!station || inode->i_rdev != MKDEV(station_major, 0)) {
++		mutex_unlock(&station_lock);
++		kfree(reader);
++		return -ENODEV;
++	}
++	kref_get(&station->references);
++	reader->station = station;
++	spin_lock_init(&reader->lock);
++	reader->sequence = atomic_read(&station->sequence);
++	mutex_unlock(&station_lock);
++	error = nonseekable_open(inode, file);
++	if (error) {
++		kref_put(&station->references, station_free);
++		kfree(reader);
++		return error;
++	}
++	file->private_data = reader;
++	return 0;
++}
++
++static __poll_t station_poll(struct file *file, poll_table *table)
++{
++	struct pico_station_file *reader = file->private_data;
++	struct pico_station *station = reader->station;
++	int sequence;
++	__poll_t events;
++
++	poll_wait(file, &station->wait, table);
++	if (READ_ONCE(station->removed))
++		return EPOLLERR | EPOLLHUP;
++	spin_lock(&reader->lock);
++	sequence = atomic_read(&station->sequence);
++	events = reader->sequence != sequence ? EPOLLIN | EPOLLRDNORM : 0;
++	reader->sequence = sequence;
++	spin_unlock(&reader->lock);
++	return events;
++}
++
++static int station_release(struct inode *inode, struct file *file)
++{
++	struct pico_station_file *reader = file->private_data;
++
++	file->private_data = NULL;
++	kref_put(&reader->station->references, station_free);
++	kfree(reader);
++	return 0;
++}
++
++static const struct file_operations station_fops = {
++	.owner = THIS_MODULE,
++	.open = station_open,
++	.poll = station_poll,
++	.release = station_release,
++	.llseek = no_llseek,
++};
++
++static int station_probe(struct platform_device *pdev)
++{
++	struct pico_station *station;
++	struct device *node;
++	int gpio, error;
++
++	if (!pdev->dev.of_node)
++		return -ENODEV;
++	gpio = of_get_named_gpio(pdev->dev.of_node, "station-sync", 0);
++	if (gpio < 0)
++		return gpio;
++	station = kzalloc(sizeof(*station), GFP_KERNEL);
++	if (!station)
++		return -ENOMEM;
++	kref_init(&station->references);
++	init_waitqueue_head(&station->wait);
++	atomic_set(&station->sequence, 0);
++	station->irq = gpio_to_irq(gpio);
++	if (station->irq < 0) {
++		error = station->irq;
++		goto put_station;
++	}
++	mutex_lock(&station_lock);
++	if (station_device) {
++		error = -EBUSY;
++		goto unlock_station;
++	}
++	/* Preserve stock IRQ flags and the device tree's pin direction. */
++	error = request_threaded_irq(station->irq, NULL, station_interrupt,
++				     IRQF_TRIGGER_RISING | IRQF_ONESHOT,
++				     dev_name(&pdev->dev), station);
++	if (error)
++		goto unlock_station;
++	node = device_create(station_class, &pdev->dev, MKDEV(station_major, 0),
++			     NULL, "stationdev");
++	if (IS_ERR(node)) {
++		error = PTR_ERR(node);
++		free_irq(station->irq, station);
++		goto unlock_station;
++	}
++	station_device = station;
++	platform_set_drvdata(pdev, station);
++	mutex_unlock(&station_lock);
++	return 0;
++
++unlock_station:
++	mutex_unlock(&station_lock);
++put_station:
++	kref_put(&station->references, station_free);
++	return error;
++}
++
++static int station_remove(struct platform_device *pdev)
++{
++	struct pico_station *station = platform_get_drvdata(pdev);
++
++	mutex_lock(&station_lock);
++	WRITE_ONCE(station->removed, true);
++	station_device = NULL;
++	device_destroy(station_class, MKDEV(station_major, 0));
++	/* Serialize rebinding until the old interrupt handler is detached. */
++	free_irq(station->irq, station);
++	platform_set_drvdata(pdev, NULL);
++	mutex_unlock(&station_lock);
++	wake_up_interruptible(&station->wait);
++	kref_put(&station->references, station_free);
++	return 0;
++}
++
++static const struct of_device_id station_match[] = {
++	{ .compatible = "bytedance,station" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, station_match);
++
++static struct platform_driver station_driver = {
++	.probe = station_probe,
++	.remove = station_remove,
++	.driver = {
++		.name = "pico-station",
++		.of_match_table = station_match,
++	},
++};
++
++static int __init station_init(void)
++{
++	int error;
++
++	station_major = register_chrdev(0, "stationdev", &station_fops);
++	if (station_major < 0)
++		return station_major;
++	station_class = class_create(THIS_MODULE, "stationdev");
++	if (IS_ERR(station_class)) {
++		error = PTR_ERR(station_class);
++		goto unregister_device;
++	}
++	error = platform_driver_register(&station_driver);
++	if (!error)
++		return 0;
++	class_destroy(station_class);
++unregister_device:
++	unregister_chrdev(station_major, "stationdev");
++	return error;
++}
++
++static void __exit station_exit(void)
++{
++	platform_driver_unregister(&station_driver);
++	class_destroy(station_class);
++	unregister_chrdev(station_major, "stationdev");
++}
++
++module_init(station_init);
++module_exit(station_exit);
++MODULE_LICENSE("GPL");
++MODULE_DESCRIPTION("Pico station interrupt notifications");

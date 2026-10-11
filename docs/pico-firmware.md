@@ -286,7 +286,7 @@ calibration or physical playback/capture.
 This configuration differs from the captured stock configuration at 80 requested
 symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
 resolution; stock instead has `DISPLAY_VXR7200_I2C`, whose implementation is also
-absent. Stock controller-station and Pico RTT support are missing too. The
+absent. Stock controller-station and Pico RTT support are absent from that build. The
 published board DTS is absent, so this build deliberately produces no device
 trees. A separate QEMU variant enables PL011, virtio-mmio, block, network,
 console, random and RTC transports without applying Quest-specific patches.
@@ -308,7 +308,13 @@ address/undefined-behavior sanitizers on macOS and ARM64 Linux, including 64
 concurrent camera-write/removal cycles. The unchanged original camera function
 fails separate missing-device and buffer-ownership controls. This tests resource
 lifetime and API behavior; it does not verify physical SPI transfers, pairing,
-controller tracking or the missing station driver.
+controller tracking or station interrupts.
+
+The subsequent [station notification driver](pico-controller-protocol.md#station-interrupt-driver)
+reconstructs the stock GPIO/poll interface with deferred-probe handling and
+safe open-file lifetime across removal. Its source passes sanitizer lifecycle
+tests, ARM64 object compilation and configuration resolution. It is not yet
+included in a rebuilt full kernel and has not been exercised on hardware.
 
 The physical-configuration Linux build including this patch passes all 38 module
 signatures, 2,715 imported symbol versions and dependency checks. Its exported
@@ -568,7 +574,7 @@ Read-only stock observations narrow the hardware work:
 | Component | Observed on this Pro Eye | Remaining integration |
 |---|---|---|
 | Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound | Resolve the missing bridge implementation and actual panel/mode ownership; driver binding alone does not prove a replacement display path |
-| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder](pico-controller-protocol.md) matches stock parsing offline | Complete the missing station/SSC transport, verify physical inputs, pairing, haptics and optical tracking |
+| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder and station notifications](pico-controller-protocol.md) pass offline checks | Integrate station driver into the full build, complete SSC transport, verify physical inputs, pairing, haptics and optical tracking |
 | IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
 | Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
 | Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules now build and pass offline ABI/signature checks; routing, DSP and physical audio remain. Wi-Fi needs matching firmware API headers and validation |

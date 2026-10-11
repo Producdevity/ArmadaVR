@@ -61,6 +61,42 @@ caller must obtain the active MCU/radio configuration and supply complete record
 from a verified transport. It does not pair controllers, send haptics, access a
 device, load firmware or produce a tracked pose.
 
+## Station interrupt driver
+
+The authenticated b1977 kernel supplies the separate `/dev/stationdev` interface
+missing from the published source. Recovered symbols, relocations and instruction
+analysis identify a platform driver with compatible `bytedance,station`, GPIO
+property `station-sync`, and a rising-edge, one-shot threaded IRQ. Its file
+operations are open, poll and release; there is no read, write or ioctl data path.
+An interrupt makes poll return `POLLIN | POLLRDNORM`; polling consumes that
+notification. Multiple interrupts can coalesce into one readiness result.
+
+[`0024-station-notifications.patch`](../patches/kernel/pico-neo3/0024-station-notifications.patch)
+implements this interface and adds `CONFIG_PICO_STATION`, requested by the Pico
+Linux profile. The GPIO direction remains owned by the device tree, as in stock.
+Each open file tracks its own event sequence, so opening or polling another file
+cannot erase its notification. Removal unregisters and drains the IRQ, wakes
+waiters with `POLLERR | POLLHUP`, and retains state until existing files close.
+Rebinding creates independent state; old descriptors keep reporting disconnect.
+Probe errors release resources and retain deferred-probe error codes.
+
+The patched source compiles as an ARM64 kernel object with `-Werror` against the
+headers and recorded flags from the accepted physical-configuration Pico build.
+All 26 imported symbols exist in that kernel, and the kernel's configuration
+resolver retains `CONFIG_PICO_STATION=y` with its OF and GPIOLIB dependencies.
+The fault harness compiles the actual driver functions with kernel API stubs:
+**74 cases** pass with AddressSanitizer and UndefinedBehaviorSanitizer on macOS
+and Linux ARM64, including 64 concurrent IRQ/poll/removal races. It checks probe
+failures, independent readers, counter wrapping, detach and rebind. `just check`
+runs this harness; `tools/test-pico-station.py SOURCE_MISC --output NEW_DIRECTORY`
+also verifies the pinned build files and applies the patch with zero fuzz.
+
+This is source and object-level acceptance. The complete kernel has not yet been
+rebuilt with this driver; physical GPIO routing, interrupt delivery, suspend and
+stock-service interoperability remain unverified. The preserved previously
+accepted kernel image is unchanged. The driver supplies notifications only; SSC
+controller data and optical tracking remain separate requirements.
+
 ## Verification
 
 An isolated ARM64 Linux process executed the stock CRC and key parsing functions
