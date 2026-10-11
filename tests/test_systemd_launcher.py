@@ -45,8 +45,12 @@ int main(int argc, char **argv) {
 '''.replace('SOURCE', str(source))
         (root / 'test.c').write_text(harness)
         cls.binary = root / 'test'
+        cls.native_binary = root / 'test-native'
         subprocess.run([compiler, '-Wall', '-Wextra', '-Werror', str(root / 'test.c'),
                         '-o', str(cls.binary)], capture_output=True, text=True, check=True, timeout=30)
+        subprocess.run([compiler, '-Wall', '-Wextra', '-Werror', '-DARMADA_SYSTEMD_NATIVE_LIBRARIES=1',
+                        str(root / 'test.c'), '-o', str(cls.native_binary)],
+                       capture_output=True, text=True, check=True, timeout=30)
 
     @classmethod
     def tearDownClass(cls):
@@ -74,3 +78,12 @@ int main(int argc, char **argv) {
     def test_unknown_pid_one_and_unresolved_child_are_refused(self):
         self.assertEqual(self.invoke('init-no-proc', '/unexpected'), [])
         self.assertEqual(self.invoke('child-no-proc', '/init'), [])
+
+    def test_native_root_keeps_host_loader_and_library_precedence(self):
+        result = subprocess.run([str(self.native_binary), 'init-no-proc', '/sbin/init'],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 126)
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[0], '/lib/ld-linux-aarch64.so.1')
+        self.assertIn('/usr/lib64:/opt/armada-vr/systemd/usr/lib:/opt/armada-vr/systemd/usr/lib/systemd', lines)
+        self.assertEqual(lines[-1], '/opt/armada-vr/systemd/usr/lib/systemd/systemd')

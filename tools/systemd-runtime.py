@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and install a private, matched systemd runtime in an initramfs."""
+"""Validate and install a matched systemd runtime in offline staging roots."""
 import argparse
 import hashlib
 import json
@@ -13,6 +13,29 @@ PREFIX = 'opt/armada-vr/systemd'
 EXECUTOR = 'usr/lib/systemd/systemd-executor'
 MANAGER = 'usr/lib/systemd/systemd'
 VALIDATEFS = 'usr/lib/systemd/systemd-validatefs'
+NATIVE_ABI = ('usr/lib/ld-linux-aarch64.so.1', 'usr/lib64/libc.so.6')
+ROOT_RETAINED = {
+    'usr/bin/systemd-mute-console', 'usr/bin/systemd-pty-forward', 'usr/bin/updatectl',
+    'usr/lib/systemd/system-generators/systemd-factory-reset-generator',
+    'usr/lib/systemd/system-generators/systemd-rc-local-generator',
+    'usr/lib/systemd/system-generators/systemd-sysv-generator',
+    'usr/lib/systemd/systemd-factory-reset', 'usr/lib/systemd/systemd-ssh-issue',
+    'usr/lib/systemd/systemd-sysupdated', 'usr/lib/systemd/systemd-tpm2-clear', VALIDATEFS,
+}
+ROOT_MASKS = tuple('systemd-' + service + '-varlink.socket'
+                   for service in ('udevd', 'logind', 'networkd', 'resolved'))
+
+
+def metadata_name(scope):
+    return 'initramfs-systemd.json' if scope == 'initramfs' else 'root-systemd.json'
+
+
+def staging_scope(root):
+    if (root / 'etc/initrd-release').is_file():
+        return 'initramfs'
+    if (root / 'usr/lib/os-release').is_file():
+        return 'root'
+    raise ValueError('Requires an initramfs staging directory or a full OS staging root')
 
 
 def digest(path):
@@ -101,10 +124,20 @@ def commands(root):
 def validate(bundle):
     bundle = Path(bundle).resolve()
     record = json.loads((bundle / 'manifest.json').read_text())
-    if record.get('schema_version') != 1 or record.get('scope') != 'initramfs' or record.get('status') != 'prepared':
-        raise ValueError('Requires a prepared initramfs systemd runtime')
-    if record.get('prefix') != PREFIX or set(record.get('retained_commands', [])) - {VALIDATEFS}:
+    scope = record.get('scope')
+    if record.get('schema_version') != 1 or scope not in ('initramfs', 'root') or record.get('status') != 'prepared':
+        raise ValueError('Requires a prepared initramfs or root systemd runtime')
+    allowed_retained = {VALIDATEFS} if scope == 'initramfs' else ROOT_RETAINED
+    if record.get('prefix') != PREFIX or set(record.get('retained_commands', [])) - allowed_retained:
         raise ValueError('Unsupported systemd runtime layout')
+    masks = record.get('masked_units', [])
+    abi = record.get('native_abi_sha256', {})
+    if (not isinstance(masks, list) or len(masks) != len(set(masks)) or
+            set(masks) - (set(ROOT_MASKS) if scope == 'root' else set()) or
+            set(abi) != (set(NATIVE_ABI) if scope == 'root' else set())):
+        raise ValueError('Unsupported systemd root runtime contract')
+    mask_files = ['etc/systemd/system/' + name for name in masks]
+    mask_sources = ['usr/lib/systemd/system/' + name for name in masks]
     command_names = record.get('commands', [])
     unit_names = record.get('units', [])
     for names in (command_names, unit_names, record['retained_commands']):
@@ -117,7 +150,9 @@ def validate(bundle):
         raise ValueError('Unexpected systemd unit path')
     if set(command_names) & set(record['retained_commands']):
         raise ValueError('Systemd command cannot be replaced and retained')
-    if set(record.get('template_sha256', {})) != set(command_names + unit_names + record['retained_commands']):
+    if set(unit_names) & set(mask_sources):
+        raise ValueError('Systemd unit cannot be replaced and masked')
+    if set(record.get('template_sha256', {})) != set(command_names + unit_names + record['retained_commands'] + mask_sources):
         raise ValueError('Incomplete systemd template identity')
     files = record.get('files', [])
     if not files or len(files) > 2048:
@@ -128,14 +163,20 @@ def validate(bundle):
         if name in names or not name.startswith('files/'):
             raise ValueError('Duplicate or unexpected runtime file')
         installed_name = name.removeprefix('files/')
-        if installed_name not in command_names + unit_names and not installed_name.startswith(PREFIX + '/usr/'):
+        if installed_name not in command_names + unit_names + mask_files and not installed_name.startswith(PREFIX + '/usr/'):
             raise ValueError('Unexpected systemd runtime installation path')
         names.add(name)
         path = bundle / name
         if not path.parent.resolve().is_relative_to(bundle.resolve()):
             raise ValueError('Runtime parent symlink escapes bundle')
+        if installed_name in mask_files and item.get('link') != '/dev/null':
+            raise ValueError('Invalid unsupported systemd socket mask')
         if 'link' in item:
             target = item['link']
+            if installed_name in mask_files:
+                if not path.is_symlink() or os.readlink(path) != '/dev/null' or target != '/dev/null':
+                    raise ValueError('Invalid unsupported systemd socket mask')
+                continue
             if not path.is_symlink() or path.readlink().as_posix() != target or target.startswith('/') or not path.resolve().is_relative_to(bundle / 'files' / PREFIX):
                 raise ValueError(f'Invalid private runtime link: {name}')
             if not path.is_file():
@@ -146,7 +187,7 @@ def validate(bundle):
     actual = {p.relative_to(bundle).as_posix() for p in (bundle / 'files').rglob('*') if not p.is_dir() or p.is_symlink()}
     if actual != names:
         raise ValueError('Unexpected systemd runtime files')
-    if any('files/' + name not in names for name in unit_names):
+    if any('files/' + name not in names for name in unit_names + mask_files):
         raise ValueError('Missing systemd unit')
     for name in record['commands']:
         relative(name)
@@ -164,14 +205,24 @@ def validate(bundle):
 def install(bundle, root):
     bundle, root = Path(bundle).resolve(), Path(root).resolve()
     record = validate(bundle)
-    if not (root / 'etc/initrd-release').is_file() or (root / PREFIX).exists():
-        raise ValueError('Requires an unmodified initramfs staging directory')
+    if root == Path('/') or staging_scope(root) != record['scope'] or (root / PREFIX).exists() or (root / PREFIX).is_symlink():
+        raise ValueError('Requires an unmodified staging directory matching the runtime scope')
     inventory = commands(root)
     if set(inventory) != set(record['commands'] + record['retained_commands']):
         raise ValueError('Systemd command inventory changed; prepare a matching runtime')
     for name, sha in record['template_sha256'].items():
         if digest(root / relative(name)) != sha:
             raise ValueError(f'Systemd template changed: {name}')
+    for name, sha in record.get('native_abi_sha256', {}).items():
+        if digest(root / name) != sha:
+            raise ValueError(f'Systemd native ABI changed: {name}')
+    if record['scope'] == 'root' and set(record.get('masked_units', [])) != {
+            name for name in ROOT_MASKS if (root / 'usr/lib/systemd/system' / name).exists()}:
+        raise ValueError('Unsupported systemd socket inventory changed')
+    for name in record.get('masked_units', []):
+        path = root / 'etc/systemd/system' / name
+        if path.exists() or path.is_symlink():
+            raise ValueError(f'Existing systemd unit override: {name}')
     for item in record['files']:
         name = relative(item['path']).removeprefix('files/')
         path = root / name
@@ -186,7 +237,7 @@ def install(bundle, root):
             shutil.copy2(bundle / item['path'], path)
     metadata = root / 'usr/share/armada-vr'
     metadata.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(bundle / 'manifest.json', metadata / 'initramfs-systemd.json')
+    shutil.copy2(bundle / 'manifest.json', metadata / metadata_name(record['scope']))
     verify_install(bundle, root)
     return record
 
@@ -203,8 +254,11 @@ def verify_install(bundle, root):
                 raise ValueError('Installed runtime link mismatch')
         elif digest(path) != item['sha256'] or stat.S_IMODE(path.stat().st_mode) != item['mode']:
             raise ValueError(f'Installed runtime file mismatch: {path}')
-    if digest(root / 'usr/share/armada-vr/initramfs-systemd.json') != digest(bundle / 'manifest.json'):
+    if digest(root / 'usr/share/armada-vr' / metadata_name(record['scope'])) != digest(bundle / 'manifest.json'):
         raise ValueError('Installed runtime metadata mismatch')
+    for name, sha in record.get('native_abi_sha256', {}).items():
+        if digest(root / name) != sha:
+            raise ValueError(f'Installed systemd native ABI changed: {name}')
     return record
 
 

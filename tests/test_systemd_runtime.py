@@ -113,6 +113,69 @@ class RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'initramfs staging'):
             runtime.install(self.bundle, self.root)
 
+    def root_fixture(self):
+        self.record.update(scope='root', masked_units=[runtime.ROOT_MASKS[0]],
+                           native_abi_sha256={n: hashlib.sha256(elf()).hexdigest() for n in runtime.NATIVE_ABI})
+        for name in self.record['commands'] + list(runtime.NATIVE_ABI):
+            p = self.root / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(elf())
+        (self.root / 'usr/lib').mkdir(parents=True, exist_ok=True)
+        (self.root / 'usr/lib/os-release').write_text('ID=fedora\n')
+        source = 'usr/lib/systemd/system/' + runtime.ROOT_MASKS[0]
+        p = self.root / source
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('socket')
+        self.record['template_sha256'][source] = hashlib.sha256(b'socket').hexdigest()
+        name = 'files/etc/systemd/system/' + runtime.ROOT_MASKS[0]
+        p = self.bundle / name
+        p.parent.mkdir(parents=True)
+        p.symlink_to('/dev/null')
+        self.record['files'].append({'path': name, 'link': '/dev/null'})
+        self.save()
+
+    def test_root_runtime_pins_native_abi_and_preserves_existing_policy(self):
+        self.root_fixture()
+        policy = self.root / 'etc/pam.d/systemd-user'
+        policy.parent.mkdir(parents=True)
+        policy.write_text('unchanged policy')
+        with patch.object(runtime, 'commands', return_value=self.record['commands']):
+            runtime.install(self.bundle, self.root)
+        self.assertEqual(policy.read_text(), 'unchanged policy')
+        self.assertEqual(os.readlink(self.root / 'etc/systemd/system' / runtime.ROOT_MASKS[0]), '/dev/null')
+        runtime.verify_install(self.bundle, self.root)
+        (self.root / runtime.NATIVE_ABI[1]).write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError, 'native ABI changed'):
+            runtime.verify_install(self.bundle, self.root)
+
+    def test_root_changed_abi_and_existing_override_refused_before_writes(self):
+        self.root_fixture()
+        with patch.object(runtime, 'commands', return_value=self.record['commands']):
+            abi = self.root / runtime.NATIVE_ABI[0]
+            abi.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError, 'native ABI changed'):
+                runtime.install(self.bundle, self.root)
+            self.assertFalse((self.root / runtime.PREFIX).exists())
+            abi.write_bytes(elf())
+            override = self.root / 'etc/systemd/system' / runtime.ROOT_MASKS[0]
+            override.parent.mkdir(parents=True)
+            override.write_text('local override')
+            with self.assertRaisesRegex(ValueError, 'Existing systemd unit override'):
+                runtime.install(self.bundle, self.root)
+            self.assertEqual(override.read_text(), 'local override')
+            self.assertFalse((self.root / runtime.PREFIX).exists())
+
+    def test_root_and_initramfs_scopes_cannot_be_interchanged(self):
+        self.root_fixture()
+        (self.root / 'etc').mkdir(exist_ok=True)
+        (self.root / 'etc/initrd-release').write_text('initrd')
+        with self.assertRaisesRegex(ValueError, 'matching the runtime scope'):
+            runtime.install(self.bundle, self.root)
+        self.record['scope'] = 'initramfs'
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'root runtime contract'):
+            runtime.validate(self.bundle)
+
     def test_installed_bytes_are_checked_again(self):
         for item in self.record['files']:
             p = self.root / item['path'].removeprefix('files/')

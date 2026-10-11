@@ -406,10 +406,8 @@ emergency units and correct dispatch to `systemd-shutdown` when the launcher run
 as PID 1. Both boot cases pass again in 5.58 and 10.96 seconds. Fifteen focused
 runtime/launcher tests and the complete 271-test host suite pass. The newer, unused
 `systemd-validatefs` helper remains from Fedora and is explicitly recorded;
-Frame257 does not supply it. This optional provider is currently limited to
-initramfs construction. The full Pico root and Lepton environment still require
-integration and runtime acceptance. None of these results establishes physical
-boot, recovery or flash readiness.
+Frame257 does not supply it. None of these results establishes physical boot,
+recovery or flash readiness.
 
 The builder also requires `sysroot.mount` before starting the volatile-root
 service. Without that dependency, an early device timeout could start it after
@@ -436,12 +434,43 @@ python3 tools/build-headset-initramfs.py path/to/pico-kernel \
   --image matching-builder-image:tag --output output/pico-initramfs
 ```
 
-This is a minimal manager/service test, not a boot of the full Frame userspace.
-The shipped binary warns that its required kernel baseline is 5.4. Unsupported
-newer cgroup attributes are logged; optional kmod and BPF libraries are absent
-from this fixture. Android startup, a complete graphical session and production
-service isolation on the Pico kernel still need verification. A version number
-or upstream minimum alone cannot establish those behaviors.
+The initial fixture was a minimal manager/service test. The shipped binary warns
+that its required kernel baseline is 5.4; the vendor 4.19 kernel therefore still
+needs compatibility testing beyond individual successful services.
+
+### Full-root runtime
+
+Preparation now also accepts `--scope root`. This variant keeps Fedora's native
+loader and library precedence so its existing PAM modules load without changing
+authentication policy. The installer pins the native loader and libc, requires
+the matching original command inventory, and preserves non-systemd service files
+and local overrides. It masks four newer varlink sockets absent from Frame257.
+Eleven optional Fedora commands remain explicitly inventoried; their additional
+features are not covered by this acceptance test.
+
+```sh
+python3 tools/prepare-systemd-runtime.py path/to/rootfs-A.img \
+  --scope root --template path/to/matching-root --output output/pico-root-systemd
+python3 tools/systemd-runtime.py output/pico-root-systemd \
+  --install path/to/offline-root
+```
+
+The prepared bundle in `output/pico-root-runtime-20261011-v1` has manifest SHA-256
+`d608c920591985cce0304caf53d54e3f47de278782c7e756afc6d4df5a96fd26`.
+A fresh Pico VM boots directly into this runtime, reaches multi-user with zero
+failed services, and starts `user@1000` through unchanged PAM. All 541 installed
+files and links and all 128 command dependency closures pass verification.
+Service tests confirm `NoNewPrivileges`, a read-only `/usr`, and a private `/tmp`.
+The fourteen-patch Lepton bundle then boots Android in 91.14 seconds under CPU
+emulation and shuts down cleanly in 13.96 seconds, removing its temporary data.
+No post-boot launcher replacement or manager re-execution is needed. All 277 host
+tests pass, including 19 focused runtime and launcher checks.
+
+Evidence is retained in `output/pico-root-runtime-20261011-v1` and
+`output/pico-lepton-acceptance-20261011-v8`. This tests the maintained runtime in a
+RAM overlay on the preserved Linux root. A complete Pico image builder, board
+startup, hardware drivers, graphical performance, physical boot and independent
+recovery remain required.
 
 A separate test on the same Linux build loads the unchanged recovery SELinux
 policy. A normal kernel-to-init transition succeeds; the enforcing policy denies

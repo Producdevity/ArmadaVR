@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare matched Frame systemd commands for a vendor-kernel initramfs."""
+"""Prepare matched Frame systemd commands for an offline vendor-kernel root."""
 import argparse
 import hashlib
 import importlib.util
@@ -24,12 +24,15 @@ def prepare(args):
     source, template, output = args.source.resolve(), args.template.resolve(), args.output.absolute()
     if output.exists() or output.is_symlink():
         raise ValueError('Choose a new output directory')
-    if not (template / 'etc/initrd-release').is_file():
-        raise ValueError('Template must be an unpacked vendor-kernel initramfs')
+    if runtime.staging_scope(template) != args.scope:
+        raise ValueError('Template does not match the requested runtime scope')
     if runtime.digest(source) != SOURCE_SHA256:
         raise ValueError('Frame repair filesystem does not match the verified source')
     selected = runtime.commands(template)
     template_hashes = {name: runtime.digest(template / name) for name in selected}
+    native_abi = {name: runtime.digest(template / name) for name in runtime.NATIVE_ABI} if args.scope == 'root' else {}
+    allowed_retained = runtime.ROOT_RETAINED if args.scope == 'root' else {runtime.VALIDATEFS}
+    masks = []
     output.mkdir(parents=True)
     files = output / 'files'
     private = files / runtime.PREFIX
@@ -80,7 +83,7 @@ def prepare(args):
             try:
                 fs.get('/' + name)
             except FileNotFoundError:
-                if name != runtime.VALIDATEFS:
+                if name not in allowed_retained:
                     raise ValueError('Frame has no matching systemd command: ' + name)
                 retained.append(name)
                 continue
@@ -96,6 +99,17 @@ def prepare(args):
             name = path.relative_to(template).as_posix()
             if not runtime.is_systemd_unit(path.read_bytes()):
                 continue
+            if args.scope == 'root' and path.name in runtime.ROOT_MASKS:
+                try:
+                    fs.get('/' + name)
+                except FileNotFoundError:
+                    dest = files / 'etc/systemd/system' / path.name
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.symlink_to('/dev/null')
+                    template_hashes[name] = runtime.digest(path)
+                    masks.append(path.name)
+                    continue
+                raise ValueError('Frame now supplies a formerly unsupported socket: ' + name)
             try:
                 node = fs.get('/' + name)
             except FileNotFoundError:
@@ -117,6 +131,8 @@ def prepare(args):
     code_sha = runtime.digest(code)
     command = [args.zig, 'cc', '-target', 'aarch64-linux-musl', '-static', '-Os', '-Werror', '-Wall',
                '-Wextra', str(code), '-o', str(launcher)]
+    if args.scope == 'root':
+        command.insert(2, '-DARMADA_SYSTEMD_NATIVE_LIBRARIES=1')
     with tempfile.TemporaryDirectory(prefix='compiler-cache-', dir=output) as cache:
         env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=cache + '/global', ZIG_LOCAL_CACHE_DIR=cache + '/local')
         with (output / 'compile.log').open('wb') as log:
@@ -139,11 +155,12 @@ def prepare(args):
         elif not path.is_dir():
             raise ValueError('Unexpected runtime file type')
     if runtime.digest(source) != SOURCE_SHA256 or runtime.digest(code) != code_sha or any(
-            runtime.digest(template / name) != sha for name, sha in template_hashes.items()):
+            runtime.digest(template / name) != sha for name, sha in (template_hashes | native_abi).items()):
         raise ValueError('Systemd preparation inputs changed')
-    manifest = {'schema_version': 1, 'status': 'prepared', 'scope': 'initramfs',
+    manifest = {'schema_version': 1, 'status': 'prepared', 'scope': args.scope,
                 'prefix': runtime.PREFIX, 'source_sha256': SOURCE_SHA256,
                 'source_systemd_version': '257.7-2.2', 'commands': commands, 'units': units,
+                'masked_units': masks, 'native_abi_sha256': native_abi,
                 'retained_commands': retained, 'template_sha256': template_hashes, 'files': inventory,
                 'source_files': records, 'launcher_sha256': runtime.digest(launcher),
                 'launcher_source_sha256': code_sha, 'compiler_version': compiler, 'compile_command': command,
@@ -156,7 +173,8 @@ def prepare(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path, help='Unmodified 20260922.5153644 Frame repair rootfs-A.img')
-    parser.add_argument('--template', required=True, type=Path, help='Unpacked initramfs from the same builder image')
+    parser.add_argument('--template', required=True, type=Path, help='Unpacked staging root from the same builder image')
+    parser.add_argument('--scope', choices=('initramfs', 'root'), default='initramfs')
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--zig', default='zig')
     try:
