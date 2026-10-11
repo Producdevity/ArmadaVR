@@ -362,8 +362,52 @@ initializers, services or hardware are invoked. Sources and receipts are in
 `output/quest-frame-composition-20261011-v1/`. The decomposition investigation
 remains in `output/quest-imu-parameters-20261011-v1/`.
 
-Active model/branch selection, time corrections and camera-to-IMU mapping still
-need verification before a calibrated physical tracking claim.
+The initializer at ELF `0x1b65200` passes a literal `1` as the eleventh argument
+to `0x1b899a0`. That wrapper inverts the bit before calling `0x1bd5550`, selecting
+the accelerometer-aligned branch. The other observed constructor caller,
+`0x1bd0ba0`, also supplies mode zero. Stack offsets and instructions confirm
+this static call-path choice; it is not a trace of the active headset runtime.
+The separate selector at `0x28cb950` can prefer a second calibration model. Its
+initializer sets a false default and registers a runtime configuration entry,
+so that default does not establish the live factory/online choice. Instruction
+excerpts and the call-path receipt are in
+`output/quest-frame-composition-20261011-v1/`.
+
+Active model selection, time corrections and camera-to-IMU mapping still need
+verification before a calibrated physical tracking claim.
+
+Combined offline replay now runs all 12,032 preserved live records through the
+raw decoder, stream-order gate, temperature offsets and frame preparation for
+both factory and online models. Both frame choices preserve the resulting
+device-space vectors within float rounding. The replay uses recorded delivery
+times as simulated consumption times and the same explicit candidate MCU
+parameters described above. It applies no time correction or translational
+lever-arm compensation and does not select the live model. This verifies the
+components together, without establishing real-time consumption, labeled-axis
+accuracy or pose tracking. Input hashes and results are preserved in
+`output/quest-calibrated-replay-20261011-v1/`.
+
+[`quest-imu.c`](../src/quest-imu.c) connects these components into a calibrated
+direct-record processor. Initialization requires one explicit calibration,
+frame, MCU format/conversion parameters and age limit. It copies the prepared
+matrices and retains immutable offset tables owned by the caller. Initialization
+failure preserves an existing stream; successful reinitialization deliberately
+starts a new one. Sample rejection also preserves the stream and output, even
+when calibration arithmetic fails after the raw record passes ordering checks.
+
+Accepted vectors remain in the selected IMU frame. The prepared device rotation
+is available to the consumer, but no extrinsic, time correction, camera pairing
+or pose estimate is applied. This component does not acquire a ring, select a
+unit calibration, open hardware or install a Monado tracking driver.
+
+The processor passes 8,192 synthetic stream cases across all four wire formats
+and both frames, plus rejected initialization, duplicate/stale records, counter
+wrap, arithmetic overflow and retry checks under macOS and ARM64 sanitizers.
+It also reproduces the component-by-component replay for all 12,032 retained
+live records using factory/online models and both frames: 48,128 exact vector
+comparisons and 96,256 state-preserving rejection checks. Recorded delivery
+times simulate consumption; these checks do not measure a live consumer.
+Evidence is in `output/quest-imu-pipeline-20261011-v1/`.
 
 ### Earlier configuration and library evidence
 

@@ -13,6 +13,10 @@ struct syncboss_imu_parameters {
     bool temperature_compensation;
 };
 
+/* Floating-point formats (1 and 4) do not use the integer conversion parameters. */
+bool syncboss_imu_parameters_valid(unsigned version,
+                                   const struct syncboss_imu_parameters *parameters);
+
 struct syncboss_imu_sample {
     uint64_t device_id;
     uint64_t timestamp_ticks;

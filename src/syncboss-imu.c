@@ -38,21 +38,30 @@ static float compensate(float value, float delta, float coefficient)
     return value * correction;
 }
 
-bool syncboss_imu_decode(const void *payload, size_t length, unsigned version,
-                         const struct syncboss_imu_parameters *parameters,
-                         struct syncboss_imu_sample *sample)
+bool syncboss_imu_parameters_valid(unsigned version,
+                                   const struct syncboss_imu_parameters *parameters)
 {
-    if (!payload || !sample || version < 1 || version > 4 || length > 252)
+    if (version < 1 || version > 4)
         return false;
     bool integer_format = version == 2 || version == 3;
-    if (length < (integer_format ? 22u : 36u))
-        return false;
     if (integer_format &&
         (!parameters || !isfinite(parameters->lsb_per_dps) || parameters->lsb_per_dps <= 0 ||
          !isfinite(parameters->lsb_per_g) || parameters->lsb_per_g <= 0 ||
          !isfinite(parameters->lsb_per_c) || parameters->lsb_per_c < 1 ||
          parameters->lsb_per_c >= 0x1p31f || !isfinite(parameters->offset_c) ||
          parameters->offset_c < -0x1p31f || parameters->offset_c >= 0x1p31f))
+        return false;
+    return true;
+}
+
+bool syncboss_imu_decode(const void *payload, size_t length, unsigned version,
+                         const struct syncboss_imu_parameters *parameters,
+                         struct syncboss_imu_sample *sample)
+{
+    if (!payload || !sample || !syncboss_imu_parameters_valid(version, parameters) || length > 252)
+        return false;
+    bool integer_format = version == 2 || version == 3;
+    if (length < (integer_format ? 22u : 36u))
         return false;
 
     const uint8_t *data = payload;
