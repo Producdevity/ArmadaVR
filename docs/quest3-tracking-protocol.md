@@ -206,6 +206,34 @@ channel before copying and are unaffected. A future live receiver must establish
 an overwrite-safe acquisition contract, or use the driver's copied FIFO route;
 the calibrated processor continues to require a stable record from its caller.
 
+The copied FIFO allocates a separate queue per open file and returns complete
+records through `miscfifo_fop_read_many`. It does not overwrite unread queue
+entries; a full queue drops new records. Streaming packets have sequence zero,
+so this interface cannot count missing IMU samples. Also, a successful
+direct-channel delivery returns `NOTIFY_STOP` before the lower-priority FIFO
+subscriber runs. A FIFO consumer cannot assume it receives packets already
+claimed by stock direct-channel clients.
+
+`quest_imu_process_fifo` feeds a complete copied packet through the same time
+alignment, temperature compensation and rectification as direct records. It
+requires sequence zero, increasing MCU/capture timestamps and bounded sample
+age. The caller supplies the monotonic time immediately after reading; that
+time is reported as delivery time, not sensor capture time. Output counter zero
+means unavailable, not zero loss. Excessive capture gaps reset interpolation
+history. Switching transports requires reinitialization. Rejections preserve
+state and output, while history warmup consumes the record without output.
+
+All 12,288 synthetic FIFO/direct comparisons across four payload formats, both
+driver headers, both frames and three time corrections agree exactly. Existing
+direct-record tests also pass under macOS and ARM64 Linux sanitizers. This is
+offline processing verification; the sensor-free executable also passes on the
+stock Quest's Android ABI. A separate passive stock-Quest probe on
+October 12 received `EACCES` opening `/dev/syncboss_stream0`; no read or ioctl
+followed, and its temporary executable was removed. Native FIFO acquisition,
+MCU restart handling and physical tracking remain unverified. Evidence is in
+`output/quest-fifo-pipeline-20261012-v1` and
+`output/quest-fifo-acquisition-20261012-v1`.
+
 The [public UAPI](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/include/uapi/linux/syncboss.h#L113)
 defines the packed 104-byte record and DMA-buffer registration parameters. Its
 union includes `float fdata[16]`, but the implementation writes raw header and

@@ -20,6 +20,12 @@ struct quest_imu_config {
     const struct quest_imu_timing *timing;
 };
 
+enum quest_imu_transport {
+    QUEST_IMU_TRANSPORT_NONE,
+    QUEST_IMU_TRANSPORT_DIRECT,
+    QUEST_IMU_TRANSPORT_FIFO,
+};
+
 struct quest_imu {
     bool initialized;
     unsigned format;
@@ -30,6 +36,7 @@ struct quest_imu {
     size_t accelerometer_offset_count, gyroscope_offset_count;
     struct syncboss_imu_stream stream;
     struct imu_time_alignment alignment;
+    enum quest_imu_transport transport;
 };
 
 struct quest_imu_sample {
@@ -66,9 +73,23 @@ bool quest_imu_init(struct quest_imu *imu, const struct quest_imu_config *config
  * NEEDS_HISTORY consumes the record and sets dropped but leaves sample intact.
  * Missing records or excessive capture gaps discard interpolation history.
  * All other rejections preserve stream, history, sample and dropped.
- * Ring synchronization and channel restarts remain the caller's responsibility. */
+ * Ring synchronization and channel restarts remain the caller's responsibility.
+ * Switching from FIFO input requires reinitialization. */
 enum quest_imu_status quest_imu_process_direct(
     struct quest_imu *imu, const void *data, size_t length, int64_t now_ns,
     struct quest_imu_sample *sample, uint32_t *dropped);
+
+/* Process one complete, copied FIFO packet-80 record with sequence zero.
+ * received_ns is CLOCK_MONOTONIC immediately after the read; now_ns is the
+ * consumption time. Output delivery_ns holds received_ns and counter is zero:
+ * FIFO has no sample counter, so lost records cannot be counted. Alignment
+ * history resets on excessive capture gaps, according to the configured timing.
+ * Direct and FIFO input cannot be mixed without reinitializing the processor.
+ * Rejection preserves state/output; NEEDS_HISTORY consumes only stream/history.
+ * Opening, filtering, reading, framing and MCU restart detection belong to the
+ * caller. A successful direct-channel subscriber can suppress FIFO delivery. */
+enum quest_imu_status quest_imu_process_fifo(
+    struct quest_imu *imu, const void *data, size_t length,
+    int64_t received_ns, int64_t now_ns, struct quest_imu_sample *sample);
 
 #endif

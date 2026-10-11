@@ -222,8 +222,119 @@ static void alignment_rejections(void)
     assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_ACCEPTED);
 }
 
+static size_t fifo_record(unsigned char fifo[276], const unsigned char direct[104],
+                          unsigned format, unsigned header_version)
+{
+    unsigned header_length = header_version == 2 ? 12 : 21;
+    unsigned payload_length = format == 2 || format == 3 ? 22 : 36;
+    memset(fifo, 0, 276);
+    memcpy(fifo, direct + 24, 12);
+    fifo[0] = (unsigned char)header_version;
+    fifo[1] = (unsigned char)header_length;
+    fifo[header_length] = 80;
+    fifo[header_length + 2] = (unsigned char)payload_length;
+    memcpy(fifo + header_length + 3, direct + 36, payload_length);
+    return header_length + 3 + payload_length;
+}
+
+static void fifo_rejected(struct quest_imu *imu, const void *data, size_t length,
+                          int64_t received, int64_t now, enum quest_imu_status expected)
+{
+    struct quest_imu before = *imu;
+    struct quest_imu_sample sample, saved;
+    memset(&sample, 0x5a, sizeof(sample)); saved = sample;
+    assert(quest_imu_process_fifo(imu, data, length, received, now, &sample) == expected);
+    assert(memcmp(&sample, &saved, sizeof(sample)) == 0);
+    assert(memcmp(imu, &before, sizeof(before)) == 0);
+}
+
+static void fifo_cases(void)
+{
+    const struct quest_imu_timing timings[] = {{-625000, 0, 2000000},
+                                             {0, -625000, 2000000}, {0, 0, 2000000}};
+    unsigned cases = 0;
+    for (unsigned format = 1; format <= 4; ++format) {
+        for (unsigned frame = 0; frame < 2; ++frame) {
+            for (unsigned header = 2; header <= 3; ++header) {
+                for (unsigned t = 0; t < 3; ++t) {
+                    struct quest_imu_config config = configuration();
+                    config.format = format;
+                    config.frame = (enum imu_rectification_frame)frame;
+                    config.timing = &timings[t];
+                    struct quest_imu direct_imu = {0}, fifo_imu = {0};
+                    assert(quest_imu_init(&direct_imu, &config));
+                    assert(quest_imu_init(&fifo_imu, &config));
+                    uint64_t ticks = 10000;
+                    for (unsigned j = 0; j < 256; ++j) {
+                        ticks += j % 31 == 30 ? 10000 : 1250;
+                        int raw[] = {(int)j - 100, 200 - (int)j, (int)j * 10,
+                                     120 - (int)j, (int)j * 2, -(int)j, (int)j * 8 - 512};
+                        unsigned char direct[104], fifo[276];
+                        int64_t now = record(direct, format, j + 1, ticks, raw);
+                        size_t length = fifo_record(fifo, direct, format, header);
+                        struct quest_imu_sample a, b;
+                        memset(&a, 0x5a, sizeof(a)); b = a;
+                        uint32_t dropped = 123;
+                        enum quest_imu_status expected = quest_imu_process_direct(
+                            &direct_imu, direct, sizeof(direct), now, &a, &dropped);
+                        assert(quest_imu_process_fifo(&fifo_imu, fifo, length, now, now, &b) == expected);
+                        assert(dropped == 0 && fifo_imu.transport == QUEST_IMU_TRANSPORT_FIFO);
+                        if (expected == QUEST_IMU_ACCEPTED) {
+                            assert(a.timestamp_ns == b.timestamp_ns && a.capture_timestamp_ns == b.capture_timestamp_ns);
+                            assert(a.delivery_ns == b.delivery_ns && b.counter == 0);
+                            assert(a.sample.timestamp_ticks == b.sample.timestamp_ticks && b.sample.device_id == 0);
+                            assert(a.sample.temperature_c == b.sample.temperature_c);
+                            assert(memcmp(a.sample.acceleration_m_s2, b.sample.acceleration_m_s2, sizeof(a.sample.acceleration_m_s2)) == 0);
+                            assert(memcmp(a.sample.angular_velocity_rad_s, b.sample.angular_velocity_rad_s, sizeof(a.sample.angular_velocity_rad_s)) == 0);
+                        } else {
+                            assert(expected == QUEST_IMU_NEEDS_HISTORY);
+                            assert(memcmp(&a, &b, sizeof(a)) == 0);
+                        }
+                        fifo_rejected(&fifo_imu, fifo, length, now, now, QUEST_IMU_OUT_OF_ORDER);
+                        fifo_rejected(&fifo_imu, fifo, length, now, now + 5000001, QUEST_IMU_STALE);
+                        fifo_rejected(&fifo_imu, fifo, length, now, now - 1, QUEST_IMU_INVALID);
+                        fifo_rejected(&direct_imu, fifo, length, now, now, QUEST_IMU_INVALID);
+                        rejected(&fifo_imu, direct, sizeof(direct), now, QUEST_IMU_INVALID);
+                        ++cases;
+                    }
+                }
+            }
+        }
+    }
+    struct quest_imu_config config = configuration();
+    struct quest_imu imu = {0};
+    unsigned char direct[104], fifo[276];
+    int raw[7] = {1, 2, 3, 4, 5, 6, 7};
+    int64_t now = record(direct, 2, 1, 10000, raw);
+    size_t length = fifo_record(fifo, direct, 2, 3);
+    fifo_rejected(&imu, fifo, length, now, now, QUEST_IMU_INVALID);
+    assert(quest_imu_init(&imu, &config));
+    for (size_t n = 0; n < length; ++n)
+        fifo_rejected(&imu, fifo, n, now, now, QUEST_IMU_INVALID);
+    fifo_rejected(&imu, fifo, length + 1, now, now, QUEST_IMU_INVALID);
+    fifo_rejected(&imu, NULL, length, now, now, QUEST_IMU_INVALID);
+    fifo_rejected(&imu, fifo, length, -1, now, QUEST_IMU_INVALID);
+    fifo_rejected(&imu, fifo, length, 0, now, QUEST_IMU_INVALID);
+    for (unsigned bad = 0; bad < 4; ++bad) {
+        size_t pos = (unsigned[]){2, 3, 21, 22}[bad];
+        unsigned char original = fifo[pos];
+        fifo[pos] = bad == 1 ? 0 : bad == 2 ? 81 : 1;
+        fifo_rejected(&imu, fifo, length, now, now, QUEST_IMU_INVALID);
+        fifo[pos] = original;
+    }
+    struct quest_imu_sample result;
+    assert(quest_imu_process_fifo(&imu, fifo, length, now, now, &result) == QUEST_IMU_ACCEPTED);
+    assert(quest_imu_init(&imu, &config) && imu.transport == QUEST_IMU_TRANSPORT_NONE);
+    uint32_t dropped;
+    assert(quest_imu_process_direct(&imu, direct, sizeof(direct), now, &result, &dropped) == QUEST_IMU_ACCEPTED);
+    assert(quest_imu_init(&imu, &config));
+    assert(quest_imu_process_fifo(&imu, fifo, length, now, now, &result) == QUEST_IMU_ACCEPTED);
+    printf("%u FIFO calibration comparisons and transport rejection checks passed\n", cases);
+}
+
 int main(void)
 {
+    fifo_cases();
     aligned_cases();
     alignment_rejections();
     unsigned cases = 0;

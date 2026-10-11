@@ -21,3 +21,4 @@ class QuestImuTests(unittest.TestCase):
                                     text=True, timeout=10)
             self.assertIn("8192 calibrated IMU stream cases and rejection checks passed", result.stdout)
             self.assertIn("9952 aligned stream cases and 288 history resets passed", result.stdout)
+            self.assertIn("12288 FIFO calibration comparisons and transport rejection checks passed", result.stdout)
