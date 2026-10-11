@@ -61,8 +61,38 @@ builds use `-ffp-contract=off`.
 
 Private firmware, Ghidra projects, comparison runner and results remain under
 `output/quest-tracking-524-20261011-v1/`. These tests establish offline conversion
-compatibility only. Live packet selection, timestamp units, active MCU scales,
+compatibility only. Live packet selection, clock stability, active MCU scales,
 sensor axes, calibration and physical tracking acceptance remain open.
+
+### FIFO framing and clock conversion
+
+`syncboss_imu_decode_fifo` combines the raw decoder with the published driver
+framing. It accepts exactly one packet-80 record with header version 2 or 3,
+the matching header length, a valid NSYNC offset, and HMD device ID 0. Other
+packet types, driver messages, unknown states, truncation and trailing records
+are rejected. The sample format and conversion parameters remain explicit.
+The version-3 remote offset is not applied to this local HMD clock.
+
+The kernel computes NSYNC as `ktime_to_us(ktime_get()) - mcu_timestamp_us`.
+The exact-build stock `syncboss_get_spi_imu_api_payload` at ELF address `0x51908`
+requires a valid NSYNC status, then adds that signed offset to the decoded MCU
+timestamp. The maintained FIFO decoder preserves the raw timestamp and exposes
+`(mcu_timestamp_us + nsync_offset_us) * 1000` as signed CLOCK_MONOTONIC
+nanoseconds. It checks negative results and overflow before conversion, including
+the minimum signed offset. Failure leaves the output unchanged. Direct-channel
+ring ownership and its host delivery timestamp are separate from this FIFO API.
+
+All **16,000** synthetic comparisons against the original stock wrapper agree
+on sample bytes and converted clock values across both headers and all four
+sample formats. The stock routine is invoked with its header-plus-payload
+layout; FIFO type/sequence/length bytes are separately validated by the new API.
+The **2,312** framing and clock checks pass with address/undefined-behavior
+sanitizers on macOS and ARM64 Linux. These cover unaligned inputs, every truncated
+length, malformed headers, both offset signs and integer boundaries.
+
+This supplies a bounded parser for a future native receiver. Live delivery,
+offset freshness, clock resets, dropped samples and physical axis/calibration
+validation remain required before feeding a tracking estimator.
 
 ## Additional interface found in Meta's kernel
 

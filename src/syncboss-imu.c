@@ -99,3 +99,44 @@ bool syncboss_imu_decode(const void *payload, size_t length, unsigned version,
     *sample = result;
     return true;
 }
+
+bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
+                              const struct syncboss_imu_parameters *parameters,
+                              struct syncboss_imu_record *record)
+{
+    if (!data || !record || length < 2 || length > 276)
+        return false;
+    const uint8_t *bytes = data;
+    unsigned header_length = bytes[0] == 2 ? 12 : bytes[0] == 3 ? 21 : 0;
+    if (!header_length || bytes[1] != header_length || length < header_length + 3)
+        return false;
+    if (bytes[2] != 0 || bytes[3] != 1 || (bytes[0] == 3 && bytes[12] > 2))
+        return false;
+    const uint8_t *packet = bytes + header_length;
+    if (packet[0] != 80 || packet[2] > 252 || length != header_length + 3u + packet[2])
+        return false;
+
+    struct syncboss_imu_record result = {0};
+    if (!syncboss_imu_decode(packet + 3, packet[2], version, parameters, &result.sample) ||
+        result.sample.device_id != 0)
+        return false;
+
+    uint64_t timestamp = result.sample.timestamp_ticks;
+    uint64_t offset = read_le(bytes + 4, 8);
+    if (offset & (UINT64_C(1) << 63)) {
+        uint64_t magnitude = ~offset + 1;
+        if (timestamp < magnitude)
+            return false;
+        timestamp -= magnitude;
+    } else {
+        if (timestamp > UINT64_MAX - offset)
+            return false;
+        timestamp += offset;
+    }
+    if (timestamp > INT64_MAX / 1000)
+        return false;
+    result.timestamp_ns = (int64_t)timestamp * 1000;
+    result.sequence = packet[1];
+    *record = result;
+    return true;
+}

@@ -29,4 +29,18 @@ bool syncboss_imu_decode(const void *payload, size_t length, unsigned version,
                          const struct syncboss_imu_parameters *parameters,
                          struct syncboss_imu_sample *sample);
 
+struct syncboss_imu_record {
+    struct syncboss_imu_sample sample;
+    int64_t timestamp_ns;
+    uint8_t sequence;
+};
+
+/* Decode exactly one FIFO packet-80 record for HMD device 0.
+ * A valid NSYNC offset maps MCU microseconds to CLOCK_MONOTONIC nanoseconds.
+ * Reject other packets, incomplete records and unrepresentable timestamps.
+ * Failure leaves record unchanged; calibration and stream ordering are external. */
+bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
+                              const struct syncboss_imu_parameters *parameters,
+                              struct syncboss_imu_record *record);
+
 #endif
