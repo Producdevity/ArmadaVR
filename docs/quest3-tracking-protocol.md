@@ -190,6 +190,22 @@ reveals several constraints useful for a future receiver:
 - A write barrier precedes publishing the incremented nonzero counter. Optional
   DMA fences wake readers; the storage is a wrapping ring.
 
+The counter is published after payload writes, but the writer does not invalidate
+the old counter before reusing a slot. Reading the same nonzero counter before
+and after a copy therefore does not certify a stable record. Two equal copies
+also fail if the writer pauses partway through an overwrite. A deterministic
+test of that permitted interleaving produces new capture time and acceleration
+with old gyro and temperature; ordinary decoding and age/order checks accept
+the mixture. The fences implement notifications, not exclusion against writes.
+The producer explicitly omits DMA-buffer CPU access locking around its writes.
+
+The reproduction and exact pinned producer source are preserved in
+`output/quest-ring-consumer-20261011-v1/`. This is an offline race demonstration,
+not an observed failure on the headset. Existing captures stop and destroy the
+channel before copying and are unaffected. A future live receiver must establish
+an overwrite-safe acquisition contract, or use the driver's copied FIFO route;
+the calibrated processor continues to require a stable record from its caller.
+
 The [public UAPI](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/include/uapi/linux/syncboss.h#L113)
 defines the packed 104-byte record and DMA-buffer registration parameters. Its
 union includes `float fdata[16]`, but the implementation writes raw header and
@@ -606,9 +622,10 @@ not validate the headset's factory calibration.
    captures. Confirm the active variant and conversion parameters, packet
    selection, batch structure, sensor axes and MCU timestamp behavior before
    producing `xrt_imu_sample` values.
-2. Verify the recovered calibration's units, matrix/application order, time
-   offsets and inverse Fisheye62 projection. Select the appropriate factory/online model
-   and map each camera into the IMU frame without applying corrections twice.
+2. Select the active factory/online model and runtime timing overrides, confirm
+   the physical axis conventions, and map each camera into the IMU frame without
+   applying corrections twice. Matrix order, time resampling and Fisheye62 math
+   now have the isolated stock comparisons and integrated replay described above.
 3. A camera stream with real image format, exposure timing, frame identifiers
    and a verified mapping into the same clock as the IMU. Kernel camera nodes
    and firmware filenames do not establish those semantics.
