@@ -347,6 +347,17 @@ It passes in 5.574 seconds with unchanged taint and normal powerdown
 the headset configuration on a virtual board, not a physical boot or recovery
 test.
 
+The page-pinning correction also compiles with the physical configuration and
+all 38 modules (`output/kernel/pico-neo3/linux-tagged-fuse-20261011-v1`). Its
+Image SHA-256 is
+`fe7cfbc1dcab6abb64226fbf3c653f6ab80239a9c5af7af7d034003f449e2fdc`.
+The diskless Android ABI fixture passes in 5.501 seconds, including tagged
+execution, memory and FUSE buffers, with unchanged taint and normal powerdown
+(`output/pico-physical-fuse-20261011-v1/android-abi/result.json`). No virtual
+transport drivers were added to this configuration. The separate transport
+build passes the [two-launch Android storage test](android-containers.md#pico-application-storage-and-launcher-shutdown);
+neither test boots a physical headset.
+
 Fedora now mounts its API filesystems, starts service executors, and switches
 to a RAM overlay root with zero backing-disk writes. The overall boot test is
 still rejected: systemd259 credential setup calls `fsopen`, which this kernel

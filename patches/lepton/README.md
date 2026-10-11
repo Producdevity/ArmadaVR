@@ -9,6 +9,7 @@ Expected original launcher files:
 
 | File | SHA-256 |
 |---|---|
+| `liblepton/utils.sh` | `1f3f0d6383739e0d86ceeeb4b94b74b3c161be6756f6d3a318424716f54a30b3` |
 | `lepton` | `f892362538effbefbbd70355cf1f659582ad78fec214f0e3eaf8adcc802a0f45` |
 | `liblepton/properties.sh` | `ec6af956c92e93092bee71998c2fcbda9c0e25385e8c95f30cb631927ef6fa9d` |
 | `liblepton/mounting.sh` | `4e53b2762198ef1350d80dcdfcabb3dcdf084db6cc2887ed94555a59321ab4f3` |
@@ -17,7 +18,7 @@ Expected original launcher files:
 | `liblepton/baking.sh` | `e5d11e2c3027f1a067225fd6141bbd95fe527734290cac38c722ed42d056c4b5` |
 
 From the execution-copy directory, check the original hashes and run
-`git apply --check` with all eleven patches before applying them in numbered order. Refuse another
+`git apply --check` with all fourteen patches before applying them in numbered order. Refuse another
 launcher version rather than applying with fuzz or assuming compatibility.
 
 The shared-memory patch uses memfd because this launcher does not mount ashmem
@@ -117,6 +118,28 @@ inside it then survives `rm -rf` with a permission error. The permission change
 applies only when baked data is being deleted. Explicit retention remains
 unchanged, a symlink at the baked-data root is refused, and recursive chmod
 does not follow symlinks encountered inside the tree.
+
+The launch-timeout patch backports `LEPTON_APP_LAUNCH_TIMEOUT` from Valve's
+public v3.0.5 launcher, retaining the delivered 60-second default. CPU-emulated
+Android tests can select a longer deadline without changing production timing.
+The installed 2.8.14 launcher otherwise ignores this setting and can report an
+app-start failure while the activity is still starting.
+
+The emulated-storage patch sets `external_storage.sdcardfs.enabled=false`.
+Android otherwise selects sdcardfs when the host kernel advertises it, although
+that filesystem cannot mount inside the rootless user namespace. The delivered
+Android image already enables its MediaProvider FUSE path. This property does
+not remove sdcardfs from the kernel or grant the container additional privileges.
+Pico also needs the tagged-page-pinning correction for Android's FUSE buffers;
+successful mount creation alone does not establish usable app storage.
+
+The logging patch keeps the log reader alive through process-group teardown.
+The delivered launcher terminates its own logging pipeline, then prints another
+message into that pipe. This races with reader exit and can kill the launcher
+with SIGPIPE after Android has shut down successfully. Only the logging
+subprocess ignores INT/TERM; it drains until its writers close their descriptors.
+Container and application signal handling are unchanged.
+
 The reconstructed engineering build is separate from the original acquired
 image; Valve's exact resolved image manifest and release integration remain open.
 

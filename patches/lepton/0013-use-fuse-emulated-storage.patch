@@ -1,0 +1,12 @@
+--- a/liblepton/properties.sh
++++ b/liblepton/properties.sh
+@@ -38,6 +38,9 @@
+     # ueventd is disabled
+     props_echo "ro.cold_boot_done=true"
+ 
++    # sdcardfs cannot mount inside the rootless user namespace.
++    props_echo "external_storage.sdcardfs.enabled=false"
++
+     # We have to use dex2oat64 as we are 64-bit only.
+     props_echo "dalvik.vm.dex2oat64.enabled=true"
+     props_echo "dalvik.vm.usejit=true"

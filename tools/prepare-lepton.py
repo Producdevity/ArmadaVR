@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RELEASE = {"app": 3029110, "build": 25257944, "launcher": "v2.8.14", "image": "v2.8.11", "sdk": 30,
            "depots": {"3029111": "5805845383697258311", "3029112": "773148386728154884"}}
 ORIGINALS = {
+    "liblepton/utils.sh": "1f3f0d6383739e0d86ceeeb4b94b74b3c161be6756f6d3a318424716f54a30b3",
     "lepton": "f892362538effbefbbd70355cf1f659582ad78fec214f0e3eaf8adcc802a0f45",
     "liblepton/properties.sh": "ec6af956c92e93092bee71998c2fcbda9c0e25385e8c95f30cb631927ef6fa9d",
     "liblepton/mounting.sh": "4e53b2762198ef1350d80dcdfcabb3dcdf084db6cc2887ed94555a59321ab4f3",
@@ -144,8 +145,8 @@ def prepare(args):
     if header[:6] != b"\x7fELF\x02\x01" or header[16:20] != b"\x03\x00\xb7\x00":
         raise ValueError("Android init must be a native ARM64 position-independent ELF")
     patches = patch_identity()
-    if len(patches) != 11:
-        raise ValueError("Expected the eleven reviewed Lepton patches")
+    if len(patches) != 14:
+        raise ValueError("Expected the fourteen reviewed Lepton patches")
     replacements = {}
     with tempfile.TemporaryDirectory(prefix="armada-lepton-") as temporary:
         work = Path(temporary)

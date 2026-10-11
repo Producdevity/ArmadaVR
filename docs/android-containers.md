@@ -359,6 +359,40 @@ integration, actual game saves and physical-device support remain open.
 Original inputs are unchanged, kernel taint is zero, and the VM has no physical
 devices, host filesystem shares or USB passthrough.
 
+## Pico application storage and launcher shutdown
+
+The complete fourteen-patch Lepton bundle now passes two application launches
+on the corrected Pico virtual kernel and on the unchanged Quest virtual kernel.
+The application writes both private preferences and its external-files directory
+under its own Android UID: the counter reaches two, survives Android restart,
+and reaches four. Captured frames show both input states. Each launch returns
+zero from Android and the launcher, with no remaining launcher process group,
+container init, prefix or container mounts. Separate headless runs verify the
+default baked-data cleanup.
+
+Three launcher changes complete this test. The configurable app deadline retains
+the 60-second default but permits 240 seconds under CPU emulation. Disabling
+sdcardfs selection uses Android's existing MediaProvider FUSE path without extra
+container privileges. Keeping the logging subprocess alive until its writers
+close fixes a teardown race: the original logger failed with SIGPIPE in 8 of 20
+ordinary runs and all 20 deliberately delayed runs; the corrected logger passed
+all 40 runs, including the final log message.
+
+Receipts are in `output/pico-lepton-acceptance-20261011-v7` and
+`output/quest-lepton-acceptance-20261011-v3`. The prepared bundle is
+`output/lepton-prepared-20261011-v5/bundle`, archive SHA-256
+`9b6aea5377ea8d80b611d45921ba29d92b3d190989d3d8dbe3936c0a5718418c`.
+All 4,216 inventory entries were checked before execution. Both VMs powered down
+normally after evidence export; their read-only root, kernel and initramfs inputs
+remain unchanged.
+
+The Quest run covers short sessions on the packaged Fedora root. Pico uses a
+diagnostic Frame systemd 257 runtime with Fedora's native loader and unchanged
+PAM policy; its slower CPU-emulated sessions do not establish short-session
+timing or device performance. The bundle was staged in guest RAM over a preserved
+root. A maintained complete Pico root, fresh immutable image integration and
+physical boot, recovery and drivers remain separate requirements.
+
 ## Android OpenXR runtime connection
 
 A native Android test APK now loads Frame SteamVR 2.17.10's Bionic ARM64
