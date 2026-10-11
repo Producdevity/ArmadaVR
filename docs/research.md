@@ -85,8 +85,9 @@ community tools, not a vendor promise that either of these two enterprise
 headsets can always be recovered.
 
 Pico's official [splash customization documentation](https://sdk.picovr.com/docs/SplashCustomize/chapter_two.html)
-mentions Neo3 Pro/Pro Eye and a splash unlock operation. That narrowly scoped
-feature is **not** evidence of an unlocked kernel/AVB boot chain.
+assigns `fastboot oem splash unlock` to G2/Neo2. Its Neo3 Pro/Pro Eye procedure
+uses `Pxr_Init_Client`. Neither narrowly scoped feature establishes an unlocked
+kernel/AVB boot chain.
 
 Before any unlock attempt: obtain the exact SKU, firmware, board and memory
 identity; verify a matching programmer can perform read-only operations; preserve

@@ -261,6 +261,18 @@ review because its comment records a sleep-to-active shutdown regression.
 Changing those paths requires checking the charge regulator and suspend
 sequence together.
 
+The complete kernel through `0030` passes all 18 artifact hashes, 38 module
+signatures, 2,715 imported symbol versions, dependency closure and modified
+signature rejection. Its exact physical configuration passes the diskless ABI
+fixture and normal shutdown in 5.733 seconds. The Image SHA-256 is
+`9d00bdde7875eafc6b887257cbe04212dda790e8a62cf84367c97d620f344be5`;
+the build receipt SHA-256 is
+`5d01dfcef0cf953f5727b23c5d4f82702bb08d21797f65eb351eea5dedcc01cb`.
+Artifacts are in `output/kernel/pico-neo3/linux-panel-regulator-20261012-v1/`;
+acceptance is recorded in
+`output/pico-panel-startup-20261012-v1/acceptance.json`. Hardware acceptance
+remains separate.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.

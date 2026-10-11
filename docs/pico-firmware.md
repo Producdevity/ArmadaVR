@@ -169,9 +169,9 @@ download, then rejected execution with `oem command is not allowed without
 unlocktoken authority`. A normal fastboot reboot returned the unit to the same
 5.8.4.0 firmware, locked/green verified boot and enforcing SELinux; the connected
 Quest did not reboot. No flash, unlock, erase or slot-change command was issued.
-This establishes an OEM authorization gate even for this signed stock RAM boot,
-not successful temporary boot or custom-kernel acceptance. The image hash,
-command responses and return checks are in
+The response alone does not distinguish an authorization failure from an
+unsupported command. The subsequent static analysis below resolves that
+ambiguity. The image hash, command responses and return checks are in
 `output/pico-stock-ram-boot-20261012-v1/result.json`.
 
 When multiple ADB servers are running, the Pico can reconnect to a different
@@ -276,6 +276,64 @@ restored without opening it.
 Reuse the documented protocol and backup lessons after verifying their exact
 device assumptions. Do not import its Windows automation or bundled firmware
 into ArmadaVR's installer, or run its rollback flow merely to test access.
+
+Offline analysis of the exact b1977 ABL finds 15 registered fastboot commands
+and 14 additional OEM commands. Neither table contains `boot`. The dispatcher
+at `0x309e4` uses the observed unlock-token error for unmatched commands too;
+it is not evidence that a token would enable RAM boot. Commands use prefix
+matching, and the registered `reboot` handler requests a normal reboot without
+inspecting the remaining text. This explains the acknowledged `reboot-edl`
+followed by stock Android. The separate `oem reboot-edl` handler sits behind
+the OEM authority check. Repeating the plain command cannot verify recovery.
+
+The official Neo3 4.6.3 b678 ABL was acquired using bounded ZIP ranges and
+matched byte-for-byte to the pinned community tool's bundled ABL. Its SHA-256
+is `446eb09a169eb8e8a25f3ecb9865c08b7ac8cd7636d366a8c450d59dfdbe118a`.
+All ELF segment hashes, its RSA-PSS signature and certificate chain verify;
+modified signed data is rejected. Its root matches both the authenticated
+b1977 images and the unit's previously observed Sahara root hash. The old and
+current ABLs also carry identical signed OEM metadata. These checks establish
+provenance, not live rollback acceptance, Pro Eye boot compatibility or restore
+capability. Static exports and signature receipts are retained in
+`output/pico-stock-abl-20261012-v1/`; current-source research and acquisition
+receipts are in `output/pico-unlock-research-20261012-v1/`.
+
+The early ABL has a distinct command path: its serial-derived authorization
+handler at `0x32268` registers nine additional commands, including `boot` at
+`0x33a64`. That handler itself registers commands and acknowledges the request;
+ordinary and critical unlocking are separate handlers. The boot handler still
+loads and authenticates the image, and contains an A/B-slot metadata operation
+on applicable devices. Command availability must not be confused with unsigned
+boot acceptance or absence of persistent effects. The early ABL must first be
+installed before this path exists, so it does not remove the independent
+recovery requirement. A complete community unlock/factory-reset script is not
+required merely to investigate that distinction offline.
+
+## Offline boot container
+
+A diagnostic Android-v2 container now combines the verified `0030` kernel,
+its matching initramfs and the unmodified current stock DTB pack. Pinned AOSP
+tools unpack and repack the authenticated stock payload byte-for-byte before
+assembling the Linux payload. Pico retains a nonzero `second_addr` despite
+`second_size=0`; current AOSP packing clears that inactive field. The assembler
+explicitly preserves only that reference field, then requires exact equality.
+Both earlier failed roundtrip attempts remain in the evidence.
+
+The resulting unsigned container is 62,119,936 bytes, leaving 38,543,360 bytes
+within the observed boot partition size. Unpacking it reproduces the selected
+kernel, matching initramfs and original DTB bytes exactly. Its SHA-256 is
+`d5a4f16356edf96e766640d6f134095245e4243021bf1d79ac3854d02630515a`.
+The initramfs includes the selected kernel's modules and the previously tested
+Pico-compatible systemd runtime. Its command line requests a read-only labeled
+root with a volatile overlay and powers off on root-mount failure.
+
+This is an offline packaging diagnostic, not an installable OS release. It
+does not include a root filesystem, activate the candidate panel/mux binding,
+verify live DTB selection, or establish that the early ABL accepts the image.
+No device was contacted during assembly. The script, source hashes, command
+logs and roundtrip receipt are retained in
+`output/pico-boot-container-20261012-v3/`; the matching initramfs is in
+`output/headset-initramfs-pico-regulator-20261012-v1/`.
 
 ## Kernel build and stock driver dependencies
 
