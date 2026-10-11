@@ -1,0 +1,170 @@
+From 057d3389108eda8a20c7f496f011846932680d88 Mon Sep 17 00:00:00 2001
+From: Andrey Konovalov <andreyknvl@google.com>
+Date: Wed, 25 Sep 2019 16:48:30 -0700
+Subject: [PATCH] mm: untag user pointers passed to memory syscalls
+
+This patch is a part of a series that extends kernel ABI to allow to pass
+tagged user pointers (with the top byte set to something else other than
+0x00) as syscall arguments.
+
+This patch allows tagged pointers to be passed to the following memory
+syscalls: get_mempolicy, madvise, mbind, mincore, mlock, mlock2, mprotect,
+mremap, msync, munlock, move_pages.
+
+The mmap and mremap syscalls do not currently accept tagged addresses.
+Architectures may interpret the tag as a background colour for the
+corresponding vma.
+
+Link: http://lkml.kernel.org/r/aaf0c0969d46b2feb9017f3e1b3ef3970b633d91.1563904656.git.andreyknvl@google.com
+Signed-off-by: Andrey Konovalov <andreyknvl@google.com>
+Reviewed-by: Khalid Aziz <khalid.aziz@oracle.com>
+Reviewed-by: Vincenzo Frascino <vincenzo.frascino@arm.com>
+Reviewed-by: Catalin Marinas <catalin.marinas@arm.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Cc: Al Viro <viro@zeniv.linux.org.uk>
+Cc: Dave Hansen <dave.hansen@intel.com>
+Cc: Eric Auger <eric.auger@redhat.com>
+Cc: Felix Kuehling <Felix.Kuehling@amd.com>
+Cc: Jens Wiklander <jens.wiklander@linaro.org>
+Cc: Mauro Carvalho Chehab <mchehab+samsung@kernel.org>
+Cc: Mike Rapoport <rppt@linux.ibm.com>
+Cc: Will Deacon <will@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/madvise.c   | 2 ++
+ mm/mempolicy.c | 3 +++
+ mm/migrate.c   | 2 +-
+ mm/mincore.c   | 2 ++
+ mm/mlock.c     | 4 ++++
+ mm/mprotect.c  | 2 ++
+ mm/mremap.c    | 7 +++++++
+ mm/msync.c     | 2 ++
+ 8 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/mm/madvise.c b/mm/madvise.c
+index 68ab988ad4333b..1f8a6fdc687856 100644
+--- a/mm/madvise.c
++++ b/mm/madvise.c
+@@ -784,6 +784,8 @@ SYSCALL_DEFINE3(madvise, unsigned long, start, size_t, len_in, int, behavior)
+ 	size_t len;
+ 	struct blk_plug plug;
+ 
++	start = untagged_addr(start);
++
+ 	if (!madvise_behavior_valid(behavior))
+ 		return error;
+ 
+diff --git a/mm/mempolicy.c b/mm/mempolicy.c
+index 464406e8da9109..de27d08b1ff8d2 100644
+--- a/mm/mempolicy.c
++++ b/mm/mempolicy.c
+@@ -1405,6 +1405,7 @@ static long kernel_mbind(unsigned long start, unsigned long len,
+ 	int err;
+ 	unsigned short mode_flags;
+ 
++	start = untagged_addr(start);
+ 	mode_flags = mode & MPOL_MODE_FLAGS;
+ 	mode &= ~MPOL_MODE_FLAGS;
+ 	if (mode >= MPOL_MAX)
+@@ -1558,6 +1559,8 @@ static int kernel_get_mempolicy(int __user *policy,
+ 	int uninitialized_var(pval);
+ 	nodemask_t nodes;
+ 
++	addr = untagged_addr(addr);
++
+ 	if (nmask != NULL && maxnode < nr_node_ids)
+ 		return -EINVAL;
+ 
+diff --git a/mm/migrate.c b/mm/migrate.c
+index 73d476d690b105..4fe45d1428c867 100644
+--- a/mm/migrate.c
++++ b/mm/migrate.c
+@@ -1612,7 +1612,7 @@ static int do_pages_move(struct mm_struct *mm, nodemask_t task_nodes,
+ 			goto out_flush;
+ 		if (get_user(node, nodes + i))
+ 			goto out_flush;
+-		addr = (unsigned long)p;
++		addr = (unsigned long)untagged_addr(p);
+ 
+ 		err = -ENODEV;
+ 		if (node < 0 || node >= MAX_NUMNODES)
+diff --git a/mm/mincore.c b/mm/mincore.c
+index f9a9dbe8cd3301..49b6fa2f6aa1d6 100644
+--- a/mm/mincore.c
++++ b/mm/mincore.c
+@@ -256,6 +256,8 @@ SYSCALL_DEFINE3(mincore, unsigned long, start, size_t, len,
+ 	unsigned long pages;
+ 	unsigned char *tmp;
+ 
++	start = untagged_addr(start);
++
+ 	/* Check the start address: needs to be page-aligned.. */
+ 	if (start & ~PAGE_MASK)
+ 		return -EINVAL;
+diff --git a/mm/mlock.c b/mm/mlock.c
+index a90099da4fb416..a72c1eeded7729 100644
+--- a/mm/mlock.c
++++ b/mm/mlock.c
+@@ -674,6 +674,8 @@ static __must_check int do_mlock(unsigned long start, size_t len, vm_flags_t fla
+ 	unsigned long lock_limit;
+ 	int error = -ENOMEM;
+ 
++	start = untagged_addr(start);
++
+ 	if (!can_do_mlock())
+ 		return -EPERM;
+ 
+@@ -735,6 +737,8 @@ SYSCALL_DEFINE2(munlock, unsigned long, start, size_t, len)
+ {
+ 	int ret;
+ 
++	start = untagged_addr(start);
++
+ 	len = PAGE_ALIGN(len + (offset_in_page(start)));
+ 	start &= PAGE_MASK;
+ 
+diff --git a/mm/mprotect.c b/mm/mprotect.c
+index 675e5d34a50773..7967825f6d3352 100644
+--- a/mm/mprotect.c
++++ b/mm/mprotect.c
+@@ -459,6 +459,8 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
+ 	const bool rier = (current->personality & READ_IMPLIES_EXEC) &&
+ 				(prot & PROT_READ);
+ 
++	start = untagged_addr(start);
++
+ 	prot &= ~(PROT_GROWSDOWN|PROT_GROWSUP);
+ 	if (grows == (PROT_GROWSDOWN|PROT_GROWSUP)) /* can't be both */
+ 		return -EINVAL;
+diff --git a/mm/mremap.c b/mm/mremap.c
+index fc241d23cd97ab..64c9a3b8be0aa2 100644
+--- a/mm/mremap.c
++++ b/mm/mremap.c
+@@ -606,6 +606,13 @@ SYSCALL_DEFINE5(mremap, unsigned long, addr, unsigned long, old_len,
+ 	LIST_HEAD(uf_unmap_early);
+ 	LIST_HEAD(uf_unmap);
+ 
++	/*
++	 * Architectures may interpret the tag passed to mmap as a background
++	 * colour for the corresponding vma. For mremap we don't allow tagged
++	 * new_addr to preserve similar behaviour to mmap.
++	 */
++	addr = untagged_addr(addr);
++
+ 	if (flags & ~(MREMAP_FIXED | MREMAP_MAYMOVE))
+ 		return ret;
+ 
+diff --git a/mm/msync.c b/mm/msync.c
+index ef30a429623a2f..c3bd3e75f68764 100644
+--- a/mm/msync.c
++++ b/mm/msync.c
+@@ -37,6 +37,8 @@ SYSCALL_DEFINE3(msync, unsigned long, start, size_t, len, int, flags)
+ 	int unmapped_error = 0;
+ 	int error = -EINVAL;
+ 
++	start = untagged_addr(start);
++
+ 	if (flags & ~(MS_ASYNC | MS_INVALIDATE | MS_SYNC))
+ 		goto out;
+ 	if (offset_in_page(start))

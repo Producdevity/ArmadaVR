@@ -42,6 +42,7 @@ def kernel_inputs(kernel):
 def check_log(log, pico=False):
     markers = ['ANDROID_PIDNS_PASS container_pid=1', 'ANDROID_USERNS_PASS host_uid=1000 container_uid=0', 'ANDROID_BINDER_ISOLATION_PASS',
                'ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1',
+               'ANDROID_TAGGED_MEMORY_PASS execute=1 discard=1 residency=1 sync=1 lock=1 remap=1',
                'ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1',
                'ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000',
                'ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1', 'ANDROID_BINDER_POLLFREE_PASS iterations=32', 'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
@@ -65,6 +66,7 @@ def check_log(log, pico=False):
     if overlay_pass + overlay_unavailable != 1:
         raise RuntimeError('Missing or inconsistent rootless OverlayFS result')
     return {'tagged_exec_valid_cases': 6, 'tagged_exec_invalid_cases': 5, 'exec_resets_tagged_address_control': True,
+            'tagged_memory_management_and_execution': True,
             'rootless_binderfs': True, 'independent_binder_contexts': 6,
             'binder_transaction_and_fd_passing': True, 'binder_pollfree_iterations': 32,
             'unprivileged_socket_permissions': True, 'network_namespace_ipv4_ipv6_loopback': True, 'pid_namespace_and_procfs': True, 'memfd_sharing_and_seals': True, 'seccomp_filter': True,

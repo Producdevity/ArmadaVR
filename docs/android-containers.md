@@ -24,6 +24,9 @@ maps the same user to container UID/GID 0. It then checks:
 - Execution with tagged filenames, argument strings/vectors and environment
   strings/vectors, rejection of five invalid tagged pointers, and reset of the
   tagged-address control across exec.
+- Tagged memory protection, execution of generated ARM64 code, discard,
+  residency, synchronization, locking and remapping; unaligned protection
+  requests still fail through the raw syscall interface.
 - Creation of mount, PID, IPC, UTS and network namespaces, a container PID 1,
   private procfs and tmpfs mounts.
 - Two separate BinderFS mounts, each with three dynamically allocated Binder
@@ -85,6 +88,20 @@ the existing container checks. Local receipts are
 `output/android-tagged-exec-quest-20261011-v2/result.json`; the failing control
 is preserved in `output/android-tagged-exec-pico-before-20261011-v2`.
 This establishes the syscall fix, not a complete Pico Android boot.
+
+The subsequent Pico APK test exposed missing tagged-address handling in memory
+syscalls. Ordinary `mprotect` succeeded, while tagged `mprotect`, `madvise`,
+`mincore` and `msync` returned `ENOMEM`. SwiftShader then faulted when jumping
+into a heap allocation that had not become executable. The Linux variant now
+includes the exact upstream
+[`057d3389108e`](https://github.com/torvalds/linux/commit/057d3389108eda8a20c7f496f011846932680d88)
+memory-syscall patch, preserving the existing permission and range checks.
+The expanded fixture passes on the corrected Pico kernel and Quest control;
+the previous Pico kernel fails at executable permission setup. Receipts are
+`output/android-tagged-memory-pico-after-20261011-v1`,
+`output/android-tagged-memory-quest-20261011-v2` and the negative control
+`output/android-tagged-memory-pico-before-20261011-v1`. These results cover
+the tested memory interfaces; APK rendering remains a separate acceptance test.
 
 The source confirms that this vendor 5.10 tree enables user-namespace mounts for
 BinderFS but not OverlayFS. [Podman documents a fuse-overlayfs fallback for

@@ -93,6 +93,38 @@ static void tagged_exec_test(void)
     puts("ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1");
 }
 
+static void tagged_memory_test(void)
+{
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    uint32_t *code = mmap(NULL, page, PROT_READ | PROT_WRITE,
+                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    require(code != MAP_FAILED, "tagged_memory_map");
+    code[0] = 0x52800540; /* mov w0, #42 */
+    code[1] = 0xd65f03c0; /* ret */
+    __builtin___clear_cache((char *)code, (char *)(code + 2));
+    require(mprotect(tag_pointer(code), page, PROT_READ | PROT_EXEC) == 0,
+            "tagged_memory_execute_permission");
+    require(((int (*)(void))code)() == 42, "tagged_memory_execute");
+    errno = 0;
+    require(syscall(SYS_mprotect, tag_pointer((char *)code + 1), page, PROT_READ) == -1 && errno == EINVAL,
+            "tagged_memory_alignment");
+    require(mprotect(tag_pointer(code), page, PROT_READ | PROT_WRITE) == 0,
+            "tagged_memory_write_permission");
+    require(madvise(tag_pointer(code), page, MADV_DONTNEED) == 0 && code[0] == 0,
+            "tagged_memory_discard");
+    unsigned char resident = 0;
+    require(mincore(tag_pointer(code), page, &resident) == 0 && (resident & 1),
+            "tagged_memory_residency");
+    require(msync(tag_pointer(code), page, MS_SYNC) == 0, "tagged_memory_sync");
+    require(mlock(tag_pointer(code), page) == 0, "tagged_memory_lock");
+    require(munlock(tag_pointer(code), page) == 0, "tagged_memory_unlock");
+    void *grown = mremap(tag_pointer(code), page, page * 2, MREMAP_MAYMOVE);
+    require(grown != MAP_FAILED, "tagged_memory_remap");
+    ((char *)grown)[page * 2 - 1] = 42;
+    require(munmap(grown, page * 2) == 0, "tagged_memory_unmap");
+    puts("ANDROID_TAGGED_MEMORY_PASS execute=1 discard=1 residency=1 sync=1 lock=1 remap=1");
+}
+
 static int binder_device(const char *directory, const char *name, dev_t *device_id)
 {
     char path[256];
@@ -427,6 +459,7 @@ static void child_test(void)
     require(setgroups(0, NULL) == 0 && setgid(1000) == 0 && setuid(1000) == 0, "drop_host_privileges");
     require(getuid() == 1000 && geteuid() == 1000, "unprivileged_host_identity");
     tagged_exec_test();
+    tagged_memory_test();
     for (size_t ipv6 = 0; ipv6 < 2; ++ipv6) {
         int fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         require(fd >= 0, "unprivileged_datagram_socket");

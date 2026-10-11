@@ -13,6 +13,7 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
             "ANDROID_PIDNS_PASS container_pid=1",
             "ANDROID_USERNS_PASS host_uid=1000 container_uid=0",
             "ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1",
+            "ANDROID_TAGGED_MEMORY_PASS execute=1 discard=1 residency=1 sync=1 lock=1 remap=1",
             *[f"ANDROID_BINDER_PASS name={name} protocol=8 independent_contexts=2"
               for name in ("anbox-binder", "anbox-hwbinder", "anbox-vndbinder")],
             "ANDROID_BINDER_ISOLATION_PASS", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
@@ -27,6 +28,7 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
     def test_incomplete_or_duplicated_guest_evidence_is_rejected(self):
         for marker in ("ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1",
                        "ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1",
+                       "ANDROID_TAGGED_MEMORY_PASS execute=1 discard=1 residency=1 sync=1 lock=1 remap=1",
                        "ANDROID_BINDER_POLLFREE_PASS iterations=32", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
                        "ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000"):
             for log in (self.log().replace(marker, ""), self.log() + "\n" + marker):
