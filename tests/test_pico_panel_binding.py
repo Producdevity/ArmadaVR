@@ -34,6 +34,33 @@ def fixture():
 
 
 class PicoPanelBindingTests(unittest.TestCase):
+    def test_explicit_display_selection_and_stale_default(self):
+        nodes = fixture()
+        nodes["/soc"].update({"compatible": b"qcom,sde-kms\0", "phandle": cells(4)})
+        nodes["/soc/previous"] = {"qcom,mdss-dsi-panel-name": b"Previous panel\0", "phandle": cells(5)}
+        nodes["/display"] = {"compatible": b"qcom,dsi-display\0", "label": b"primary\0",
+                             "qcom,mdp": cells(4), "qcom,dsi-default-panel": cells(5)}
+        original = copy.deepcopy(nodes)
+        result = binding.display_selection(nodes, "/soc/panel", "/display", "/soc/previous")
+        self.assertEqual(result["panel_phandle"], 2)
+        self.assertEqual(result["previous_default_panel"], "/soc/previous")
+        self.assertEqual(nodes, original)
+        with self.assertRaisesRegex(ValueError, "explicit expectation"):
+            binding.display_selection(nodes, "/soc/panel", "/display", "/soc/stale")
+        for path, key, value in (
+                ("/display", "compatible", b"other\0"), ("/display", "label", b"secondary\0"),
+                ("/display", "qcom,mdp", cells(0)), ("/display", "qcom,mdp", cells(99)),
+                ("/display", "qcom,dsi-default-panel", b"bad"), ("/soc", "compatible", b"other\0"),
+                ("/soc/panel", "phandle", cells(0)), ("/soc/panel", "status", b"disabled\0"),
+                ("/soc/previous", "status", b"disabled\0")):
+            mutated = copy.deepcopy(nodes)
+            mutated[path][key] = value
+            with self.subTest(path=path, key=key), self.assertRaises(ValueError):
+                binding.display_selection(mutated, "/soc/panel", "/display", "/soc/previous")
+        nodes["/other"] = nodes.pop("/soc/panel")
+        with self.assertRaisesRegex(ValueError, "belong"):
+            binding.display_selection(nodes, "/other", "/display", "/soc/previous")
+
     def test_new_and_existing_handle(self):
         nodes = fixture()
         original = copy.deepcopy(nodes)
@@ -143,6 +170,47 @@ class PicoPanelBindingTests(unittest.TestCase):
             self.assertEqual(nodes["/soc/bridge"]["phandle"], cells(3))
             with self.assertRaises(FileExistsError):
                 binding.build(source, root / "bound", digest, "/soc/panel", "/soc/bridge")
+
+    @unittest.skipUnless(shutil.which("dtc") and shutil.which("fdtput"), "dtc tools required")
+    def test_offline_display_selection_changes_only_three_properties(self):
+        gpios = "\n".join(f"{name} = <1 {pin} 0>;" for pin, name in enumerate(binding.GPIO_PROPERTIES))
+        dts = '''/dts-v1/;
+        / { #address-cells = <2>; #size-cells = <2>;
+            memory@40000000 { device_type = "memory"; reg = <0 0x40000000 0 0x10000000>; };
+            display { compatible = "qcom,dsi-display"; label = "primary";
+                      qcom,mdp = <4>; qcom,dsi-default-panel = <5>; };
+            soc { phandle = <4>; compatible = "qcom,sde-kms";
+                panel { qcom,mdss-dsi-panel-name = "New panel"; phandle = <2>; };
+                previous { qcom,mdss-dsi-panel-name = "Old panel"; phandle = <5>; };
+                gpio { gpio-controller; #gpio-cells = <2>; phandle = <1>; ngpios = <20>; };
+                bridge { compatible = "qcom,vxr7200"; ''' + gpios + ''' };
+            };
+        };'''
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "original.dtb"
+            subprocess.run(["dtc", "-I", "dts", "-O", "dtb", "-o", str(source)],
+                           input=dts, text=True, capture_output=True, check=True, timeout=10)
+            original = source.read_bytes()
+            digest = hashlib.sha256(original).hexdigest()
+            for display, expected in (("/display", None), (None, "/soc/previous"), ("/display", "/soc/stale")):
+                with self.subTest(display=display, expected=expected), self.assertRaises(ValueError):
+                    binding.build(source, root / "refused", digest, "/soc/panel", "/soc/bridge", display, expected)
+                self.assertFalse((root / "refused").exists())
+            result = binding.build(source, root / "selected", digest, "/soc/panel", "/soc/bridge",
+                                   "/display", "/soc/previous")
+            before = binding.read_fdt(original)
+            after = binding.read_fdt((root / "selected/panel-mux.dtb").read_bytes())
+            self.assertEqual(after["/display"]["qcom,dsi-default-panel"], cells(2))
+            self.assertEqual(after["/soc/panel"][binding.PROPERTY], cells(6))
+            before["/display"]["qcom,dsi-default-panel"] = cells(2)
+            before["/soc/panel"][binding.PROPERTY] = cells(6)
+            before["/soc/bridge"]["phandle"] = cells(6)
+            self.assertEqual(before, after)
+            self.assertEqual(source.read_bytes(), original)
+            self.assertEqual(len(result["property_changes"]), 3)
+            self.assertFalse(result["live_selection_verified"])
+            self.assertFalse(result["flash_ready"])
 
 
 if __name__ == "__main__":

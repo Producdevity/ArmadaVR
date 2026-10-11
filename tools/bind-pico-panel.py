@@ -90,13 +90,52 @@ def binding(nodes, panel, bridge):
             "create_bridge_phandle": create_handle, "gpios": gpios}
 
 
-def build(source, output, expected_sha256, panel, bridge):
+def display_selection(nodes, panel, display, expected_default):
+    available(nodes, panel)
+    available(nodes, display)
+    props = nodes[display]
+    if ("qcom,dsi-display" not in string_list(props.get("compatible", b"")) or
+            props.get("label") != b"primary\0"):
+        raise ValueError("Expected an explicit primary Qualcomm DSI display")
+
+    def resolve(value):
+        handle = cell(value)
+        if handle in (0, 0xffffffff):
+            raise ValueError("Invalid display phandle")
+        matches = [path for path, item in nodes.items()
+                   if item.get("phandle", item.get("linux,phandle")) == value]
+        if len(matches) != 1:
+            raise ValueError("Display phandle has no unique target")
+        available(nodes, matches[0])
+        return matches[0]
+
+    mdp = resolve(props.get("qcom,mdp", b""))
+    if "qcom,sde-kms" not in string_list(nodes[mdp].get("compatible", b"")):
+        raise ValueError("Display does not reference an SDE controller")
+    previous = resolve(props.get("qcom,dsi-default-panel", b""))
+    if previous != expected_default:
+        raise ValueError("Existing default panel differs from the explicit expectation")
+    if any(path.rsplit("/", 1)[0] != mdp for path in (previous, panel)):
+        raise ValueError("Panels must belong to this display's SDE controller")
+    value = nodes[panel].get("phandle", nodes[panel].get("linux,phandle", b""))
+    if resolve(value) != panel or not nodes[previous].get("qcom,mdss-dsi-panel-name"):
+        raise ValueError("Display requires existing panel phandles and names")
+    if previous == panel:
+        raise ValueError("Selected panel is already the default")
+    return {"display": display, "previous_default_panel": previous,
+            "default_panel": panel, "panel_phandle": cell(value)}
+
+
+def build(source, output, expected_sha256, panel, bridge, display=None, expected_default=None):
     data = source.read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or digest != expected_sha256:
         raise ValueError("Source DTB does not match the explicit SHA-256")
     nodes = read_fdt(data)
     plan = binding(nodes, panel, bridge)
+    if bool(display) != bool(expected_default):
+        raise ValueError("Display selection requires the expected previous default panel")
+    selection = display_selection(nodes, panel, display, expected_default) if display else None
     memory = boot_memory(data)
     tool = shutil.which("fdtput")
     if not tool:
@@ -104,14 +143,16 @@ def build(source, output, expected_sha256, panel, bridge):
     output.mkdir(parents=True, exist_ok=False)
     target = output / "panel-mux.dtb"
     target.write_bytes(data)
-    edits = [(panel, PROPERTY)]
+    edits = [(panel, PROPERTY, plan["bridge_phandle"])]
     if plan["create_bridge_phandle"]:
-        edits.insert(0, (bridge, "phandle"))
+        edits.insert(0, (bridge, "phandle", plan["bridge_phandle"]))
+    if selection:
+        edits.append((display, "qcom,dsi-default-panel", selection["panel_phandle"]))
     expected = {path: dict(props) for path, props in nodes.items()}
-    for path, key in edits:
+    for path, key, value in edits:
         subprocess.run([tool, "-t", "x", str(target), path, key,
-                        f"{plan['bridge_phandle']:x}"], check=True, capture_output=True, timeout=15)
-        expected[path][key] = struct.pack(">I", plan["bridge_phandle"])
+                        f"{value:x}"], check=True, capture_output=True, timeout=15)
+        expected[path][key] = struct.pack(">I", value)
     result = target.read_bytes()
     if read_fdt(result) != expected or boot_memory(result) != memory or result[28:32] != data[28:32]:
         raise ValueError("Unexpected device-tree change outside mux binding")
@@ -119,7 +160,8 @@ def build(source, output, expected_sha256, panel, bridge):
         raise ValueError("Source DTB changed during assembly")
     report = {"schema": 1, "source_sha256": digest,
               "output_sha256": hashlib.sha256(result).hexdigest(), **plan,
-              "property_changes": [{"node": path, "property": key} for path, key in edits],
+              "property_changes": [{"node": path, "property": key} for path, key, _ in edits],
+              "display_selection": selection,
               "other_properties_unchanged": True, "memory_layout_unchanged": True,
               "live_selection_verified": False, "physical_gpio_state_verified": False,
               "boot_verified": False, "recovery_verified": False, "flash_ready": False}
@@ -134,9 +176,12 @@ def main():
     parser.add_argument("--sha256", required=True, help="expected source DTB digest")
     parser.add_argument("--panel", required=True, help="explicit full DSI panel node path")
     parser.add_argument("--bridge", required=True, help="explicit full VXR7200 node path")
+    parser.add_argument("--display", help="explicit primary DSI node whose default should change")
+    parser.add_argument("--expected-default-panel", help="required original panel path when selecting a display")
     args = parser.parse_args()
     try:
-        result = build(args.source, args.output, args.sha256, args.panel, args.bridge)
+        result = build(args.source, args.output, args.sha256, args.panel, args.bridge,
+                       args.display, args.expected_default_panel)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         parser.exit(1, f"Cannot bind Pico panel: {error}\n")
     print(json.dumps(result, indent=2))

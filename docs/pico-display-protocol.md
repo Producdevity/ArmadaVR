@@ -155,6 +155,36 @@ GPIO state, boot, recovery and flash readiness explicitly unverified. The
 candidate output and receipt are in
 `output/pico-panel-mux-20261011-v1/offline-binding/`.
 
+The tool also accepts an explicit `--display` primary DSI node and
+`--expected-default-panel` path. Together these change that display's default
+to the selected panel. It validates both panel phandles, their common SDE
+controller and the previous selection; a stale expectation fails before output
+creation. Only the default-panel property is added to the allowed edits.
+
+October 12 read-only observations narrow the connected Pro Eye's selection:
+Android reports boot DTB index 3 and overlay index 0, matching the retained
+Kona v2.1 candidate. SurfaceFlinger identifies its primary display as
+`sharp 493 120`, with a 1920 by 3664 buffer and reported 72 Hz refresh while
+powered off. The Sharp120 tree node supports 120/90/72 Hz dynamic refresh, so
+72 Hz does not identify the separate Sharp72 node. A persistent property instead
+says `jdi493120`; it is not sufficient to override the compositor's identity.
+
+The merged stock tree defaults to JDI 4K 55UHD72. The published driver's
+`msm_drm.dsi_display0=<node>:<config>` override selects a panel by name; without
+it, the driver follows `qcom,dsi-default-panel`. Thus the earlier generic Linux
+command line cannot rely on that stock default. An offline Sharp120 candidate
+now adds mux ownership and explicitly replaces the default, changing exactly
+three properties with memory, reservations and all other properties intact.
+Its SHA-256 is
+`11437f408e63ede811db1bb380d4d62c5d91cac451f7ecd9f9ad0120afef9781`.
+Evidence is in `output/pico-panel-selection-20261012-v1/`.
+
+This correlates stock userspace identity with a candidate panel; the live FDT,
+physical GPIO state and replacement display operation remain unverified.
+The candidate is a merged tree. Installing it as a base and applying the stock
+overlay again would overwrite the selection; boot-container integration must
+preserve the bootloader's base/overlay contract.
+
 The complete kernel and all 38 modules compile with this patch. Module signatures
 match the certificate embedded in the new Image, 2,715 imported symbol versions
 match, dependency checks pass, and the diskless Android ABI fixture boots and
