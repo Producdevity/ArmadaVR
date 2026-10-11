@@ -8,12 +8,16 @@
 int main(int argc, char **argv) {
     const char *loader = "/opt/armada-vr/systemd/usr/lib/ld-linux-aarch64.so.1";
     char path[PATH_MAX], target[PATH_MAX];
-    if (getpid() == 1) strcpy(path, "/usr/lib/systemd/systemd");
-    else {
-        ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
-        if (n <= 0 || n >= (ssize_t)sizeof(path) - 1) return 126;
-        path[n] = 0;
-    }
+    ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
+    if (n > 0 && n < (ssize_t)sizeof(path) - 1) path[n] = 0;
+    else if (getpid() == 1 && n < 0 && errno == ENOENT) {
+        if (!strcmp(argv[0], "/usr/lib/systemd/systemd-shutdown"))
+            strcpy(path, "/usr/lib/systemd/systemd-shutdown");
+        else if (!strcmp(argv[0], "/init") || !strcmp(argv[0], "/sbin/init") ||
+                 !strcmp(argv[0], "/usr/lib/systemd/systemd"))
+            strcpy(path, "/usr/lib/systemd/systemd");
+        else return 126;
+    } else return 126;
     if (strncmp(path, "/usr/", 5) || strstr(path, "..") ||
         snprintf(target, sizeof(target), "/opt/armada-vr/systemd%s", path) >= (int)sizeof(target)) return 126;
     char **args = calloc((size_t)argc + 7, sizeof(char *));

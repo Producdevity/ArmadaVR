@@ -76,6 +76,11 @@ def needed(data):
     return result
 
 
+def is_systemd_unit(data):
+    return any(line.startswith(b'#') and b'This file is part of systemd.' in line
+               for line in data.splitlines())
+
+
 def commands(root):
     result = []
     for base in ('usr/bin', 'usr/lib/systemd', 'usr/lib/udev'):

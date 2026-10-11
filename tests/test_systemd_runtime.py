@@ -53,6 +53,13 @@ class RuntimeTests(unittest.TestCase):
     def save(self):
         (self.bundle / 'manifest.json').write_text(json.dumps(self.record))
 
+    def test_dracut_emergency_units_are_preserved(self):
+        self.assertFalse(runtime.is_systemd_unit(
+            b'#  This file is part of dracut.\n[Service]\nExecStart=/usr/bin/dracut-emergency\n'))
+        self.assertFalse(runtime.is_systemd_unit(b'[Service]\nExecStart=/custom-handler\n'))
+        self.assertTrue(runtime.is_systemd_unit(
+            b'#  This file is part of systemd.\n[Service]\nExecStart=/usr/lib/systemd/systemd-sysctl\n'))
+
     def test_changed_bytes_or_mode_are_rejected(self):
         runtime.validate(self.bundle)
         path = self.bundle / 'files' / runtime.EXECUTOR

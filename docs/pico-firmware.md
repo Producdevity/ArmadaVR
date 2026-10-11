@@ -329,6 +329,12 @@ thread. The older Pico kernel fails the negative control; the Quest kernel and
 patched Pico kernel pass. This does not add `clone3` or change the vendor-only
 build.
 
+The physical configuration also compiles with these backports and all 38
+modules. Its unchanged Image passes the ARM64 and ARM32 process/mount tests in
+diskless QEMU, with normal powerdown and no added kernel taint. The diagnostic
+reads the RAM log because this configuration has no virtual PL011 console;
+it does not add virtual transports to the headset kernel.
+
 Fedora now mounts its API filesystems, starts service executors, and switches
 to a RAM overlay root with zero backing-disk writes. The overall boot test is
 still rejected: systemd259 credential setup calls `fsopen`, which this kernel
@@ -365,13 +371,17 @@ The maintained initramfs builder now accepts a prepared private systemd runtime
 with `--systemd-runtime`. Preparation pins the original Frame repair filesystem,
 resolves the ARM64 library closure, compiles static launchers and records each
 command, unit, mode, link and source checksum. Installation requires an exact
-match with the original dracut command and unit inventory. It also separates
-hardlinked dracut units before replacement, then unpacks and verifies the final
-archive again. Unexpected files, changed inputs and escaping links are rejected.
+match with the original command inventory and the units selected for replacement.
+Dracut's emergency and rescue units are preserved so `rd.emergency=poweroff`
+continues to use its emergency handler. Replaced units are separated from any
+hardlinks before installation, and the final archive is unpacked and verified
+again. Unexpected files, changed inputs and escaping links are rejected.
 
-A build through this path passes the same two virtual boot cases in 6.38 and
-11.27 seconds with no failed services and unchanged disks. Ten focused runtime
-tests and the complete 266-test host suite pass. The newer, unused
+A build through this path passes both virtual boot cases with no failed services
+and unchanged disks. A follow-up host repack verifies preservation of dracut's
+emergency units and correct dispatch to `systemd-shutdown` when the launcher runs
+as PID 1. Both boot cases pass again in 5.58 and 10.96 seconds. Fifteen focused
+runtime/launcher tests and the complete 271-test host suite pass. The newer, unused
 `systemd-validatefs` helper remains from Fedora and is explicitly recorded;
 Frame257 does not supply it. This optional provider is currently limited to
 initramfs construction. The full Pico root and Lepton environment still require

@@ -94,6 +94,8 @@ def prepare(args):
             if path.is_symlink() or not path.is_file():
                 continue
             name = path.relative_to(template).as_posix()
+            if not runtime.is_systemd_unit(path.read_bytes()):
+                continue
             try:
                 node = fs.get('/' + name)
             except FileNotFoundError:
