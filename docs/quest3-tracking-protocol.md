@@ -382,8 +382,35 @@ confirms that mapping. Constructor `0x1bd5550` uses these values unless a
 nonzero runtime override replaces each with the negated override. The
 temperature-model constructor stores the resulting pair separately at object
 offsets `0x8` and `0x10`. This identifies the fields and override behavior, but
-does not yet establish how the final estimator aligns their timestamps with
-camera capture. No inferred time shift is applied by the new processor.
+does not establish the camera clock mapping. The downstream IMU resampling
+behavior is now verified separately below.
+
+The wrapper at ELF `0x1b899a0` converts each correction from seconds to signed
+nanoseconds, truncating toward zero. Consumer `0x1b8a440` invokes resampler
+`0x1e6b560` before the model's temperature compensation and rectification.
+The resampler adds each correction to capture time. It emits at the smaller
+corrected time, retaining that sensor's current vector and interpolating the
+other vector from five samples. Equal corrections preserve both vectors. The
+current sample supplies temperature. This identifies IMU-to-IMU alignment,
+without establishing a shared camera clock or the active calibration model.
+
+[`imu-time-align.c`](../src/imu-time-align.c) implements this alignment with
+explicit nanosecond offsets. It withholds output until real history brackets
+the requested time, discards history across a configured gap, and rejects
+invalid or out-of-order samples without changing state or output. It does not
+copy the stock routine's zero-filled startup interpolation. Callers must reset
+on channel restart and supply enough samples within its five-record capacity.
+It remains a separate component: the current `quest_imu_process_direct` API
+does not automatically enable it or choose offsets.
+
+All 245,760 retained-output comparisons against the original ARM64 resampler
+are bit-identical, across positive, negative and equal offsets, irregular
+intervals and random vectors. The isolated comparison executes only that
+routine, without ELF initializers or hardware. Another 6,208 linear-vector
+checks and stream-boundary cases pass macOS and ARM64 sanitizers. The existing
+8,192-case calibrated processor test also passes on the Quest Android ABI;
+that executable accesses no sensors. Sources and receipts are retained in
+`output/quest-imu-time-alignment-20261011-v1/`.
 
 Combined offline replay now runs all 12,032 preserved live records through the
 raw decoder, stream-order gate, temperature offsets and frame preparation for
@@ -464,11 +491,20 @@ establish sustained frame rate, camera-to-IMU synchronization or image quality.
 Two launches after incremental APK replacement did not reach application
 startup. A normal APK replacement reached startup, but Android paused it before
 creating the preview surface. A system Guardian dialog was active around these
-attempts; its causal role remains an inference. Camera 51 and repeatable sustained
-capture still require a foreground test with the headset worn. App sources,
-APKs, lifecycle logs and original measurements are retained under the private
-`camera-app/` evidence directory. The diagnostic is stopped; stock firmware and
-verified boot remain unchanged.
+attempts; its causal role remains an inference. App sources, APKs, lifecycle
+logs and original measurements remain under the private `camera-app/` directory.
+
+With the wearer at the home screen after clearing normal boundary prompts,
+the same installed diagnostic subsequently captured 297 distinct 1280x960
+frames from each of cameras 50 and 51 in separate five-second runs. Both runs
+have 297 matching capture results, strictly increasing image timestamps and no
+capture errors. Median image-delivery differences from `CLOCK_MONOTONIC` are
+28.1 and 30.1 ms; Android still declares the timestamp source unknown, so those
+differences do not prove clock synchronization or end-to-end latency. No image
+pixels are retained, only sampled brightness and timing metadata. The runs
+closed normally without a reboot and the diagnostic was stopped. Evidence is
+in `output/quest-camera-worn-20261011-v1/`. These are stock Android RGB streams;
+raw tracking-camera access and Linux camera-driver acceptance remain open.
 
 ### Exact-build stock interface evidence
 
