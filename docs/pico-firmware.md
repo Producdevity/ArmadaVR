@@ -286,7 +286,11 @@ calibration or physical playback/capture.
 This configuration differs from the captured stock configuration at 80 requested
 symbols. The public defconfig's `VXR7200_I2C` request disappears during Kconfig
 resolution; stock instead has `DISPLAY_VXR7200_I2C`, whose implementation is also
-absent. Stock controller-station and Pico RTT support are absent from that build. The
+absent. Stock controller-station and Pico RTT support are absent from that build.
+Later [stock-kernel analysis](pico-display-protocol.md) identifies the bridge's
+register protocol and board controls, and classifies RTT as crash diagnostics.
+The maintained register transport passes offline comparisons, but a bound
+replacement bridge driver remains incomplete. The
 published board DTS is absent, so this build deliberately produces no device
 trees. A separate QEMU variant enables PL011, virtio-mmio, block, network,
 console, random and RTC transports without applying Quest-specific patches.
