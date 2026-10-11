@@ -317,8 +317,14 @@ controller tracking or station interrupts.
 The subsequent [station notification driver](pico-controller-protocol.md#station-interrupt-driver)
 reconstructs the stock GPIO/poll interface with deferred-probe handling and
 safe open-file lifetime across removal. Its source passes sanitizer lifecycle
-tests, ARM64 object compilation and configuration resolution. It is not yet
-included in a rebuilt full kernel and has not been exercised on hardware.
+tests, ARM64 object compilation and configuration resolution. A subsequent full
+physical-configuration build includes it as `CONFIG_PICO_STATION=y`; its Image
+SHA-256 is `0e9a9cff603acc08107b7332f6e1aa39520dfa3b54f25367e4b68f8936287a53`.
+All 38 module signatures, 2,715 imports and dependencies verify. The unchanged
+diskless ABI fixture passes in 5.539 seconds after verifying the loaded Image.
+This does not exercise physical GPIOs or establish headset boot/recovery.
+Evidence is retained in `output/pico-station-kernel-20261011-v1` and the build
+in `output/kernel/pico-neo3/linux-station-20261011-v1`.
 
 The physical-configuration Linux build including this patch passes all 38 module
 signatures, 2,715 imported symbol versions and dependency checks. Its exported
@@ -578,7 +584,7 @@ Read-only stock observations narrow the hardware work:
 | Component | Observed on this Pro Eye | Remaining integration |
 |---|---|---|
 | Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound | Resolve the missing bridge implementation and actual panel/mode ownership; driver binding alone does not prove a replacement display path |
-| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder and station notifications](pico-controller-protocol.md) pass offline checks | Integrate station driver into the full build, complete SSC transport, verify physical inputs, pairing, haptics and optical tracking |
+| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder and rebuilt station driver](pico-controller-protocol.md) pass offline checks | Complete SSC transport; verify physical station IRQs, inputs, pairing, haptics and optical tracking |
 | IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
 | Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
 | Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules now build and pass offline ABI/signature checks; routing, DSP and physical audio remain. Wi-Fi needs matching firmware API headers and validation |

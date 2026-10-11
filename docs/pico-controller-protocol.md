@@ -91,11 +91,17 @@ failures, independent readers, counter wrapping, detach and rebind. `just check`
 runs this harness; `tools/test-pico-station.py SOURCE_MISC --output NEW_DIRECTORY`
 also verifies the pinned build files and applies the patch with zero fuzz.
 
-This is source and object-level acceptance. The complete kernel has not yet been
-rebuilt with this driver; physical GPIO routing, interrupt delivery, suspend and
-stock-service interoperability remain unverified. The preserved previously
-accepted kernel image is unchanged. The driver supplies notifications only; SSC
-controller data and optical tracking remain separate requirements.
+The complete physical-configuration kernel now builds with this driver enabled.
+All 38 module signatures, 2,715 imported symbol versions and dependencies pass
+verification. A diskless virtual boot checks the full loaded Image and passes
+the Android ABI regression before shutting down normally. This virtual board
+does not exercise the station GPIO or its interrupt handler.
+
+Physical GPIO routing, interrupt delivery, suspend and stock-service
+interoperability remain unverified. The driver supplies notifications only;
+SSC controller data and optical tracking remain separate requirements. The new
+kernel and the previously accepted image are both retained; see
+[kernel verification](pico-firmware.md) for the artifact identity.
 
 ## Verification
 
