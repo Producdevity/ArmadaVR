@@ -112,7 +112,7 @@ The caller supplies the acquisition checksum and build record. Preparation does
 not establish their independent provenance or prove Android boot.
 
 The preparer checks the release, complete inventory, original launcher/init
-hashes and ARM64 init format. It applies the ten maintained launcher patches
+hashes and ARM64 init format. It applies the fourteen maintained launcher patches
 without fuzz and inserts init only into `images/rootfs_overlay/system/bin/`.
 The original Android init, licenses, payload metadata and acquired archive remain
 unchanged. Android's absolute links remain archive data; archive traversal,
@@ -170,7 +170,7 @@ Podman does not inherit that option from the system-wide configuration on this
 stack. Lepton preserves the host storage environment when attaching to Android,
 so attach and launch resolve the same container database.
 
-The assembled Quest test root passes normal startup and the controlled mapper
+The earlier ten-patch Quest test root passes normal startup and the controlled mapper
 failure case with the current 524 reference firmware. In a fresh VM, its installed
 Lepton bundle boots Android twice, runs the input APK twice and restores its saved
 counter from two to four. Both APK sessions end within 15 seconds of launch;
@@ -182,7 +182,9 @@ These tests use read-only root media, ext4 writable state held in guest RAM,
 software rendering and a private Steam metadata adapter. They establish packaging
 and Android lifecycle behavior on the Quest kernel in QEMU. They do not establish
 persistent user storage, Android XR integration, Pico userspace compatibility,
-physical boot, recovery or headset driver operation.
+physical boot, recovery or headset driver operation. Subsequent fourteen-patch
+Quest and Pico runtime results are recorded in
+[Android container acceptance](android-containers.md#pico-application-storage-and-launcher-shutdown).
 
 The builder removes the exported distribution kernel modules and VM boot images,
 known QEMU-specific display/network configuration and guest-agent enablement
@@ -373,3 +375,15 @@ after mapper failure. The complete backing-image checksum remains unchanged.
 The compressed archive reproduces all 8 GiB and that checksum before raw-image
 removal. This updates firmware integration proof; it does not execute that
 firmware in QEMU or establish physical boot/recovery.
+
+The October 11 physical-configuration rebuild in
+`output/headset-root-quest-lepton-524-20261011-v4` contains the complete
+fourteen-patch Lepton bundle and source-built Android init. Its 8 GiB image has
+SHA-256 `920eeb5d2c1668bd249b47af23961ddb66e5464ad256533613296d4f9ff5ca9c`.
+The build completes in 150.963 seconds using the matching current-firmware
+kernel/initramfs, 272 modules, ADSP/GPU firmware, Turnip, Monado and signed runtime
+dependencies. Filesystem, extracted content, capabilities and native loader checks
+pass; all 17 recorded output hashes were independently rechecked. The full image
+is preserved in a verified compact representation with local restoration
+instructions. This is offline assembly acceptance; the physical-configuration
+image has not booted on a headset.

@@ -520,7 +520,7 @@ per-unit calibration stay outside the public repository.
 |---|---|---|
 | Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified; stock return after reads passes. Independent cold recovery and restoration remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
-| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Vendor and Linux 4.19.81 builds compile 38 modules, including audio. Binder, namespace networking and SELinux denial tests pass in QEMU; stock DTB/DTBO acquired. Board DTS, several stock drivers, physical compatibility and full Linux runtime remain unverified |
+| Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Linux 4.19.81 builds 38 modules, including audio. Kernel ABI, enforcing-policy denial, maintained systemd root startup and Android lifecycle tests pass in QEMU; stock DTB/DTBO acquired. Board DTS, missing drivers and physical compatibility remain unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
 | Tracking and controllers | Syncboss/IMU protocol research and virtual actions exist; calibrated camera/IMU 6DoF, pairing and physical input/haptics remain | Camera/IMU transport, calibration, 6DoF and controller integration remain; Pro Eye adds eye cameras, calibration and runtime support |
 | Installation | No accepted boot/recovery or persistent installer | No accepted boot/recovery or persistent installer |
@@ -530,9 +530,10 @@ includes vendor graphics and platform code but omits the board DTS directory;
 the [source profile](../profiles/kernel/pico-neo3.json) refuses that incomplete
 source DT build. Authenticated stock trees provide board inputs, but do not
 establish compatibility with the older public source. Frame's actual systemd
-257.7 passes the limited manager/service test on 4.19 described above;
-the current Fedora/systemd 259 environment needs a newer kernel or a different
-userspace baseline. See the [Frame firmware comparison](steam-frame.md#october-8-firmware-comparison).
+257.7 now passes full Linux startup and Android lifecycle tests on 4.19 through
+the maintained root provider described above. Unmodified Fedora/systemd 259
+requires kernel APIs absent from this vendor tree. See the
+[Frame firmware comparison](steam-frame.md#october-8-firmware-comparison).
 
 Both targets share the remaining native SteamVR compositor, stock Library
 interaction, renderer/shutdown reliability, Lepton graphics/XR and clean
