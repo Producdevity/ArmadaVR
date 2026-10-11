@@ -25,7 +25,7 @@ archive = load('android_initramfs', 'test-dma-buf-sync.py')
 
 REQUIRED = ('ANDROID_BINDER_IPC', 'ANDROID_BINDERFS', 'USER_NS', 'PID_NS', 'IPC_NS', 'UTS_NS',
             'NET_NS', 'NAMESPACES', 'MEMFD_CREATE', 'SECCOMP', 'SECCOMP_FILTER',
-            'INET', 'IPV6', 'DEVTMPFS', 'PROC_FS', 'TMPFS', 'BINFMT_ELF')
+            'INET', 'IPV6', 'DEVTMPFS', 'PROC_FS', 'TMPFS', 'BINFMT_ELF', 'ARM64_TAGGED_ADDR_ABI')
 
 
 def kernel_inputs(kernel):
@@ -39,8 +39,9 @@ def kernel_inputs(kernel):
     return build, hashes
 
 
-def check_log(log):
+def check_log(log, pico=False):
     markers = ['ANDROID_PIDNS_PASS container_pid=1', 'ANDROID_USERNS_PASS host_uid=1000 container_uid=0', 'ANDROID_BINDER_ISOLATION_PASS',
+               'ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1',
                'ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1',
                'ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000',
                'ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1', 'ANDROID_BINDER_POLLFREE_PASS iterations=32', 'ANDROID_MEMFD_PASS', 'ANDROID_SECCOMP_PASS', 'ANDROID_CONTAINER_CHILD_PASS',
@@ -49,14 +50,22 @@ def check_log(log):
                 for name in ('anbox-binder', 'anbox-hwbinder', 'anbox-vndbinder')]
     if any(log.count(marker) != 1 for marker in markers):
         raise RuntimeError('Missing or repeated kernel acceptance markers; inspect boot.log')
+    warnings = [line for line in log.splitlines() if 'WARNING:' in line]
+    if pico:
+        if (len(warnings) != 2 or sum('update_cluster_topology' in line for line in warnings) != 1 or
+                sum('socinfo_init' in line for line in warnings) != 1):
+            raise RuntimeError('Unexpected Pico virtual-board warnings; inspect boot.log')
+    elif warnings:
+        raise RuntimeError('Kernel warning; inspect boot.log')
     if any(marker in log for marker in ('ANDROID_CONTAINER_FAIL', 'ANDROID_CONTAINER_KERNEL_FAIL',
-                                       'WARNING:', 'BUG:', 'Kernel panic', 'Oops:')):
+                                       'BUG:', 'Kernel panic', 'Oops:')):
         raise RuntimeError('Kernel or test failure; inspect boot.log')
     overlay_pass = log.count('ANDROID_ROOTLESS_OVERLAY_PASS')
     overlay_unavailable = log.count('ANDROID_ROOTLESS_OVERLAY_UNAVAILABLE errno=')
     if overlay_pass + overlay_unavailable != 1:
         raise RuntimeError('Missing or inconsistent rootless OverlayFS result')
-    return {'rootless_binderfs': True, 'independent_binder_contexts': 6,
+    return {'tagged_exec_valid_cases': 6, 'tagged_exec_invalid_cases': 5, 'exec_resets_tagged_address_control': True,
+            'rootless_binderfs': True, 'independent_binder_contexts': 6,
             'binder_transaction_and_fd_passing': True, 'binder_pollfree_iterations': 32,
             'unprivileged_socket_permissions': True, 'network_namespace_ipv4_ipv6_loopback': True, 'pid_namespace_and_procfs': True, 'memfd_sharing_and_seals': True, 'seccomp_filter': True,
             'native_rootless_overlayfs': bool(overlay_pass)}
@@ -67,7 +76,10 @@ def run(args):
     fixture = ROOT / 'tests/android-container/init.c'
     if output.exists() or output.is_symlink():
         raise ValueError('Choose a new output directory; existing evidence is preserved')
-    _, hashes = kernel_inputs(kernel)
+    build, hashes = kernel_inputs(kernel)
+    pico = build.get('repository') == 'bytedance/neo3-kernel'
+    if pico and args.accel != 'tcg':
+        raise ValueError('Pico requires the emulated secure monitor with TCG')
     if shutil.disk_usage(output.parent if output.parent.exists() else ROOT).free < 2 * 1024**3:
         raise ValueError('Keep at least 2 GiB free for the bounded compiler and VM test')
     output.mkdir(parents=True)
@@ -96,13 +108,15 @@ def run(args):
         if binary[:6] != b'\x7fELF\x02\x01' or binary[18:20] != b'\xb7\x00':
             raise ValueError('Compiler did not produce a little-endian ARM64 ELF')
         (output / 'initramfs.cpio').write_bytes(archive.initramfs(binary))
-        execute([args.qemu, '-name', 'Armada Android container ABI', '-machine', 'virt', '-accel', args.accel,
-                 '-cpu', 'host' if args.accel in ('hvf', 'kvm') else 'max', '-smp', '2', '-m', '512',
+        execute([args.qemu, '-name', 'Armada Android container ABI', '-machine',
+                 'virt,secure=on,virtualization=on' if pico else 'virt', '-accel', args.accel,
+                 '-cpu', 'cortex-a76' if pico else 'host' if args.accel in ('hvf', 'kvm') else 'max',
+                 '-smp', '2', '-m', '2048' if pico else '512',
                  '-nodefaults', '-nographic', '-monitor', 'none', '-serial', 'stdio', '-no-reboot',
                  '-nic', 'none', '-kernel', str(kernel / 'Image'), '-initrd', str(output / 'initramfs.cpio'),
-                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 armada.android_container_test=1'],
-                'boot.log', 45)
-        report['capabilities'] = check_log((output / 'boot.log').read_text(errors='replace'))
+                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 armada.android_container_test=1' +
+                 (' initcall_blacklist=hwinfo_init' if pico else '')], 'boot.log', 90 if pico else 45)
+        report['capabilities'] = check_log((output / 'boot.log').read_text(errors='replace'), pico=pico)
         if any(builder.digest(kernel / name) != sha for name, sha in hashes.items()):
             raise ValueError('Kernel input changed during execution')
         for path, expected in ((kernel / 'build.json', report['kernel_build_sha256']),

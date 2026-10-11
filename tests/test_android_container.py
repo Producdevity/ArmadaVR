@@ -12,6 +12,7 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
         return "\n".join([
             "ANDROID_PIDNS_PASS container_pid=1",
             "ANDROID_USERNS_PASS host_uid=1000 container_uid=0",
+            "ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1",
             *[f"ANDROID_BINDER_PASS name={name} protocol=8 independent_contexts=2"
               for name in ("anbox-binder", "anbox-hwbinder", "anbox-vndbinder")],
             "ANDROID_BINDER_ISOLATION_PASS", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
@@ -25,6 +26,7 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
 
     def test_incomplete_or_duplicated_guest_evidence_is_rejected(self):
         for marker in ("ANDROID_BINDER_TRANSACTION_PASS request=1 reply=1 fd=1 sender_identity=1",
+                       "ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1",
                        "ANDROID_BINDER_POLLFREE_PASS iterations=32", "ANDROID_NETNS_LOOPBACK_PASS ipv4=1 ipv6=1",
                        "ANDROID_NETWORK_PRIVILEGES_PASS datagram=2 raw_denied=2 uid=1000"):
             for log in (self.log().replace(marker, ""), self.log() + "\n" + marker):
@@ -41,3 +43,10 @@ class AndroidContainerEvidenceTests(unittest.TestCase):
         self.assertTrue(result["binder_transaction_and_fd_passing"])
         self.assertEqual(result["binder_pollfree_iterations"], 32)
         self.assertFalse(result["native_rootless_overlayfs"])
+
+    def test_pico_only_accepts_its_two_known_virtual_board_warnings(self):
+        warnings = ["WARNING: update_cluster_topology", "WARNING: socinfo_init"]
+        container.check_log(self.log() + "\n" + "\n".join(warnings), pico=True)
+        for lines in ([], warnings[:1], warnings + [warnings[0]], warnings + ["WARNING: unrelated"]):
+            with self.subTest(lines=lines), self.assertRaises(RuntimeError):
+                container.check_log(self.log() + "\n" + "\n".join(lines), pico=True)

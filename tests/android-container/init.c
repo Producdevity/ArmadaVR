@@ -45,6 +45,54 @@ static void write_file(const char *path, const char *value)
     require(close(fd) == 0, "close_file");
 }
 
+static void *tag_pointer(void *pointer)
+{
+    return (void *)((uintptr_t)pointer | (UINT64_C(0xb4) << 56));
+}
+
+static void tagged_exec_test(void)
+{
+    require(prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0) == 0,
+            "enable_tagged_addresses");
+    require(prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0) == PR_TAGGED_ADDR_ENABLE,
+            "tagged_address_control");
+    for (unsigned mode = 0; mode < 11; ++mode) {
+        pid_t child = fork();
+        require(child >= 0, "tagged_exec_fork");
+        if (!child) {
+            char *path = strdup("/proc/self/exe");
+            char *argument = strdup("--tagged-exec-child");
+            char *variable = strdup("ARMADA_EXEC_PROBE=ok");
+            char **args = calloc(3, sizeof(*args));
+            char **env = calloc(2, sizeof(*env));
+            require(path && argument && variable && args && env, "tagged_exec_allocations");
+            args[0] = path;
+            args[1] = argument;
+            env[0] = variable;
+            void *invalid = tag_pointer((void *)(uintptr_t)1);
+            switch (mode) {
+            case 1: path = tag_pointer(path); break;
+            case 2: args[1] = tag_pointer(argument); break;
+            case 3: args = tag_pointer(args); break;
+            case 4: env[0] = tag_pointer(variable); break;
+            case 5: env = tag_pointer(env); break;
+            case 6: path = invalid; break;
+            case 7: args[1] = invalid; break;
+            case 8: args = invalid; break;
+            case 9: env[0] = invalid; break;
+            case 10: env = invalid; break;
+            }
+            execve(path, args, env);
+            _exit(mode >= 6 && errno == EFAULT ? 0 : 1);
+        }
+        int status;
+        require(waitpid(child, &status, 0) == child, "tagged_exec_wait");
+        printf("ANDROID_TAGGED_EXEC_CASE mode=%u status=%d\n", mode, status);
+        require(WIFEXITED(status) && WEXITSTATUS(status) == 0, "tagged_exec_result");
+    }
+    puts("ANDROID_TAGGED_EXEC_PASS valid=6 invalid=5 exec_resets_control=1");
+}
+
 static int binder_device(const char *directory, const char *name, dev_t *device_id)
 {
     char path[256];
@@ -378,6 +426,7 @@ static void child_test(void)
 {
     require(setgroups(0, NULL) == 0 && setgid(1000) == 0 && setuid(1000) == 0, "drop_host_privileges");
     require(getuid() == 1000 && geteuid() == 1000, "unprivileged_host_identity");
+    tagged_exec_test();
     for (size_t ipv6 = 0; ipv6 < 2; ++ipv6) {
         int fd = socket(ipv6 ? AF_INET6 : AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
         require(fd >= 0, "unprivileged_datagram_socket");
@@ -420,8 +469,13 @@ static void child_test(void)
     puts("ANDROID_CONTAINER_CHILD_PASS");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "--tagged-exec-child")) {
+        const char *value = getenv("ARMADA_EXEC_PROBE");
+        return !value || strcmp(value, "ok") || getuid() != 1000 ||
+               prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0) != 0;
+    }
     setvbuf(stdout, NULL, _IONBF, 0);
     if (getpid() != 1)
         return 2;

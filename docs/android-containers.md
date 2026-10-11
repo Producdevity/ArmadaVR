@@ -21,6 +21,9 @@ test command-line marker; physical kernel build reports are refused.
 The fixture drops to guest UID/GID 1000 before creating a user namespace that
 maps the same user to container UID/GID 0. It then checks:
 
+- Execution with tagged filenames, argument strings/vectors and environment
+  strings/vectors, rejection of five invalid tagged pointers, and reset of the
+  tagged-address control across exec.
 - Creation of mount, PID, IPC, UTS and network namespaces, a container PID 1,
   private procfs and tmpfs mounts.
 - Two separate BinderFS mounts, each with three dynamically allocated Binder
@@ -65,6 +68,23 @@ board and logging limitations; the maintained runner still requires a QEMU
 transport build. Both kernels retain the native rootless OverlayFS limitation.
 Pico's separate stock-policy test verifies enforcing access denial; the container
 ABI fixture does not load an Android policy.
+
+On October 11, the maintained runner also accepts Pico QEMU transport builds
+with `--accel tcg`, the virtual secure monitor, 2 GiB RAM and the documented
+`hwinfo_init` exclusion. It allows only the two known virtual-board warnings.
+The Pico Linux patch set includes the string-helper portion of upstream
+[`903f433f8f7a`](https://github.com/torvalds/linux/commit/903f433f8f7a33e292a319259483adece8cc6674):
+the vendor tree enabled tagged addresses but omitted untagging in
+`strncpy_from_user` and `strnlen_user`. Android init reached first stage but
+its second-stage exec failed with `EFAULT`.
+
+The old Pico kernel fails the tagged-exec regression. The patched kernel and
+Quest control both pass all six valid cases, five invalid-pointer cases and
+the existing container checks. Local receipts are
+`output/android-tagged-exec-pico-after-20261011-v1/result.json` and
+`output/android-tagged-exec-quest-20261011-v2/result.json`; the failing control
+is preserved in `output/android-tagged-exec-pico-before-20261011-v2`.
+This establishes the syscall fix, not a complete Pico Android boot.
 
 The source confirms that this vendor 5.10 tree enables user-namespace mounts for
 BinderFS but not OverlayFS. [Podman documents a fuse-overlayfs fallback for
