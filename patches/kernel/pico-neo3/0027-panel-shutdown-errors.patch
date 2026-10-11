@@ -1,0 +1,98 @@
+Subject: drm/msm: retain Pico panel shutdown errors
+
+Attempt all shutdown steps and preserve the first failure for the modeset
+caller. Keep the existing GPIO, pinctrl, delay and regulator order.
+
+---
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -630,7 +630,7 @@
+ int g_hardware_version_display = -1;
+ int dsi_panel_power_off(struct dsi_panel *panel)
+ {
+-	int rc = 0;
++	int rc = 0, first_error = 0;
+ 
+ 	vxr7200_panel_off = 1;
+ 	/* Added by gavin.zhao for bug_39719 set backlight enable gpio to low when power_off --begin  */
+@@ -653,15 +653,19 @@
+ 
+ 	if (gpio_is_valid(panel->panel_test_gpio)) {
+ 		rc = gpio_direction_input(panel->panel_test_gpio);
+-		if (rc)
++		if (rc) {
+ 			DSI_WARN("set dir for panel test gpio failed rc=%d\n",
+ 				 rc);
++			first_error = rc;
++		}
+ 	}
+ 
+ 	rc = dsi_panel_set_pinctrl_state(panel, false);
+ 	if (rc) {
+ 		DSI_ERR("[%s] failed set pinctrl state, rc=%d\n", panel->name,
+ 		       rc);
++		if (!first_error)
++			first_error = rc;
+ 	}
+     /*Added by gavin.zhao for bug_43827 power off timing according to spec --start */
+ 	msleep(25);
+@@ -670,29 +674,48 @@
+     if(g_hardware_version_display == -1){
+        g_hardware_version_display = hw_version_get();
+     }
+-    if(g_hardware_version_display < HARDWARE_SC8201_NUM){
+-    rc = dsi_pwr_enable_regulator(&panel->chahei_power_info, false);
+-	if (rc)
+-	    pr_err("[%s] failed to disable chahei_power_info, rc=%d\n", panel->name, rc);
+-    }
++	if (g_hardware_version_display < HARDWARE_SC8201_NUM) {
++		rc = dsi_pwr_enable_regulator(&panel->chahei_power_info, false);
++		if (rc) {
++			pr_err("[%s] failed to disable chahei_power_info, rc=%d\n",
++				panel->name, rc);
++			if (!first_error)
++				first_error = rc;
++		}
++	}
+     /*added by webber.wang for bug 47188: backlight not off when charge in power off --end*/
+ 	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
+-	if (rc)
+-		DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
++	if (rc) {
++		DSI_ERR("[%s] failed to disable vregs, rc=%d\n",
+ 				panel->name, rc);
++		if (!first_error)
++			first_error = rc;
++	}
+ 
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up blk enable begin */
+ 	if (gpio_is_valid(panel->panel_blk_gpio)) {
+-		gpio_direction_output(panel->panel_blk_gpio, 0);
++		rc = gpio_direction_output(panel->panel_blk_gpio, 0);
++		if (rc) {
++			DSI_ERR("[%s] failed to disable backlight, rc=%d\n",
++				panel->name, rc);
++			if (!first_error)
++				first_error = rc;
++		}
+ 	}
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up blk enable end */
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up vio enable begin */
+ 	if (gpio_is_valid(panel->panel_vio_gpio)) {
+-		gpio_direction_output(panel->panel_vio_gpio, 0);
++		rc = gpio_direction_output(panel->panel_vio_gpio, 0);
++		if (rc) {
++			DSI_ERR("[%s] failed to disable panel VIO, rc=%d\n",
++				panel->name, rc);
++			if (!first_error)
++				first_error = rc;
++		}
+ 	}
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up vio enable end */
+ 
+-	return rc;
++	return first_error;
+ }
+ static int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
+ 				enum dsi_cmd_set_type type)

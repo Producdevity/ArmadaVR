@@ -176,6 +176,21 @@ included in a new full Image or physically tested; the earlier Image hash above
 still identifies the preserved `0025` build. Evidence is in
 `output/pico-panel-errors-20261011-v1/`.
 
+Patch `0027-panel-shutdown-errors.patch` preserves the first failure from panel
+test GPIO setup, pinctrl, either regulator group, backlight GPIO or panel VIO.
+It still attempts every shutdown step in the original order, including the
+25 ms delay and hardware-revision condition for the charge regulator. The
+existing `dsi_panel_post_unprepare` caller returns this error to display teardown.
+The legacy `vxr7200_panel_off` value alone remains insufficient to prove power
+is off, since stock sets it before attempting shutdown.
+
+All 49,152 fault combinations pass macOS and ARM64 sanitizer tests with the
+operation sequence preserved. The original routine masks or replaces the first
+error in 37,152 of those cases. The full panel object compiles with `-Werror`
+and unchanged imports against the accepted kernel. This patch, like `0026`,
+still requires a full Image build and physical validation. Evidence is in
+`output/pico-panel-shutdown-20261011-v1/`.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
