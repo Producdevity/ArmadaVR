@@ -21,6 +21,10 @@ spec = importlib.util.spec_from_file_location("quest_firmware", Path(__file__).w
 firmware = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(firmware)
 
+spec = importlib.util.spec_from_file_location("systemd_runtime", Path(__file__).with_name("systemd-runtime.py"))
+systemd_runtime = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(systemd_runtime)
+
 
 def digest(path):
     if path.is_symlink() or not path.is_file():
@@ -85,6 +89,14 @@ dracut --kver "$1" --kmoddir "/lib/modules/$1" \
     --add-drivers "$2" "${@:5}" /output/initramfs.img
 cd /tmp/unpacked
 lsinitrd --unpack /output/initramfs.img
+if test -d /systemd-runtime; then
+    python3 /systemd-runtime.py /systemd-runtime --install /tmp/unpacked
+    find . -print0 | LC_ALL=C sort -z | cpio --null -o -H newc --reproducible --owner=0:0 | gzip -n -9 > /output/initramfs.img
+    mkdir /tmp/verified
+    cd /tmp/verified
+    lsinitrd --unpack /output/initramfs.img
+    python3 /systemd-runtime.py /systemd-runtime --verify /tmp/verified
+fi
 python3 - /kernel/modules.json /output/contents.json "$3" "$4" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
@@ -143,6 +155,12 @@ rpm -q dracut systemd kmod > /output/tool-versions.txt
 def run(args):
     kernel, output = args.kernel.resolve(), args.output.resolve()
     report, hashes, version, names = inputs(kernel)
+    runtime_dir = args.systemd_runtime.absolute() if args.systemd_runtime else None
+    runtime = systemd_runtime.validate(runtime_dir) if runtime_dir else None
+    runtime_sha = digest(runtime_dir / "manifest.json") if runtime_dir else None
+    runtime_helper_sha = digest(Path(systemd_runtime.__file__)) if runtime_dir else None
+    if runtime_dir and any(c in str(runtime_dir) for c in (",", ":")):
+        raise ValueError("Systemd runtime path must not contain commas or colons")
     firmware_dir = args.firmware.absolute() if args.firmware else None
     firmware_manifest = firmware.validate(firmware_dir) if firmware_dir else None
     if args.quest_services and not firmware_manifest:
@@ -160,13 +178,17 @@ def run(args):
               "hardware_boot_verified": False, "hardware_flash_image": False,
               "container_image": image, "builder_sha256": digest(Path(__file__)),
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
-              "firmware_validator_sha256": digest(Path(firmware.__file__))}
+              "firmware_validator_sha256": digest(Path(firmware.__file__)),
+              "systemd_runtime_sha256": runtime_sha, "systemd_runtime_helper_sha256": runtime_helper_sha}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                "--cpus", "2", "--pids-limit", "256",
                "--tmpfs", "/tmp:rw,exec,size=512m", "--tmpfs", "/var/tmp:rw,exec,size=512m",
                "--tmpfs", "/usr/lib/modules:rw,nosuid,size=128m",
                "-e", "SOURCE_DATE_EPOCH=0", "-e", "PYTHONDONTWRITEBYTECODE=1",
                "-v", f"{kernel}:/kernel:ro", "-v", f"{output}:/output"]
+    if runtime_dir:
+        command.extend(["-v", f"{runtime_dir}:/systemd-runtime:ro",
+                        "-v", f"{Path(systemd_runtime.__file__)}:/systemd-runtime.py:ro"])
     if firmware_dir:
         command.extend(["-v", f"{firmware_dir}:/firmware:ro"])
     if args.quest_services:
@@ -190,6 +212,10 @@ def run(args):
             raise ValueError("Firmware inputs changed during initramfs construction")
         if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
             raise ValueError("Quest startup inputs changed during construction")
+        if runtime_dir and (systemd_runtime.validate(runtime_dir) != runtime or
+                            digest(runtime_dir / "manifest.json") != runtime_sha or
+                            digest(Path(systemd_runtime.__file__)) != runtime_helper_sha):
+            raise ValueError("Systemd runtime inputs changed during construction")
         result["artifacts"] = [{"path": name, "bytes": (output / name).stat().st_size,
                                 "sha256": digest(output / name)} for name in
                                ("initramfs.img", "contents.json", "dracut-modules.txt", "tool-versions.txt")]
@@ -207,6 +233,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernel", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--systemd-runtime", type=Path, help="prepared private systemd runtime matching this initramfs template")
     parser.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
     parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
     parser.add_argument("--image", default="localhost/armada-vr:vm")

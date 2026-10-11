@@ -361,11 +361,38 @@ reports zero block writes. Small static ELF launchers retain each command's
 argument zero and select its private loader; shell wrappers fail because
 systemd opens its executor through a close-on-exec file descriptor.
 
-This diagnostic establishes a userspace compatibility option. The maintained
-builder still produces the Fedora259 initramfs, and the complete Pico root and
-Lepton environment have not yet been integrated with the Valve dependency
-closure. These boot results do not establish a production image or a hardware
-recovery path.
+The maintained initramfs builder now accepts a prepared private systemd runtime
+with `--systemd-runtime`. Preparation pins the original Frame repair filesystem,
+resolves the ARM64 library closure, compiles static launchers and records each
+command, unit, mode, link and source checksum. Installation requires an exact
+match with the original dracut command and unit inventory. It also separates
+hardlinked dracut units before replacement, then unpacks and verifies the final
+archive again. Unexpected files, changed inputs and escaping links are rejected.
+
+A build through this path passes the same two virtual boot cases in 6.38 and
+11.27 seconds with no failed services and unchanged disks. Ten focused runtime
+tests and the complete 266-test host suite pass. The newer, unused
+`systemd-validatefs` helper remains from Fedora and is explicitly recorded;
+Frame257 does not supply it. This optional provider is currently limited to
+initramfs construction. The full Pico root and Lepton environment still require
+integration and runtime acceptance. None of these results establishes physical
+boot, recovery or flash readiness.
+
+To prepare this input locally, use Python with `dissect.btrfs`, Zig, the preserved
+original Frame `rootfs-A.img`, and an unpacked initramfs from the same builder
+image. The source image must match the checksum pinned in the preparation tool.
+Keep the resulting bundle private; the repository contains the preparation and
+installation tools, not Valve's binaries.
+
+```sh
+mkdir initramfs-template
+tar -xf path/to/base-initramfs/initramfs.img -C initramfs-template
+python3 tools/prepare-systemd-runtime.py path/to/rootfs-A.img \
+  --template initramfs-template --output output/pico-systemd-runtime
+python3 tools/build-headset-initramfs.py path/to/pico-kernel \
+  --systemd-runtime output/pico-systemd-runtime \
+  --image matching-builder-image:tag --output output/pico-initramfs
+```
 
 This is a minimal manager/service test, not a boot of the full Frame userspace.
 The shipped binary warns that its required kernel baseline is 5.4. Unsupported
