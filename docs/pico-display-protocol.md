@@ -107,6 +107,22 @@ The tests exercise 694 acquisition, state-change and cleanup cases under address
 and undefined-behavior sanitizers on macOS and ARM64 Linux. Evidence is retained
 under `output/pico-panel-mux-20261011-v1/`.
 
+[`bind-pico-panel.py`](../tools/bind-pico-panel.py) assembles this binding into a
+new offline DTB copy. It requires the source SHA-256 and explicit panel/bridge
+paths, validates active ancestors, phandles, GPIO controllers, polarity and pin
+uniqueness, and refuses an existing binding or output directory. After editing,
+it verifies that only the binding and any required bridge phandle changed;
+the memory description, reservations, boot CPU and source file remain intact.
+
+The retained kona-v2.1/overlay-0 candidate passes this assembly for its SHARP493
+72 Hz panel. Exactly two properties change. That panel choice is an offline
+integration test, not a verified selection for the connected Pro Eye. The tool
+does not change the stock default-panel property, infer bootloader selection,
+modify a boot container, or access a headset. Its receipt keeps live selection,
+GPIO state, boot, recovery and flash readiness explicitly unverified. The
+candidate output and receipt are in
+`output/pico-panel-mux-20261011-v1/offline-binding/`.
+
 The complete kernel and all 38 modules compile with this patch. Module signatures
 match the certificate embedded in the new Image, 2,715 imported symbol versions
 match, dependency checks pass, and the diskless Android ABI fixture boots and
