@@ -10,6 +10,7 @@
 #include <linux/android/binder.h>
 #include <linux/android/binderfs.h>
 #include <linux/filter.h>
+#include <linux/fuse.h>
 #include <linux/seccomp.h>
 #include <sched.h>
 #include <stddef.h>
@@ -25,6 +26,7 @@
 #include <sys/reboot.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -454,6 +456,62 @@ static void seccomp_test(void)
     puts("ANDROID_SECCOMP_PASS");
 }
 
+static void tagged_fuse_test(void)
+{
+    const size_t size = FUSE_MIN_READ_BUFFER;
+    void *buffer = mmap(NULL, size, PROT_READ | PROT_WRITE,
+                        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    require(buffer != MAP_FAILED, "fuse_buffer_map");
+    require(prctl(PR_SET_TAGGED_ADDR_CTRL, PR_TAGGED_ADDR_ENABLE, 0, 0, 0) == 0,
+            "fuse_tagged_address_control");
+    require(mkdir("/work/fuse", 0700) == 0, "fuse_directory");
+    for (int test = 0; test < 4; ++test) {
+        require(madvise(buffer, size, MADV_DONTNEED) == 0, "fuse_unfaulted_buffer");
+        int fd = open("/dev/fuse", O_RDWR | O_CLOEXEC);
+        require(fd >= 0, "fuse_device_open");
+        char options[128];
+        snprintf(options, sizeof(options), "fd=%d,rootmode=40000,user_id=0,group_id=0", fd);
+        require(mount("fuse", "/work/fuse", "fuse", MS_NOSUID | MS_NODEV, options) == 0,
+                "fuse_user_namespace_mount");
+        void *destination = test ? tag_pointer(buffer) : buffer;
+        if (test == 2)
+            destination = tag_pointer((void *)(uintptr_t)4096);
+        if (test == 3)
+            require(mprotect(buffer, size, PROT_READ) == 0, "fuse_readonly_buffer");
+        struct pollfd ready = {fd, POLLIN, 0};
+        require(poll(&ready, 1, 3000) == 1 && (ready.revents & POLLIN), "fuse_init_ready");
+        errno = 0;
+        ssize_t count = read(fd, destination, size);
+        if (test >= 2) {
+            require(count == -1 && errno == EFAULT, "fuse_invalid_read_buffer");
+        } else {
+            require(count >= (ssize_t)(sizeof(struct fuse_in_header) + 4 * sizeof(uint32_t)),
+                    "fuse_init_read");
+            struct fuse_in_header *request = buffer;
+            require(request->opcode == FUSE_INIT && request->len == (unsigned)count,
+                    "fuse_init_request");
+            struct fuse_init_in *input = (void *)(request + 1);
+            require(input->major == FUSE_KERNEL_VERSION && input->minor >= 27,
+                    "fuse_protocol_version");
+            struct fuse_out_header header = {
+                .len = sizeof(header) + sizeof(struct fuse_init_out), .unique = request->unique,
+            };
+            struct fuse_init_out reply = {
+                .major = FUSE_KERNEL_VERSION, .minor = 27, .max_write = 4096, .time_gran = 1,
+            };
+            struct iovec vectors[] = {
+                {test ? tag_pointer(&header) : &header, sizeof(header)},
+                {test ? tag_pointer(&reply) : &reply, sizeof(reply)},
+            };
+            require(writev(fd, vectors, 2) == (ssize_t)header.len, "fuse_init_writev");
+        }
+        close(fd);
+        require(umount("/work/fuse") == 0, "fuse_unmount");
+    }
+    require(munmap(buffer, size) == 0, "fuse_buffer_unmap");
+    puts("ANDROID_TAGGED_FUSE_PASS normal=1 tagged_read_writev=1 invalid=2");
+}
+
 static void child_test(void)
 {
     require(setgroups(0, NULL) == 0 && setgid(1000) == 0 && setuid(1000) == 0, "drop_host_privileges");
@@ -496,6 +554,7 @@ static void child_test(void)
     puts("ANDROID_USERNS_PASS host_uid=1000 container_uid=0");
     network_test();
     binder_test();
+    tagged_fuse_test();
     memory_test();
     overlay_test();
     seccomp_test();
@@ -527,6 +586,7 @@ int main(int argc, char **argv)
     fclose(stream);
     mkdir("/dev", 0755);
     require(mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) == 0, "mount_dev");
+    require(chmod("/dev/fuse", 0666) == 0, "fuse_device_permissions");
     require(mkdir("/work", 0777) == 0 && chmod("/work", 0777) == 0, "work_directory");
     pid_t pid = fork();
     require(pid >= 0, "test_fork");

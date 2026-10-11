@@ -27,6 +27,8 @@ maps the same user to container UID/GID 0. It then checks:
 - Tagged memory protection, execution of generated ARM64 code, discard,
   residency, synchronization, locking and remapping; unaligned protection
   requests still fail through the raw syscall interface.
+- FUSE initialization with ordinary and tagged read/writev buffers, including
+  previously unfaulted pages and rejection of unmapped or read-only destinations.
 - Creation of mount, PID, IPC, UTS and network namespaces, a container PID 1,
   private procfs and tmpfs mounts.
 - Two separate BinderFS mounts, each with three dynamically allocated Binder
@@ -102,6 +104,19 @@ the previous Pico kernel fails at executable permission setup. Receipts are
 `output/android-tagged-memory-quest-20261011-v2` and the negative control
 `output/android-tagged-memory-pico-before-20261011-v1`. These results cover
 the tested memory interfaces; APK rendering remains a separate acceptance test.
+
+Pico's MediaProvider then failed to read `/dev/fuse` into a tagged buffer with
+`EFAULT`. The Linux variant now includes upstream
+[`f9652594195f`](https://github.com/torvalds/linux/commit/f9652594195fca8c3d8b8ee392ad0ff9f701bb20),
+which removes address tags before the page-pinning path looks up a VMA. The
+regression discards buffer pages before each FUSE handshake to exercise this
+slow path; already resident buffers can hide the defect. The old Pico kernel
+fails, while the corrected kernel and Quest control pass, including the two
+invalid-buffer cases. Receipts are
+`output/android-tagged-fuse-pico-after-20261011-v1`,
+`output/android-tagged-fuse-quest-20261011-v2` and the negative control
+`output/android-tagged-fuse-pico-before-20261011-v2`. This test verifies the
+kernel interface; Android app storage still requires separate acceptance.
 
 The source confirms that this vendor 5.10 tree enables user-namespace mounts for
 BinderFS but not OverlayFS. [Podman documents a fuse-overlayfs fallback for

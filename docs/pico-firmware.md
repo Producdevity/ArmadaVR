@@ -335,6 +335,18 @@ diskless QEMU, with normal powerdown and no added kernel taint. The diagnostic
 reads the RAM log because this configuration has no virtual PL011 console;
 it does not add virtual transports to the headset kernel.
 
+The subsequent build also includes the
+[tagged-address string and memory corrections](android-containers.md).
+`output/kernel/pico-neo3/linux-tagged-memory-20261011-v1` compiles all 38 modules;
+its Image has SHA-256
+`b2cc8d1ee4c5a38d37fe1e274ef01f3f89d105445cdb0e595a9d7f68f8ca07f8`.
+The diskless test repeats the ARM64/ARM32 process checks and adds unprivileged
+tagged exec and memory checks, including execution of generated ARM64 code.
+It passes in 5.574 seconds with unchanged taint and normal powerdown
+(`output/pico-physical-memory-20261011-v1/result.json`). This is execution of
+the headset configuration on a virtual board, not a physical boot or recovery
+test.
+
 Fedora now mounts its API filesystems, starts service executors, and switches
 to a RAM overlay root with zero backing-disk writes. The overall boot test is
 still rejected: systemd259 credential setup calls `fsopen`, which this kernel
