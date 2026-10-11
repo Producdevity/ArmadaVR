@@ -1,6 +1,6 @@
 # Pico Neo3 Pro and Pro Eye firmware and boot access
 
-Checked October 10, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
+Checked October 11, 2026. Quest 3 remains the overall priority; Neo3 Pro Eye
 bring-up is active on the connected development unit. It was identified
 physically as Pro Eye; its generic Android model alone does not distinguish
 enterprise variants. Neo3 Pro requires its own inventory and calibration backups.
@@ -106,7 +106,17 @@ configuration disables ADB by default and comments out fastbootd. Rebooting into
 recovery does not establish an unattended USB return path. PICO's documented
 [recovery entry](https://sdk.picovr.com/docs/FAQ/chapter_five.html) uses Power +
 Volume Up + Home from power-off, followed by Power + Volume Up at the Android
-robot. This sequence and cold EDL entry have not been validated on this unit.
+robot. On October 11 the owner entered this menu from power-off using the
+buttons and selected **Reboot system now**. The Pico returned to its normal
+home screen. ADB then confirmed boot completion, unchanged 5.8.4.0 firmware and
+kernel, a new boot ID, locked/green verified boot and enforcing SELinux. No Pico
+ADB connection appeared during the observed recovery menu. Evidence is retained
+in `output/pico-cold-recovery-20261011-v1`.
+
+This verifies button access to the installed stock recovery and a normal return
+to Android. It does not verify recovery after damaged boot-chain partitions,
+cold EDL entry, partition restoration or unsigned custom boot. Those checks
+remain required before flashing.
 
 When multiple ADB servers are running, the Pico can reconnect to a different
 server after reset. Check the existing servers for its exact serial before
@@ -131,7 +141,7 @@ The format follows the [UEFI GPT specification](https://uefi.org/sites/default/f
 Use independently observed LUN geometry. Linux sysfs `size` counts 512-byte
 units; Firehose counts logical sectors. Convert through bytes before comparing
 them. The physical reads above establish this unit's geometry and the recorded
-backup subset. Independent recovery entry, remaining restoration inputs and an
+backup subset. Independent emergency recovery, remaining restoration inputs and an
 actual restore procedure remain necessary before persistent changes.
 
 ## Update decision
@@ -271,6 +281,16 @@ concurrent camera-write/removal cycles. The unchanged original camera function
 fails separate missing-device and buffer-ownership controls. This tests resource
 lifetime and API behavior; it does not verify physical SPI transfers, pairing,
 controller tracking or the missing station driver.
+
+The physical-configuration Linux build including this patch passes all 38 module
+signatures, 2,715 imported symbol versions and dependency checks. Its exported
+Image has SHA-256
+`ba312ea1e248da1a8ede6b052a5ab96f17382235185702d27255405bf7b1d32c`.
+A diskless virtual boot verifies the complete loaded Image and passes the
+Android namespace, Binder and tagged-pointer/FUSE regression in 5.654 seconds,
+then powers off normally. The build excludes QEMU transports. Results are in
+`output/pico-controller-lifecycle-20261011-v1`; this does not establish physical
+controller operation or headset boot.
 
 The maintained Linux variant adds the common Linux-userspace configuration and
 an Android 4.19 BinderFS backport. Build it with:
@@ -535,7 +555,7 @@ per-unit calibration stay outside the public repository.
 
 | Workstream | Quest 3 | Neo3 Pro / Pro Eye |
 |---|---|---|
-| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified; stock return after reads passes. Independent cold recovery and restoration remain. Pro needs separate inventory |
+| Firmware and recovery | Current-build OTA authenticated; exact root target audited. Both-slot/unit backups and independent restore remain | Exact Pro Eye OTA authenticated; programmer execution, all GPTs and 21 boot/calibration backups verified. Button entry to stock recovery and return to Android pass. Cold EDL and damaged-boot restoration remain. Pro needs separate inventory |
 | Temporary custom boot | Quest3-specific loader ABI/CFI, live RAM allocation and peripheral handoff remain | Stronger public unlock lead; exact enterprise unlock persistence and accepted custom boot remain untested |
 | Kernel and board description | Vendor kernel, modules and selected overlays compile; Linux userspace patches and QEMU ABI tests pass | Linux 4.19.81 builds 38 modules, including audio. Kernel ABI, enforcing-policy denial, maintained systemd root startup and Android lifecycle tests pass in QEMU; stock DTB/DTBO acquired. Board DTS, missing drivers and physical compatibility remain unverified |
 | GPU, display and platform I/O | KGSL/Turnip and display integration compile; actual panel/GPU, DSP, audio, radios, storage and power acceptance remain | Adreno650/display and the same platform-I/O categories need an exact board port and hardware acceptance |
