@@ -146,6 +146,23 @@ to Android. It does not verify recovery after damaged boot-chain partitions,
 cold EDL entry, partition restoration or unsigned custom boot. Those checks
 remain required before flashing.
 
+On October 12, holding both volume buttons while reconnecting the ordinary
+USB cable did not establish EDL entry; the owner reported normal boot with
+uncertain button timing. Power + Volume Down + Home from power-off then reached
+the actual fastboot menu. USB remained on the same physical port but changed
+its serial, which must be selected separately from the Android ADB serial.
+Read-only queries reported `product: kona`, `secure: yes`, `unlocked: no` and
+`is-userspace: no`.
+
+The Neo3 community tool's inspected `reboot-edl` command was acknowledged with
+`OKAY`, but no 9008 endpoint was observed during the following 25 seconds. The
+Pico returned to unchanged 5.8.4.0 stock Android, locked/green and enforcing.
+No RAM programmer was uploaded and no partition operation was issued. This
+establishes button-entered fastboot and normal return, not EDL or restoration
+after early-bootloader damage. Receipts and the statically inspected community
+client are retained in `output/pico-cold-edl-20261012-v1`; the downloaded Windows
+client was not executed.
+
 When multiple ADB servers are running, the Pico can reconnect to a different
 server after reset. Check the existing servers for its exact serial before
 diagnosing a failed return to Android.
