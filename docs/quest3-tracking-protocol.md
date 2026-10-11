@@ -248,7 +248,7 @@ The original capture and both exact blobs remain private under
 synthetic calibration only. This closes the missing calibration-data input;
 physical validity, interpretation and native tracking integration remain open.
 
-### Fisheye62 forward projection
+### Fisheye62 projection and inverse
 
 [`fisheye62.c`](../src/fisheye62.c) implements a shared focal length, six radial
 coefficients and two tangential coefficients. Its parameter order is
@@ -272,10 +272,27 @@ distortion coefficient independently, the optical axis and spherical projection,
 plus invalid inputs and output preservation. They pass under address/undefined
 behavior sanitizers on macOS and ARM64 Linux. The API accepts finite front-facing
 camera-frame points and rejects non-finite results. Image bounds, calibrated
-field of view, inverse projection and camera-to-IMU transforms remain separate
-integration requirements. No physical camera image or tracking pose is validated
+field of view and camera-to-IMU transforms remain separate integration
+requirements. No physical camera image or tracking pose is validated
 by this mathematical comparison. Private analysis is retained in
 `output/quest-tracking-524-20261011-v1/calibration-analysis/`.
+
+`fisheye62_unproject` returns a camera-frame ray with Z=1 inside an explicit
+angular limit supplied by the caller. It bounds tangential inversion, certifies
+a positive radial derivative over the entire requested interval using Bernstein
+bounds, and checks the final reprojection. Non-invertible or uncertifiable
+models, out-of-range pixels and failed convergence preserve the output. The
+angular limit is not inferred from image dimensions or calibration coefficients.
+
+All six recovered models and a synthetic model pass 28,672 comparisons with
+the stock inverse at ELF `0xdb01a0`, through 1.4 radians from the optical axis.
+The largest ray-component difference is `1.1874945471390674e-12`. The isolated
+comparison substitutes only the `tan` import and does not run constructors or
+services. Another 28,381 maintained cases plus rejection checks pass sanitizers
+on macOS and ARM64 Linux. Evidence is in
+`output/quest-inverse-projection-20261011-v1/`. This establishes model math;
+applying it to cropped or rescaled Camera2 output still requires a verified
+mapping, and the 1.4-radian test limit is not a measured physical field of view.
 
 ### Temperature offsets and IMU rectification
 
