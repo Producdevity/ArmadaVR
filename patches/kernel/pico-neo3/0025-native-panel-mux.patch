@@ -1,0 +1,223 @@
+Subject: drm/msm: own and verify the Pico standalone panel mux
+
+Bind the optional native-panel route to the panel lifecycle. Acquire all
+bridge control GPIOs without toggling them, reject active or unknown bridge
+state, and recheck the native route before panel power-on.
+
+---
+diff --git a/techpack/display/msm/Makefile b/techpack/display/msm/Makefile
+--- a/techpack/display/msm/Makefile
++++ b/techpack/display/msm/Makefile
+@@ -98,6 +98,7 @@
+ 	dsi/dsi_drm.o \
+ 	dsi/dsi_display.o \
+ 	dsi/dsi_panel.o \
++	dsi/pico_panel_mux.o \
+ 	dsi/dsi_clk_manager.o \
+ 	dsi/dsi_display_test.o \
+ 
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -549,6 +549,9 @@
+ {
+ 	int rc = 0;
+ 
++	rc = pico_panel_mux_prepare(panel->native_mux);
++	if (rc)
++		return rc;
+ 	vxr7200_panel_off = 0;
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up vio enable begin */
+ 	if (gpio_is_valid(panel->panel_vio_gpio)) {
+@@ -3978,6 +3981,13 @@
+ 		goto error_pinctrl_deinit;
+ 	}
+ 
++	panel->native_mux = pico_panel_mux_get(panel->panel_of_node);
++	if (IS_ERR(panel->native_mux)) {
++		rc = PTR_ERR(panel->native_mux);
++		panel->native_mux = NULL;
++		goto error_gpio_release;
++	}
++
+ 	rc = dsi_panel_bl_register(panel);
+ 	if (rc) {
+ 		if (rc != -EPROBE_DEFER)
+@@ -3989,6 +3999,8 @@
+ 	goto exit;
+ 
+ error_gpio_release:
++	pico_panel_mux_put(panel->native_mux);
++	panel->native_mux = NULL;
+ 	(void)dsi_panel_gpio_release(panel);
+ error_pinctrl_deinit:
+ 	(void)dsi_panel_pinctrl_deinit(panel);
+@@ -4014,6 +4026,9 @@
+ 	if (rc)
+ 		DSI_ERR("[%s] failed to unregister backlight, rc=%d\n",
+ 		       panel->name, rc);
++
++	pico_panel_mux_put(panel->native_mux);
++	panel->native_mux = NULL;
+ 
+ 	rc = dsi_panel_gpio_release(panel);
+ 	if (rc)
+diff --git a/techpack/display/msm/dsi/dsi_panel.h b/techpack/display/msm/dsi/dsi_panel.h
+--- a/techpack/display/msm/dsi/dsi_panel.h
++++ b/techpack/display/msm/dsi/dsi_panel.h
+@@ -14,6 +14,7 @@
+ #include <drm/drm_panel.h>
+ #include <drm/msm_drm.h>
+ 
++#include "pico_panel_mux.h"
+ #include "dsi_defs.h"
+ #include "dsi_ctrl_hw.h"
+ #include "dsi_clk.h"
+@@ -171,6 +172,7 @@
+ };
+ 
+ struct dsi_panel {
++	struct pico_panel_mux *native_mux;
+ 	const char *name;
+ 	const char *type;
+ 	struct device_node *panel_of_node;
+diff --git a/techpack/display/msm/dsi/pico_panel_mux.c b/techpack/display/msm/dsi/pico_panel_mux.c
+new file mode 100644
+--- /dev/null
++++ b/techpack/display/msm/dsi/pico_panel_mux.c
+@@ -0,0 +1,117 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#include <linux/err.h>
++#include <linux/gpio.h>
++#include <linux/gpio/consumer.h>
++#include <linux/of.h>
++#include <linux/of_gpio.h>
++#include <linux/slab.h>
++
++#include "pico_panel_mux.h"
++
++static const char * const mux_properties[] = {
++	"qcom,vxr7200-rst",
++	"qcom,vxr7200-3v3en",
++	"qcom,vxr7200-1v0en",
++	"qcom,vxr7200-1v8en",
++	"qcom,vxr7200-mipi_switch",
++};
++
++struct pico_panel_mux {
++	int gpios[ARRAY_SIZE(mux_properties)];
++	unsigned int owned;
++};
++
++int pico_panel_mux_prepare(struct pico_panel_mux *mux)
++{
++	unsigned int i;
++	int state;
++
++	if (!mux)
++		return 0;
++	if (mux->owned != ARRAY_SIZE(mux_properties))
++		return -ENODEV;
++	/* Preserve the stock standalone route without switching a live panel.
++	 * External or indeterminate state needs a full DRM modeset transition.
++	 */
++	for (i = 0; i < mux->owned; i++) {
++		state = gpiod_get_direction(gpio_to_desc(mux->gpios[i]));
++		if (state < 0)
++			return state;
++		if (state != 0)
++			return -EBUSY;
++		state = gpio_get_value_cansleep(mux->gpios[i]);
++		if (state < 0)
++			return state;
++		if (state != 0)
++			return -EBUSY;
++	}
++	return 0;
++}
++
++void pico_panel_mux_put(struct pico_panel_mux *mux)
++{
++	if (!mux)
++		return;
++	while (mux->owned)
++		gpio_free(mux->gpios[--mux->owned]);
++	kfree(mux);
++}
++
++struct pico_panel_mux *pico_panel_mux_get(struct device_node *panel_node)
++{
++	struct device_node *bridge;
++	struct pico_panel_mux *mux;
++	enum of_gpio_flags flags;
++	unsigned int i, j;
++	int error;
++
++	if (!of_find_property(panel_node, "pico,native-mipi-mux", NULL))
++		return NULL;
++	bridge = of_parse_phandle(panel_node, "pico,native-mipi-mux", 0);
++	if (!bridge)
++		return ERR_PTR(-EINVAL);
++	if (!of_device_is_compatible(bridge, "qcom,vxr7200") ||
++	    !of_device_is_available(bridge)) {
++		error = -ENODEV;
++		goto put_node;
++	}
++	mux = kzalloc(sizeof(*mux), GFP_KERNEL);
++	if (!mux) {
++		error = -ENOMEM;
++		goto put_node;
++	}
++	for (i = 0; i < ARRAY_SIZE(mux_properties); i++) {
++		flags = 0;
++		error = of_get_named_gpio_flags(bridge, mux_properties[i], 0,
++						&flags);
++		if (error < 0)
++			goto release;
++		if (flags || !gpio_is_valid(error)) {
++			error = -EINVAL;
++			goto release;
++		}
++		mux->gpios[i] = error;
++		for (j = 0; j < i; j++) {
++			if (mux->gpios[j] == mux->gpios[i]) {
++				error = -EINVAL;
++				goto release;
++			}
++		}
++	}
++	for (i = 0; i < ARRAY_SIZE(mux_properties); i++) {
++		error = gpio_request(mux->gpios[i], "pico-panel-mux");
++		if (error)
++			goto release;
++		mux->owned++;
++	}
++	error = pico_panel_mux_prepare(mux);
++	if (error)
++		goto release;
++	of_node_put(bridge);
++	return mux;
++release:
++	pico_panel_mux_put(mux);
++put_node:
++	of_node_put(bridge);
++	return ERR_PTR(error);
++}
+diff --git a/techpack/display/msm/dsi/pico_panel_mux.h b/techpack/display/msm/dsi/pico_panel_mux.h
+new file mode 100644
+--- /dev/null
++++ b/techpack/display/msm/dsi/pico_panel_mux.h
+@@ -0,0 +1,13 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef PICO_PANEL_MUX_H
++#define PICO_PANEL_MUX_H
++
++struct device_node;
++struct pico_panel_mux;
++
++/* The panel lock serializes acquisition, preparation, and release. */
++struct pico_panel_mux *pico_panel_mux_get(struct device_node *panel_node);
++int pico_panel_mux_prepare(struct pico_panel_mux *mux);
++void pico_panel_mux_put(struct pico_panel_mux *mux);
++
++#endif

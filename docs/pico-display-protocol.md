@@ -74,6 +74,47 @@ failed operation that nevertheless changes its simulated GPIO and failures at
 every shutdown step. These tests verify ordering and error handling; they do
 not measure physical rail timing or establish safe panel integration.
 
+## Standalone panel ownership
+
+Kernel patch `0025-native-panel-mux.patch` connects bridge-control ownership to
+the existing DSI panel lifecycle. An explicit panel property,
+`pico,native-mipi-mux = <&bridge_node>`, references an available `qcom,vxr7200`
+node containing the five control GPIO properties above. No candidate GPIO
+numbers or selected panel path are compiled into the driver. The published
+Pico source omits its vendor device trees, and the live tree selection remains
+unverified, so no retained stock DTB is changed automatically.
+
+With that property present, panel initialization acquires all five GPIOs without
+requesting a new direction or value. It accepts only the observed stock native
+state: reset asserted, bridge rails off, mux selecting Qualcomm, with every
+line configured as an output. Missing pins, nonzero binding flags, duplicate
+GPIOs, conflicting owners, inputs, high outputs and failed reads are rejected.
+Deferred-probe errors are preserved. Partial acquisition releases every owned
+GPIO, and panel initialization failures or removal release the mux ownership.
+
+Every panel power-on rechecks the route under the existing panel mutex before
+enabling panel supplies. This covers both ordinary and LP11-delayed preparation.
+The stock panel's mode, reset, backlight and regulator code remains responsible
+for panel operation. The mux helper does not use the stock bridge's global
+panel pointer, sysfs writes or timer callbacks.
+
+This first kernel integration preserves an established standalone route. It
+deliberately returns an error for an external or unknown route; switching a live
+panel requires a complete DRM modeset transaction, bridge reset/rail sequencing,
+EDID/video detection and error recovery. Physical mux state, the selected panel
+binding, suspend/resume and rendered output still require device verification.
+The tests exercise 694 acquisition, state-change and cleanup cases under address
+and undefined-behavior sanitizers on macOS and ARM64 Linux. Evidence is retained
+under `output/pico-panel-mux-20261011-v1/`.
+
+The complete kernel and all 38 modules compile with this patch. Module signatures
+match the certificate embedded in the new Image, 2,715 imported symbol versions
+match, dependency checks pass, and the diskless Android ABI fixture boots and
+shuts down in 5.576 seconds. The Image SHA-256 is
+`98a7d2d1cfdaed58d4ffa5f384edd687a1b5ae2d1a328863606d096c7ef3d544`.
+These results verify build integration and virtual ABI behavior; the QEMU board
+does not contain the physical Pico mux, panel or display controller.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
