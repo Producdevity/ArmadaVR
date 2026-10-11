@@ -1,6 +1,6 @@
 # Device installation requirements
 
-Updated October 10, 2026. ArmadaVR has offline kernel and virtual-runtime tests,
+Updated October 11, 2026. ArmadaVR has offline kernel and virtual-runtime tests,
 plus physical GPU rendering on both stock headsets. Quest installation and
 independent recovery remain unvalidated.
 
@@ -22,6 +22,26 @@ These properties do not establish root, permission to boot another kernel, or a
 usable restore path. The unit updated from the previously tested
 `52083180032000520`. Firmware-sensitive offsets, modules, policy and device tests
 from that build are historical evidence, not acceptance of the new release.
+
+An October 11 owner-operated check reached USB Update Mode from a normal
+power-off using Power + Volume Down. Read-only fastboot queries identify the
+same `eureka` unit, `secure: yes`, `unlocked: no`, active slot `a`, and two slots.
+Slot A reports successful and bootable. Slot B reports both successful and
+unbootable; these are the bootloader's returned flags, not a diagnosis of its
+partition contents. Do not count slot B as a verified fallback or switch slots
+to test that assumption. `has-slot:vendor_boot` and `has-slot:recovery` return
+`Invalid Parameter`, which does not establish partition absence. The query
+receipts are in `output/quest-cold-boot-menu-20261011-v1/`.
+
+After the owner selected `Boot device`, ADB returned with boot completion,
+a new boot ID, the same firmware and kernel, active slot A, locked/green
+Verified Boot and enforcing SELinux. The owner confirmed the normal return.
+The camera diagnostic remained stopped.
+
+This proves button entry and USB access independently of Android. It does not
+establish recovery after a damaged boot chain, stock-image restoration, or
+acceptance of an unsigned custom kernel. No unlock, slot change or partition
+write was attempted.
 
 ## Offline preparation completed
 

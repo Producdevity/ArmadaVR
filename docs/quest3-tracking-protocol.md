@@ -412,6 +412,15 @@ checks and stream-boundary cases pass macOS and ARM64 sanitizers. The existing
 that executable accesses no sensors. Sources and receipts are retained in
 `output/quest-imu-time-alignment-20261011-v1/`.
 
+The retained factory and online JSON files already preserve the respective
+timing fields. Replaying all 12,032 captured direct records through stream
+validation, the new alignment stage and then calibration produces 24,061
+aligned model samples. Three factory startup records are withheld for history.
+Both supported rectification frames preserve device-space vectors within
+`2.27e-6`. This uses each saved model separately, its stored corrections without
+runtime overrides, and the same unqueried candidate MCU scales; it does not
+select the model currently used by the headset.
+
 Combined offline replay now runs all 12,032 preserved live records through the
 raw decoder, stream-order gate, temperature offsets and frame preparation for
 both factory and online models. Both frame choices preserve the resulting
