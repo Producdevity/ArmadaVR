@@ -232,6 +232,19 @@ Host and ARM64 Linux sanitizers, GNU patch application and full panel-object
 compilation with `-Werror` pass. Evidence is in
 `output/pico-panel-gpio-20261012-v1/`.
 
+The complete kernel through `0029` passes verification of all 18 artifact hashes,
+38 signed modules, 2,715 imported symbol versions and dependency closure. A
+modified signed module is rejected. Its physical configuration, without added
+QEMU transports, boots and shuts down the diskless ABI fixture in 5.791 seconds.
+All 320 repository tests also pass. The final Image SHA-256 is
+`f900a94ddb6de8273115b00f09bc2fd822b94476959e311696da2fb0e8f7107f`;
+the build receipt SHA-256 is
+`c30a2b0867f95eda74f8927b689aeec9df093caf071fce0634bc214ec54b1077`.
+Artifacts are in `output/kernel/pico-neo3/linux-panel-gpio-20261012-v1/`, with
+acceptance evidence in `output/pico-panel-gpio-20261012-v1/acceptance.json`.
+This verifies build integration and virtual ABI behavior. Physical panel/mux
+operation, custom boot and independent recovery remain unverified.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.

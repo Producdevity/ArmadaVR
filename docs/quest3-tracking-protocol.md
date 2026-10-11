@@ -493,6 +493,13 @@ rejections. Evidence is in `output/quest-aligned-pipeline-20261011-v1/`.
 The live model, MCU scales, camera clock relationship, ring acquisition and
 physical pose tracking remain unverified.
 
+The same combined test also passes as a standalone Android ARM64 executable
+on the connected Quest: 9,952 aligned cases, 288 history resets and 8,192
+uncorrected calibration cases. Its hash is checked before execution; it accesses
+no sensors, leaves the boot session unchanged and removes its temporary files.
+The receipt is `output/quest-aligned-pipeline-20261011-v1/android-math-test.json`.
+This verifies the target ABI and math, not physical sensor alignment.
+
 ### Earlier configuration and library evidence
 
 The read-only stock file
