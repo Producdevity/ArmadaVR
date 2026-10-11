@@ -100,29 +100,20 @@ bool syncboss_imu_decode(const void *payload, size_t length, unsigned version,
     return true;
 }
 
-bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
-                              const struct syncboss_imu_parameters *parameters,
-                              struct syncboss_imu_record *record)
+static unsigned driver_header_length(const uint8_t *bytes, size_t length)
 {
-    if (!data || !record || length < 2 || length > 276)
-        return false;
-    const uint8_t *bytes = data;
+    if (length < 2)
+        return 0;
     unsigned header_length = bytes[0] == 2 ? 12 : bytes[0] == 3 ? 21 : 0;
-    if (!header_length || bytes[1] != header_length || length < header_length + 3)
-        return false;
+    if (!header_length || bytes[1] != header_length || length < header_length)
+        return 0;
     if (bytes[2] != 0 || bytes[3] != 1 || (bytes[0] == 3 && bytes[12] > 2))
-        return false;
-    const uint8_t *packet = bytes + header_length;
-    if (packet[0] != 80 || packet[2] > 252 || length != header_length + 3u + packet[2])
-        return false;
+        return 0;
+    return header_length;
+}
 
-    struct syncboss_imu_record result = {0};
-    if (!syncboss_imu_decode(packet + 3, packet[2], version, parameters, &result.sample) ||
-        result.sample.device_id != 0)
-        return false;
-
-    uint64_t timestamp = result.sample.timestamp_ticks;
-    uint64_t offset = read_le(bytes + 4, 8);
+static bool sample_time(uint64_t timestamp, uint64_t offset, int64_t *timestamp_ns)
+{
     if (offset & (UINT64_C(1) << 63)) {
         uint64_t magnitude = ~offset + 1;
         if (timestamp < magnitude)
@@ -135,8 +126,54 @@ bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
     }
     if (timestamp > INT64_MAX / 1000)
         return false;
-    result.timestamp_ns = (int64_t)timestamp * 1000;
+    *timestamp_ns = (int64_t)timestamp * 1000;
+    return true;
+}
+
+bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
+                              const struct syncboss_imu_parameters *parameters,
+                              struct syncboss_imu_record *record)
+{
+    if (!data || !record || length > 276)
+        return false;
+    const uint8_t *bytes = data;
+    unsigned header_length = driver_header_length(bytes, length);
+    if (!header_length || length < header_length + 3)
+        return false;
+    const uint8_t *packet = bytes + header_length;
+    if (packet[0] != 80 || packet[2] > 252 || length != header_length + 3u + packet[2])
+        return false;
+    struct syncboss_imu_record result = {0};
+    if (!syncboss_imu_decode(packet + 3, packet[2], version, parameters, &result.sample) ||
+        result.sample.device_id != 0 ||
+        !sample_time(result.sample.timestamp_ticks, read_le(bytes + 4, 8), &result.timestamp_ns))
+        return false;
     result.sequence = packet[1];
+    *record = result;
+    return true;
+}
+
+bool syncboss_imu_decode_direct(const void *data, size_t length, unsigned version,
+                                const struct syncboss_imu_parameters *parameters,
+                                struct syncboss_imu_direct_record *record)
+{
+    if (!data || !record || length != 104)
+        return false;
+    const uint8_t *bytes = data;
+    if (read_le(bytes, 4) != 104 || read_le(bytes + 8, 4) != 80 ||
+        read_le(bytes + 12, 4) == 0 || read_le(bytes + 16, 8) > INT64_MAX)
+        return false;
+    const uint8_t *header = bytes + 24;
+    unsigned header_length = driver_header_length(header, 64);
+    if (!header_length)
+        return false;
+    struct syncboss_imu_direct_record result = {0};
+    if (!syncboss_imu_decode(header + header_length, 64 - header_length, version,
+                            parameters, &result.sample) || result.sample.device_id != 0 ||
+        !sample_time(result.sample.timestamp_ticks, read_le(header + 4, 8), &result.timestamp_ns))
+        return false;
+    result.delivery_ns = (int64_t)read_le(bytes + 16, 8);
+    result.counter = (uint32_t)read_le(bytes + 12, 4);
     *record = result;
     return true;
 }

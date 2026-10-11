@@ -96,10 +96,66 @@ validation remain required before feeding a tracking estimator.
 
 ## Additional interface found in Meta's kernel
 
+### Live stock-system capture
+
+On build `52433670036000520`, the bounded
+[`android-sensor-probe.c`](../src/android-sensor-probe.c) now receives live IMU
+data through the stock Android API as the authorized ADB shell. Two five-second
+queue captures delivered 4,007 and 4,008 events for handle 2/type 65537. Their
+vendor timestamp increments are about 1,248 microseconds, despite the Android
+field's documented nanosecond unit. The probe therefore preserves it as
+`timestamp_raw`, alongside host CLOCK_MONOTONIC and CLOCK_BOOTTIME receipt times.
+Handle 3/type 65538 is IAD, not an IMU clock-sync sensor.
+
+The IMU advertises hardware-buffer direct reporting but no shared-memory direct
+reporting. Three five-second hardware-buffer captures contain **12,032**
+published packet-80 records. They have consecutive nonzero counters, driver
+header version 2/length 12, valid NSYNC offsets, and integer-format-2 payloads.
+The maintained [`syncboss_imu_decode_direct`](../src/syncboss-imu.c) accepts these
+stable 104-byte records, preserves their raw ticks and delivery time separately,
+and converts sample time using the signed NSYNC offset. Across those captures,
+sample intervals are approximately 1.248 ms and sample-to-driver-delivery delay
+is below 0.8 ms. This establishes live framing and clock conversion on this unit;
+it does not establish calibrated axes or tracking accuracy.
+
+The vendor returns zero from direct-report registration even while activating
+the stream. The probe accepts a nonnegative result provisionally, then requires
+published, consecutive records before reporting success. It stops and destroys
+the channel before reading the buffer, avoiding a concurrent-ring snapshot.
+Unpublished slots already contain size/type fields; only the nonzero counter
+marks publication. See Android's
+[direct-channel layout](https://developer.android.com/reference/android/hardware/SensorDirectChannel).
+The live driver uses packet type 80 and raw header/payload bytes, not the standard
+converted sensor-event payload.
+
+Trying both routes concurrently yielded raw records but no converted queue
+events. They are therefore captured separately; a same-sample scale comparison
+has not passed. The live analysis supplies explicit candidate scale parameters,
+including 128 LSB/degree C, and does not claim those values were read from the
+MCU. Reading the active parameters, validating axes with labeled motion, camera
+capture and tracking integration remain required.
+
+Build the probe with an Android NDK API-29-or-newer AArch64 compiler and
+`-std=c11 -D_POSIX_C_SOURCE=200809L -O2 -Wall -Wextra -Werror -landroid`.
+With no arguments it lists non-private sensor metadata. Explicit handle,
+duration (1–30 seconds) and period select a bounded queue capture.
+`--direct NEW_FILE` selects a hardware-buffer snapshot instead. Use a fresh
+temporary device path and save stdout/stderr and the raw file as private
+evidence. It creates no app, changes no permissions and closes its own channels
+on normal termination or SIGINT/SIGTERM. It does not guarantee cleanup after a
+kernel/process crash. Evidence, failed experiments and source/binary hashes are
+preserved under `output/quest-live-sensors-20261011-v1/`.
+
+Host and ARM64 Linux sanitizer tests cover truncated and unaligned records,
+unpublished counters, incorrect types/headers, invalid clock status, signed
+offset underflow/overflow, both supported driver headers and all four payload
+versions. Live capture is stock Android driver evidence, not native ArmadaVR
+boot or physical tracking acceptance.
+
 [`syncboss_direct_channel_mcu_defs.h`](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/mcu/syncboss/syncboss_direct_channel_mcu_defs.h)
 defines `SPI_PACKET_TYPE_IMU_DATA` as **80** and restricts that direct-channel
 implementation's supported packet range to this identifier. This is an upstream
-routing definition, not evidence of packet 80 observed on the connected unit.
+routing definition, now also observed in the live captures above.
 
 The [direct-channel implementation](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/mcu/syncboss/syncboss_direct_channel.c#L384)
 reveals several constraints useful for a future receiver:

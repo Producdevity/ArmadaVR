@@ -26,3 +26,6 @@ class SyncbossImuTests(unittest.TestCase):
 
     def test_fifo_decoder(self):
         self.run_fixture("syncboss-fifo", "FIFO framing and clock checks passed")
+
+    def test_direct_decoder(self):
+        self.run_fixture("syncboss-direct", "direct-channel framing and clock checks passed")

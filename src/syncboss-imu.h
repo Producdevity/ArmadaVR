@@ -43,4 +43,21 @@ bool syncboss_imu_decode_fifo(const void *data, size_t length, unsigned version,
                               const struct syncboss_imu_parameters *parameters,
                               struct syncboss_imu_record *record);
 
+struct syncboss_imu_direct_record {
+    struct syncboss_imu_sample sample;
+    int64_t timestamp_ns;
+    int64_t delivery_ns;
+    uint32_t counter;
+};
+
+/* Decode one stable 104-byte Syncboss driver direct-channel record, not an
+ * Android converted sensor event. The caller owns ring synchronization and
+ * must copy only published records. Counter zero and invalid NSYNC are rejected.
+ * Both timestamps use CLOCK_MONOTONIC; delivery is not sample capture time.
+ * Failure leaves record unchanged. Stream ordering and offset freshness are
+ * the receiver's responsibility. */
+bool syncboss_imu_decode_direct(const void *data, size_t length, unsigned version,
+                                const struct syncboss_imu_parameters *parameters,
+                                struct syncboss_imu_direct_record *record);
+
 #endif
