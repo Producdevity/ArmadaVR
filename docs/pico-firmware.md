@@ -163,6 +163,17 @@ after early-bootloader damage. Receipts and the statically inspected community
 client are retained in `output/pico-cold-edl-20261012-v1`; the downloaded Windows
 client was not executed.
 
+A subsequent RAM-only boot test used the exact current 96 MiB stock `boot`
+backup, already matched to the authenticated b1977 OTA. Fastboot accepted the
+download, then rejected execution with `oem command is not allowed without
+unlocktoken authority`. A normal fastboot reboot returned the unit to the same
+5.8.4.0 firmware, locked/green verified boot and enforcing SELinux; the connected
+Quest did not reboot. No flash, unlock, erase or slot-change command was issued.
+This establishes an OEM authorization gate even for this signed stock RAM boot,
+not successful temporary boot or custom-kernel acceptance. The image hash,
+command responses and return checks are in
+`output/pico-stock-ram-boot-20261012-v1/result.json`.
+
 When multiple ADB servers are running, the Pico can reconnect to a different
 server after reset. Check the existing servers for its exact serial before
 diagnosing a failed return to Android.
