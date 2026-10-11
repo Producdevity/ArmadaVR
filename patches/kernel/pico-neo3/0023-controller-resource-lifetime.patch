@@ -1,0 +1,410 @@
+Subject: spi: preserve Pico controller resources and transmit buffers
+
+Allocate controller state before registering its interrupt, unwind GPIO/IRQ
+failures, and serialize the singleton camera endpoint with removal and close.
+Keep camera writes separate from the character device buffer and reject failed
+user copies before GPIO or power changes. Wake blocked readers on removal.
+
+--- a/drivers/spi/spidev.c
++++ b/drivers/spi/spidev.c
+@@ -67,10 +67,7 @@
+ /*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+ #define CONFIG_OF                       	1
+ #define MAX_MISS_DTRY			4
+-static int gpio;
+-static int rfic_io2_gpio;
+-static int rfic_io3_gpio;
+-static spinlock_t	spi_status_lock;
++static DEFINE_SPINLOCK(spi_status_lock);
+ static int poll_ioctl = 0;
+ static atomic_t controller_state = ATOMIC_INIT(0);
+ static atomic_t dtry_miss = ATOMIC_INIT(0);
+@@ -112,6 +109,10 @@
+ 	u8			*tx_buffer;
+ 	u8			*rx_buffer;
+ 	u32			speed_hz;
++	int			data_gpio;
++	int			data_irq;
++	int			rfic_io2_gpio;
++	int			rfic_io3_gpio;
+ };
+ 
+ static LIST_HEAD(device_list);
+@@ -203,8 +204,14 @@
+ 		return -EMSGSIZE;
+ 	spidev = filp->private_data;
+ 
+-	wait_for_completion(&spi_completion);
++	status = wait_for_completion_interruptible(&spi_completion);
++	if (status)
++		return status;
+ 	mutex_lock(&spidev->buf_lock);
++	if (!spidev->spi) {
++		mutex_unlock(&spidev->buf_lock);
++		return -ESHUTDOWN;
++	}
+ 	atomic_set(&controller_state, 1);
+ 	/*Modify by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+ 	status = spidev_sync_read(spidev, count);
+@@ -218,11 +225,10 @@
+ 			status = status - missing;
+ 	}
+ 	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --end--*/
+-	mutex_unlock(&spidev->buf_lock);
+-
+ 	reinit_completion(&spi_completion);
+ 	atomic_set(&controller_state, 0);
+ 	atomic_set(&dtry_miss, 0);
++	mutex_unlock(&spidev->buf_lock);
+ 	return status;
+ }
+ 
+@@ -241,22 +247,47 @@
+ 	spidev = filp->private_data;
+ 
+ 	mutex_lock(&spidev->buf_lock);
++	if (!spidev->spi) {
++		mutex_unlock(&spidev->buf_lock);
++		return -ESHUTDOWN;
++	}
+ 	missing = copy_from_user(spidev->tx_buffer, buf, count);
+ 	if (missing == 0)
+ 		status = spidev_sync_write(spidev, count);
+ 	else
+ 		status = -EFAULT;
+-	mutex_unlock(&spidev->buf_lock);
+ 	reinit_completion(&spi_completion);
+ 	atomic_set(&controller_state, 0);
+ 	atomic_set(&dtry_miss, 0);
++	mutex_unlock(&spidev->buf_lock);
+ 	return status;
+ }
+ int cam_spidev_write(unsigned char *buffer, int count)
+ {
+-	ssize_t status = 0;
+-	pvr_dev->tx_buffer = buffer;
+-	status = spidev_sync_write(pvr_dev, count);
++	struct spi_transfer transfer = { .tx_buf = buffer, .len = count };
++	struct spi_message message;
++	struct spidev_data *spidev;
++	int status;
++
++	if (count < 0 || count > bufsiz)
++		return -EMSGSIZE;
++	if (!buffer && count)
++		return -EINVAL;
++
++	mutex_lock(&device_list_lock);
++	spidev = pvr_dev;
++	if (!spidev || !spidev->spi) {
++		status = -ENODEV;
++		goto unlock;
++	}
++	mutex_lock(&spidev->buf_lock);
++	transfer.speed_hz = spidev->speed_hz;
++	spi_message_init(&message);
++	spi_message_add_tail(&transfer, &message);
++	status = spidev_sync(spidev, &message);
++	mutex_unlock(&spidev->buf_lock);
++unlock:
++	mutex_unlock(&device_list_lock);
+ 	return status;
+ }
+ EXPORT_SYMBOL(cam_spidev_write);
+@@ -560,26 +591,32 @@
+ 	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+ 	case SPI_IOC_SET_RFIC_IO2_STATUS:
+ 		retval = get_user(tmp, (__u32 __user *)arg);
++		if (retval)
++			break;
+ 		if(tmp){
+-			gpio_set_value(rfic_io2_gpio, 1);//SET GPIO HIGH
++			gpio_set_value(spidev->rfic_io2_gpio, 1);//SET GPIO HIGH
+ 			dev_dbg(&spi->dev, "Controller Set rfic_io2_gpio High\n");
+ 		}else{
+-			gpio_set_value(rfic_io2_gpio, 0);//SET GPIO LOW
++			gpio_set_value(spidev->rfic_io2_gpio, 0);//SET GPIO LOW
+ 			dev_dbg(&spi->dev, "Controller Set rfic_io2_gpio Low\n");
+ 		}
+ 		break;
+ 	case SPI_IOC_SET_RFIC_IO3_STATUS:
+ 		retval = get_user(tmp, (__u32 __user *)arg);
++		if (retval)
++			break;
+ 		if(tmp){
+-			gpio_set_value(rfic_io3_gpio, 1);//SET GPIO HIGH
++			gpio_set_value(spidev->rfic_io3_gpio, 1);//SET GPIO HIGH
+ 			dev_dbg(&spi->dev, "Controller Set rfic_io3_gpio High\n");
+ 		}else{
+-			gpio_set_value(rfic_io3_gpio, 0);//SET GPIO LOW
++			gpio_set_value(spidev->rfic_io3_gpio, 0);//SET GPIO LOW
+ 			dev_dbg(&spi->dev, "Controller Set rfic_io3_gpio Low\n");
+ 		}
+ 		break;
+ 	case SPI_IOC_SET_POWER_STATUS:
+ 		retval = get_user(tmp, (__u32 __user *)arg);
++		if (retval)
++			break;
+ 		if(tmp){
+ 			dev_dbg(&spi->dev, "spidev set mcu power on\n");
+ 			result = spidev_mcu_power_on();//SET POWER ON
+@@ -762,8 +799,11 @@
+ 		dofree = (spidev->spi == NULL);
+ 		spin_unlock_irq(&spidev->spi_lock);
+ 
+-		if (dofree)
++		if (dofree) {
++			if (pvr_dev == spidev)
++				pvr_dev = NULL;
+ 			kfree(spidev);
++		}
+ 	}
+ 	mutex_unlock(&device_list_lock);
+ 
+@@ -776,6 +816,8 @@
+ 	struct spidev_data	*spidev;
+ 	spidev = filp->private_data;
+ 	poll_wait(filp, &spi_process_list, wait);
++	if (!READ_ONCE(spidev->spi))
++		return POLLERR | POLLHUP;
+ 	poll_ioctl = 0;
+ 	if(spi_completion.done > 0){
+ 		if(atomic_read(&spi_status) == 1){
+@@ -863,136 +905,136 @@
+ 
+ /*-------------------------------------------------------------------------*/
+ 
++static void spidev_controller_release(struct spidev_data *spidev)
++{
++	free_irq(spidev->data_irq, spidev);
++	gpio_free(spidev->rfic_io3_gpio);
++	gpio_free(spidev->rfic_io2_gpio);
++	gpio_free(spidev->data_gpio);
++}
++
++static int spidev_controller_setup(struct spidev_data *spidev)
++{
++	struct device_node *np = spidev->spi->dev.of_node;
++	int status;
++
++	spidev->data_gpio = of_get_named_gpio(np, "gpio", 0);
++	if (spidev->data_gpio < 0)
++		return spidev->data_gpio;
++	spidev->rfic_io2_gpio = of_get_named_gpio(np, "rfic-io2-gpio", 0);
++	if (spidev->rfic_io2_gpio < 0)
++		return spidev->rfic_io2_gpio;
++	spidev->rfic_io3_gpio = of_get_named_gpio(np, "rfic-io3-gpio", 0);
++	if (spidev->rfic_io3_gpio < 0)
++		return spidev->rfic_io3_gpio;
++
++	status = gpio_request_one(spidev->data_gpio, GPIOF_IN, "controller-data");
++	if (status)
++		return status;
++	status = gpio_request_one(spidev->rfic_io2_gpio, GPIOF_OUT_INIT_LOW, "rfic_io2");
++	if (status)
++		goto free_data;
++	status = gpio_request_one(spidev->rfic_io3_gpio, GPIOF_OUT_INIT_LOW, "rfic_io3");
++	if (status)
++		goto free_io2;
++	status = gpio_to_irq(spidev->data_gpio);
++	if (status < 0)
++		goto free_io3;
++	spidev->data_irq = status;
++	reinit_completion(&spi_completion);
++	atomic_set(&controller_state, 0);
++	atomic_set(&dtry_miss, 0);
++	atomic_set(&spi_status, 0);
++	status = request_irq(spidev->data_irq, ultrasonic_interrupt,
++			     IRQF_TRIGGER_RISING, "controller-data", spidev);
++	if (!status)
++		return 0;
++free_io3:
++	gpio_free(spidev->rfic_io3_gpio);
++free_io2:
++	gpio_free(spidev->rfic_io2_gpio);
++free_data:
++	gpio_free(spidev->data_gpio);
++	return status;
++}
++
+ static int spidev_probe(struct spi_device *spi)
+ {
+-	struct spidev_data	*spidev;
+-	int			status;
+-	unsigned long		minor;
+-	struct device_node *np = spi->dev.of_node;/*Add by PICO_Driver clark.tian for task42623: Ble-Mcu-52840 spi debug*/
+-	int 			ret;
+-	/*
+-	 * spidev should never be referenced in DT without a specific
+-	 * compatible string, it is a Linux implementation thing
+-	 * rather than a description of the hardware.
+-	 */
+-	if (spi->dev.of_node && !of_match_device(spidev_dt_ids, &spi->dev)) {
+-		dev_err(&spi->dev, "buggy DT: spidev listed directly in DT\n");
+-		WARN_ON(spi->dev.of_node &&
+-			!of_match_device(spidev_dt_ids, &spi->dev));
+-	}
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+-	if((gpio = of_get_named_gpio(np, "gpio", 0)) < 0){
+-			printk("of_get_named_gpio ultrasonic_gpio error!\n");
+-			return gpio;
+-	}
+-	if((ret = request_irq(gpio_to_irq(gpio), ultrasonic_interrupt,IRQF_TRIGGER_RISING, "ultrasonic irq", spidev)) < 0)
+-	{
+-		printk("request_irq error\n");
+-	}else{
+-		printk("request_irq succeed\n");
+-	}
+-	if((ret = gpio_direction_input(gpio)) < 0)
+-	{
+-		printk("gpio_direction_input gpio1 error\n");
+-	}
+-
+-	if((rfic_io2_gpio = of_get_named_gpio(np, "rfic-io2-gpio", 0)) < 0){
+-			printk("of_get_named_gpio rfic-io2-gpio error!\n");
+-			return rfic_io2_gpio;
+-	}
+-	if (gpio_is_valid(rfic_io2_gpio)) {
+-		if (gpio_request(rfic_io2_gpio, "rfic_io2")){
+-			dev_dbg(&spi->dev, "rfic_io2 not available\n");
+-		}else{
+-			 gpio_direction_output(rfic_io2_gpio, 0);
+-			gpio_set_value(rfic_io2_gpio, 0);
+-		}
+-	}
+-	if((rfic_io3_gpio = of_get_named_gpio(np, "rfic-io3-gpio", 0)) < 0){
+-			printk("of_get_named_gpio rfic-io3-gpio error!\n");
+-			return rfic_io3_gpio;
+-	}
+-	if (gpio_is_valid(rfic_io3_gpio)) {
+-		if (gpio_request(rfic_io3_gpio, "rfic_io3")){
+-			dev_dbg(&spi->dev, "rfic_io3 not available\n");
+-		}else{
+-			 gpio_direction_output(rfic_io3_gpio, 0);
+-			 gpio_set_value(rfic_io3_gpio, 0);
+-		}
+-	}
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --end--*/
++	struct spidev_data *spidev;
++	struct device *dev;
++	unsigned long minor;
++	int status;
++
++	if (spi->dev.of_node && !of_match_device(spidev_dt_ids, &spi->dev))
++		return -ENODEV;
+ 	spidev_probe_acpi(spi);
+-
+-	/* Allocate driver data */
+ 	spidev = kzalloc(sizeof(*spidev), GFP_KERNEL);
+ 	if (!spidev)
+ 		return -ENOMEM;
+-
+-	/* Initialize the driver data */
+ 	spidev->spi = spi;
++	spidev->speed_hz = spi->max_speed_hz;
+ 	spin_lock_init(&spidev->spi_lock);
+ 	mutex_init(&spidev->buf_lock);
+-
+ 	INIT_LIST_HEAD(&spidev->device_entry);
+ 
+-	/* If we can allocate a minor number, hook up this device.
+-	 * Reusing minors is fine so long as udev or mdev is working.
+-	 */
+ 	mutex_lock(&device_list_lock);
++	/* The vendor controller protocol has one completion and camera endpoint. */
++	if (pvr_dev) {
++		status = -EBUSY;
++		goto unlock;
++	}
+ 	minor = find_first_zero_bit(minors, N_SPI_MINORS);
+-	if (minor < N_SPI_MINORS) {
+-		struct device *dev;
+-
+-		spidev->devt = MKDEV(SPIDEV_MAJOR, minor);
+-		dev = device_create(spidev_class, &spi->dev, spidev->devt,
+-				    spidev, "spidev%d.%d",
+-				    spi->master->bus_num, spi->chip_select);
+-		status = PTR_ERR_OR_ZERO(dev);
+-	} else {
+-		dev_dbg(&spi->dev, "no minor number available!\n");
++	if (minor >= N_SPI_MINORS) {
+ 		status = -ENODEV;
+-	}
+-	if (status == 0) {
+-		set_bit(minor, minors);
+-		list_add(&spidev->device_entry, &device_list);
+-	}
++		goto unlock;
++	}
++	status = spidev_controller_setup(spidev);
++	if (status)
++		goto unlock;
++
++	spidev->devt = MKDEV(SPIDEV_MAJOR, minor);
++	dev = device_create(spidev_class, &spi->dev, spidev->devt,
++			    spidev, "spidev%d.%d",
++			    spi->master->bus_num, spi->chip_select);
++	status = PTR_ERR_OR_ZERO(dev);
++	if (status) {
++		spidev_controller_release(spidev);
++		goto unlock;
++	}
++	set_bit(minor, minors);
++	list_add(&spidev->device_entry, &device_list);
++	pvr_dev = spidev;
++	spi_set_drvdata(spi, spidev);
++unlock:
+ 	mutex_unlock(&device_list_lock);
+-	spidev->speed_hz = spi->max_speed_hz;
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+-	pvr_dev = spidev;
+-	spin_lock_init(&spi_status_lock);
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --end--*/
+-
+-	if (status == 0)
+-		spi_set_drvdata(spi, spidev);
+-	else
++	if (status)
+ 		kfree(spidev);
+-
+ 	return status;
+ }
+ 
+ static int spidev_remove(struct spi_device *spi)
+ {
+-	struct spidev_data	*spidev = spi_get_drvdata(spi);
+-
+-	/* make sure ops on existing fds can abort cleanly */
++	struct spidev_data *spidev = spi_get_drvdata(spi);
++
++	mutex_lock(&device_list_lock);
++	mutex_lock(&spidev->buf_lock);
+ 	spin_lock_irq(&spidev->spi_lock);
+ 	spidev->spi = NULL;
+ 	spin_unlock_irq(&spidev->spi_lock);
+-
+-	/* prevent new opens */
+-	mutex_lock(&device_list_lock);
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --start--*/
+-	gpio_free(gpio);
+-	free_irq(gpio_to_irq(gpio),NULL);
+-	/*Add by PICO_Driver clark.tian for task55837: Ble-Mcu-52840 spi debug --end--*/
++	spidev_controller_release(spidev);
++	complete_all(&spi_completion);
++	wake_up_interruptible(&spi_process_list);
++	mutex_unlock(&spidev->buf_lock);
++
+ 	list_del(&spidev->device_entry);
+ 	device_destroy(spidev_class, spidev->devt);
+ 	clear_bit(MINOR(spidev->devt), minors);
+-	if (spidev->users == 0)
++	spi_set_drvdata(spi, NULL);
++	if (spidev->users == 0) {
++		pvr_dev = NULL;
+ 		kfree(spidev);
++	}
+ 	mutex_unlock(&device_list_lock);
+-
+ 	return 0;
+ }
+ 

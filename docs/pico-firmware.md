@@ -255,6 +255,23 @@ console, random and RTC transports without applying Quest-specific patches.
 It builds 40 modules; these virtual transports are excluded from hardware
 builds. None of these artifacts has booted on the headset.
 
+The maintained SPI transport patch fixes an uninitialized IRQ cookie, ignored
+GPIO/IRQ failures, incomplete removal, and the camera helper overwriting the
+character device's owned transmit buffer. Probe failures release only acquired
+resources and preserve deferred-probe errors. Camera transfers serialize with
+removal; detached readers wake with an error, and a replacement controller cannot
+bind until old descriptors close. Failed user copies cannot change GPIO or MCU
+power. The vendor's singleton controller protocol and its GPIO bindings remain.
+
+`tools/test-pico-controller.py PINNED_SOURCE/drivers/spi/spidev.c --output NEW_DIRECTORY`
+checks the original source hash, applies the maintained patch and compiles the
+actual changed functions into a fault-injection harness. Its 133 cases pass with
+address/undefined-behavior sanitizers on macOS and ARM64 Linux, including 64
+concurrent camera-write/removal cycles. The unchanged original camera function
+fails separate missing-device and buffer-ownership controls. This tests resource
+lifetime and API behavior; it does not verify physical SPI transfers, pairing,
+controller tracking or the missing station driver.
+
 The maintained Linux variant adds the common Linux-userspace configuration and
 an Android 4.19 BinderFS backport. Build it with:
 
