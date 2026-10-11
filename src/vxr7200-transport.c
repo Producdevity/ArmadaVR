@@ -35,3 +35,16 @@ int vxr7200_write32(const struct vxr7200_bus *bus, uint32_t address, uint32_t va
     int result = bus->transfer(bus->context, request, sizeof(request), NULL, 0);
     return result == 1 ? 0 : result < 0 ? result : -EIO;
 }
+
+int vxr7200_read_chip_id(const struct vxr7200_bus *bus, uint16_t *chip_id)
+{
+    if (!bus || !bus->transfer || !chip_id)
+        return -EINVAL;
+    uint8_t request[4], response[4] = {0};
+    put_le32(request, 0x200d38);
+    int result = bus->transfer(bus->context, request, sizeof(request), response, sizeof(response));
+    if (result != 2)
+        return result < 0 ? result : -EIO;
+    *chip_id = (uint16_t)((uint16_t)response[2] | (uint16_t)response[3] << 8);
+    return 0;
+}

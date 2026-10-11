@@ -18,5 +18,6 @@ struct vxr7200_bus {
  * are issued implicitly. Return zero on success or a negative errno. */
 int vxr7200_read32(const struct vxr7200_bus *bus, uint32_t address, uint32_t *value);
 int vxr7200_write32(const struct vxr7200_bus *bus, uint32_t address, uint32_t value);
+int vxr7200_read_chip_id(const struct vxr7200_bus *bus, uint16_t *chip_id);
 
 #endif

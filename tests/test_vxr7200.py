@@ -17,4 +17,4 @@ class Vxr7200Tests(unittest.TestCase):
             ], check=True, capture_output=True, timeout=30)
             result = subprocess.run([str(executable)], check=True, capture_output=True,
                                     text=True, timeout=10)
-            self.assertIn("8472 VXR7200 transport checks passed", result.stdout)
+            self.assertIn("12581 VXR7200 transport checks passed", result.stdout)
