@@ -205,6 +205,23 @@ acceptance evidence in `output/pico-panel-errors-build-20261011-v1/`. No headset
 was booted with this Image. Panel selection, GPIO behavior and display/power
 acceptance remain physical requirements.
 
+Patch `0028-panel-probe-cleanup.patch` closes resource leaks during panel
+initialization. Failure to acquire the charge regulator group now releases the
+main group; later failures release both groups. Failed pinctrl state lookup
+releases its acquired handle and clears the failed state. Null pinctrl results
+return an error instead of reporting success. Deferred mux and backlight probes
+can retry without accumulating handles. The successful acquisition sequence and
+panel power operations are unchanged.
+
+The maintained regression applies the patch to retained upstream lifecycle
+routines and checks 4,992 injected failures, including 64 repeated retries per
+scenario, optional mux bindings, external bridge mode and subsequent successful
+initialization. The old routines produce 4,224 cleanup failures; the patched
+routines produce none under macOS and ARM64 Linux sanitizers. GNU patch applies
+it without fuzz to the accepted full source. The complete panel object compiles
+with `-Werror` and unchanged undefined symbols. Evidence is preserved in
+`output/pico-display-lifecycle-20261011-v1/`.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.

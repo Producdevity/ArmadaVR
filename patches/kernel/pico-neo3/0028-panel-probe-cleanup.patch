@@ -1,0 +1,81 @@
+Subject: drm/msm: unwind Pico panel resources after failed initialization
+
+Release both regulator groups and acquired pinctrl handles when later panel
+initialization fails, including deferred mux and backlight probes. Preserve
+the original failure and clear failed pinctrl state before a retry.
+
+---
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -788,6 +788,8 @@
+ 	panel->pinctrl.pinctrl = devm_pinctrl_get(panel->parent);
+ 	if (IS_ERR_OR_NULL(panel->pinctrl.pinctrl)) {
+ 		rc = PTR_ERR(panel->pinctrl.pinctrl);
++		if (!rc)
++			rc = -EINVAL;
+ 		DSI_ERR("failed to get pinctrl, rc=%d\n", rc);
+ 		goto error;
+ 	}
+@@ -796,8 +798,10 @@
+ 						       "panel_active");
+ 	if (IS_ERR_OR_NULL(panel->pinctrl.active)) {
+ 		rc = PTR_ERR(panel->pinctrl.active);
++		if (!rc)
++			rc = -EINVAL;
+ 		DSI_ERR("failed to get pinctrl active state, rc=%d\n", rc);
+-		goto error;
++		goto error_put;
+ 	}
+ 
+ 	panel->pinctrl.suspend =
+@@ -805,11 +809,20 @@
+ 
+ 	if (IS_ERR_OR_NULL(panel->pinctrl.suspend)) {
+ 		rc = PTR_ERR(panel->pinctrl.suspend);
++		if (!rc)
++			rc = -EINVAL;
+ 		DSI_ERR("failed to get pinctrl suspend state, rc=%d\n", rc);
+-		goto error;
+-	}
+-
++		goto error_put;
++	}
++
++	return 0;
++
++error_put:
++	devm_pinctrl_put(panel->pinctrl.pinctrl);
+ error:
++	panel->pinctrl.pinctrl = NULL;
++	panel->pinctrl.active = NULL;
++	panel->pinctrl.suspend = NULL;
+ 	return rc;
+ }
+ 
+@@ -3994,14 +4007,14 @@
+ 	if (rc) {
+ 		pr_err("[%s] failed to get panel regulators, rc=%d\n",
+ 		       panel->name, rc);
+-		goto exit;
++		goto error_vreg_put;
+ 	}
+ 	/*added by webber.wang for Bug 38813:unbalanced ldo 22--end*/
+ 	rc = dsi_panel_pinctrl_init(panel);
+ 	if (rc) {
+ 		DSI_ERR("[%s] failed to init pinctrl, rc=%d\n",
+ 				panel->name, rc);
+-		goto error_vreg_put;
++		goto error_chahei_vreg_put;
+ 	}
+ 
+ 	rc = dsi_panel_gpio_request(panel);
+@@ -4034,6 +4047,8 @@
+ 	(void)dsi_panel_gpio_release(panel);
+ error_pinctrl_deinit:
+ 	(void)dsi_panel_pinctrl_deinit(panel);
++error_chahei_vreg_put:
++	(void)dsi_panel_chahei_vreg_put(panel);
+ error_vreg_put:
+ 	(void)dsi_panel_vreg_put(panel);
+ exit:
