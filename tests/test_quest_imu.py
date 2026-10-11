@@ -13,9 +13,11 @@ class QuestImuTests(unittest.TestCase):
                 "cc", "-std=c11", "-O2", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-I", str(root / "src"),
                 *[str(root / name) for name in (
-                    "src/quest-imu.c", "src/syncboss-imu.c", "src/imu-calibration.c", "tests/quest-imu.c")],
+                    "src/quest-imu.c", "src/syncboss-imu.c", "src/imu-calibration.c",
+                    "src/imu-time-align.c", "tests/quest-imu.c")],
                 "-lm", "-o", str(executable),
             ], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run([str(executable)], check=True, capture_output=True,
                                     text=True, timeout=10)
             self.assertIn("8192 calibrated IMU stream cases and rejection checks passed", result.stdout)
+            self.assertIn("9952 aligned stream cases and 288 history resets passed", result.stdout)

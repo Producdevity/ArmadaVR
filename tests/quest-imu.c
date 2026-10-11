@@ -69,10 +69,10 @@ static void close_to(double actual, double expected)
 }
 
 static void rejected(struct quest_imu *imu, const unsigned char bytes[104], size_t length,
-                      int64_t now, enum syncboss_imu_stream_status expected)
+                      int64_t now, enum quest_imu_status expected)
 {
     struct quest_imu before = *imu;
-    struct syncboss_imu_direct_record result, saved;
+    struct quest_imu_sample result, saved;
     memset(&result, 0x5a, sizeof(result)); saved = result;
     uint32_t dropped = 123;
     assert(quest_imu_process_direct(imu, bytes, length, now, &result, &dropped) == expected);
@@ -80,8 +80,152 @@ static void rejected(struct quest_imu *imu, const unsigned char bytes[104], size
     assert(memcmp(imu, &before, sizeof(before)) == 0);
 }
 
+static void aligned_cases(void)
+{
+    const struct quest_imu_timing timings[] = {
+        {-625000, 0, 2000000}, {0, -625000, 2000000},
+        {50000, 675000, 2000000}, {-400000, -400000, 2000000}, {0, 0, 2000000},
+    };
+    unsigned cases = 0, warmups = 0;
+    for (unsigned format = 1; format <= 4; ++format) {
+        for (unsigned frame = 0; frame < 2; ++frame) {
+            for (unsigned t = 0; t < sizeof(timings) / sizeof(timings[0]); ++t) {
+                struct quest_imu_config config = configuration();
+                struct quest_imu_timing timing = timings[t];
+                config.format = format;
+                config.frame = (enum imu_rectification_frame)frame;
+                config.timing = &timing;
+                struct quest_imu imu = {0};
+                assert(quest_imu_init(&imu, &config));
+                timing.acceleration_offset_ns = INT64_MAX;
+                uint64_t ticks = 10000;
+                uint32_t counter = UINT32_MAX - 100;
+                for (unsigned i = 0; i < 256; ++i) {
+                    bool missing = i != 0 && i % 31 == 0;
+                    bool gap = i != 0 && i % 67 == 0;
+                    for (unsigned step = 0; step < 1u + missing; ++step)
+                        counter = counter == UINT32_MAX ? 1 : counter + 1;
+                    ticks += gap ? 10000 : 1250;
+                    int raw[] = {(int)i * 4 - 512, 1024 - (int)i * 2, (int)i * 2 - 1024,
+                                 400 - (int)i * 2, (int)i * 4 - 300, (int)i * 2, (int)i * 8 - 1024};
+                    unsigned char bytes[104];
+                    int64_t now = record(bytes, format, counter, ticks, raw);
+                    struct quest_imu_sample result, saved;
+                    memset(&result, 0x5a, sizeof(result)); saved = result;
+                    uint32_t dropped = 123;
+                    enum quest_imu_status status = quest_imu_process_direct(
+                        &imu, bytes, sizeof(bytes), now, &result, &dropped);
+                    bool unequal = timings[t].acceleration_offset_ns != timings[t].gyroscope_offset_ns;
+                    assert(dropped == (uint32_t)missing);
+                    if (unequal && (i == 0 || missing || gap)) {
+                        assert(status == QUEST_IMU_NEEDS_HISTORY);
+                        assert(memcmp(&result, &saved, sizeof(result)) == 0);
+                        assert(imu.alignment.count == 1 && imu.stream.counter == counter);
+                        ++warmups;
+                    } else {
+                        assert(status == QUEST_IMU_ACCEPTED);
+                        assert(result.capture_timestamp_ns == (int64_t)(ticks + 50) * 1000);
+                        int64_t offset = timings[t].acceleration_offset_ns < timings[t].gyroscope_offset_ns ?
+                            timings[t].acceleration_offset_ns : timings[t].gyroscope_offset_ns;
+                        assert(result.timestamp_ns == result.capture_timestamp_ns + offset);
+                        assert(result.delivery_ns == now && result.counter == counter);
+                        assert(result.sample.timestamp_ticks == ticks && result.sample.device_id == 0);
+                        double temperature = 25 + (double)raw[6] / 128;
+                        close_to(result.sample.temperature_c, temperature);
+                        double a[] = {raw[0], raw[1], raw[2]}, g[] = {raw[3], raw[4], raw[5]};
+                        if (timings[t].acceleration_offset_ns > timings[t].gyroscope_offset_ns) {
+                            a[0] -= 2; a[1] += 1; a[2] -= 1;
+                        } else if (unequal) {
+                            g[0] += 1; g[1] -= 2; g[2] -= 1;
+                        }
+                        a[0] = a[0] * 9.80665 / 4096 - temperature * .01;
+                        a[1] = a[1] * 9.80665 / 4096 + temperature * .02;
+                        a[2] = a[2] * 9.80665 / 4096 - temperature * .03;
+                        g[0] = g[0] / 16.384 * .017453292519943295 - temperature * .1;
+                        g[1] = g[1] / 16.384 * .017453292519943295 + temperature * .05;
+                        g[2] = g[2] / 16.384 * .017453292519943295 - temperature * .02;
+                        double expected_a[] = {-3 * a[1], 2 * a[0], 4 * a[2]};
+                        double expected_g[] = {g[0] + .25 * g[1], 2 * g[1] + .125 * g[2], -.1 * g[0] + 3 * g[2]};
+                        if (frame == IMU_FRAME_ACCELEROMETER) {
+                            double first = expected_a[0];
+                            expected_a[0] = expected_a[1]; expected_a[1] = -first;
+                            first = expected_g[0];
+                            expected_g[0] = expected_g[1]; expected_g[1] = -first;
+                        }
+                        for (unsigned axis = 0; axis < 3; ++axis) {
+                            close_to(result.sample.acceleration_m_s2[axis], expected_a[axis]);
+                            close_to(result.sample.angular_velocity_rad_s[axis], expected_g[axis]);
+                        }
+                        ++cases;
+                    }
+                    rejected(&imu, bytes, sizeof(bytes), now, QUEST_IMU_OUT_OF_ORDER);
+                    rejected(&imu, bytes, sizeof(bytes), now + 5000000, QUEST_IMU_STALE);
+                    rejected(&imu, bytes, sizeof(bytes), now - 1, QUEST_IMU_INVALID);
+                }
+            }
+        }
+    }
+    printf("%u aligned stream cases and %u history resets passed\n", cases, warmups);
+}
+
+static void alignment_rejections(void)
+{
+    struct quest_imu_config config = configuration();
+    struct quest_imu_timing timing = {0, 0, 2000000};
+    config.timing = &timing;
+    struct quest_imu imu = {0};
+    unsigned char bytes[104];
+    int raw[7] = {0};
+    int64_t now = record(bytes, 2, 1, 10000, raw);
+    const int64_t offsets[] = {INT64_MIN, INT64_MAX, -5000001, 100001};
+    for (unsigned i = 0; i < sizeof(offsets) / sizeof(offsets[0]); ++i) {
+        timing.acceleration_offset_ns = timing.gyroscope_offset_ns = offsets[i];
+        assert(quest_imu_init(&imu, &config));
+        rejected(&imu, bytes, sizeof(bytes), now, i == 2 ? QUEST_IMU_STALE : QUEST_IMU_INVALID);
+    }
+    timing = (struct quest_imu_timing){-625000, 0, 2000000};
+    assert(quest_imu_init(&imu, &config));
+    struct quest_imu_sample result;
+    uint32_t dropped;
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_NEEDS_HISTORY);
+    struct quest_imu saved = imu;
+    timing.max_gap_ns = 0;
+    assert(!quest_imu_init(&imu, &config));
+    assert(memcmp(&imu, &saved, sizeof(imu)) == 0);
+    timing.max_gap_ns = 2000000;
+    now = record(bytes, 2, 2, 11250, raw);
+    rejected(&imu, bytes, sizeof(bytes), now + 4400000, QUEST_IMU_STALE);
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_ACCEPTED);
+    assert(quest_imu_init(&imu, &config));
+    assert(!imu.stream.initialized && imu.alignment.count == 0);
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_NEEDS_HISTORY);
+    config.timing = NULL;
+    assert(quest_imu_init(&imu, &config));
+    assert(!imu.alignment.initialized && imu.alignment.count == 0);
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_ACCEPTED);
+
+    static const struct imu_temperature_offset zero = {0, {0, 0, 0}};
+    config.accelerometer_offsets = config.gyroscope_offsets = &zero;
+    config.accelerometer_offset_count = config.gyroscope_offset_count = 1;
+    config.frame = IMU_FRAME_ORIGINAL;
+    config.timing = &timing;
+    for (unsigned i = 0; i < 9; ++i) {
+        config.accelerometer[i] = i % 4 ? 0 : FLT_MAX;
+        config.gyroscope[i] = i % 4 ? 0 : 1;
+    }
+    assert(quest_imu_init(&imu, &config));
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_NEEDS_HISTORY);
+    int large[] = {32767, 32767, 32767, 0, 0, 0, 0};
+    now = record(bytes, 2, 3, 12500, large);
+    rejected(&imu, bytes, sizeof(bytes), now, QUEST_IMU_INVALID);
+    record(bytes, 2, 3, 12500, raw);
+    assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == QUEST_IMU_ACCEPTED);
+}
+
 int main(void)
 {
+    aligned_cases();
+    alignment_rejections();
     unsigned cases = 0;
     for (unsigned format = 1; format <= 4; ++format) {
         for (unsigned frame = 0; frame < 2; ++frame) {
@@ -98,13 +242,14 @@ int main(void)
                 uint64_t ticks = 1000 + (uint64_t)i * 1250;
                 uint32_t counter = i * 2 + 1;
                 int64_t now = record(bytes, format, counter, ticks, raw);
-                struct syncboss_imu_direct_record result;
+                struct quest_imu_sample result;
                 uint32_t dropped;
                 assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now,
-                                                &result, &dropped) == SYNCBOSS_IMU_ACCEPTED);
+                                                &result, &dropped) == QUEST_IMU_ACCEPTED);
                 assert(dropped == (i ? 1 : 0));
                 assert(result.counter == counter && result.sample.timestamp_ticks == ticks);
                 assert(result.timestamp_ns == (int64_t)(ticks + 50) * 1000);
+                assert(result.capture_timestamp_ns == result.timestamp_ns);
                 assert(result.delivery_ns == now && result.sample.device_id == 0);
                 double temperature = 25 + (double)raw[6] / 128;
                 close_to(result.sample.temperature_c, temperature);
@@ -134,9 +279,9 @@ int main(void)
                     }
                     close_to(da, device_a[row]); close_to(dg, device_g[row]);
                 }
-                rejected(&imu, bytes, sizeof(bytes), now, SYNCBOSS_IMU_OUT_OF_ORDER);
-                rejected(&imu, bytes, sizeof(bytes), now + 5000000, SYNCBOSS_IMU_STALE);
-                rejected(&imu, bytes, sizeof(bytes), now - 1, SYNCBOSS_IMU_INVALID);
+                rejected(&imu, bytes, sizeof(bytes), now, QUEST_IMU_OUT_OF_ORDER);
+                rejected(&imu, bytes, sizeof(bytes), now + 5000000, QUEST_IMU_STALE);
+                rejected(&imu, bytes, sizeof(bytes), now - 1, QUEST_IMU_INVALID);
                 ++cases;
             }
         }
@@ -146,17 +291,17 @@ int main(void)
     unsigned char bytes[104];
     int raw[] = {1, 2, 3, 4, 5, 6, 0};
     int64_t now = record(bytes, 2, UINT32_MAX, 10000, raw);
-    rejected(&imu, bytes, sizeof(bytes), now, SYNCBOSS_IMU_INVALID);
+    rejected(&imu, bytes, sizeof(bytes), now, QUEST_IMU_INVALID);
     assert(quest_imu_init(&imu, &config));
-    struct syncboss_imu_direct_record result;
+    struct quest_imu_sample result;
     uint32_t dropped;
     assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == 0);
     now = record(bytes, 2, 1, 11250, raw);
     assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == 0 && dropped == 0);
     for (unsigned size = 0; size < 104; ++size)
-        rejected(&imu, bytes, size, now, SYNCBOSS_IMU_INVALID);
-    rejected(&imu, bytes, 105, now, SYNCBOSS_IMU_INVALID);
-    rejected(&imu, NULL, 104, now, SYNCBOSS_IMU_INVALID);
+        rejected(&imu, bytes, size, now, QUEST_IMU_INVALID);
+    rejected(&imu, bytes, 105, now, QUEST_IMU_INVALID);
+    rejected(&imu, NULL, 104, now, QUEST_IMU_INVALID);
     struct quest_imu saved = imu;
     assert(!quest_imu_init(NULL, &config) && !quest_imu_init(&imu, NULL));
     for (unsigned bad = 0; bad < 12; ++bad) {
@@ -192,7 +337,7 @@ int main(void)
         assert(quest_imu_init(&imu, &config));
         int large[] = {32767, 32767, 32767, 32767, 32767, 32767, 0};
         now = record(bytes, 2, 1, 10000, large);
-        rejected(&imu, bytes, sizeof(bytes), now, SYNCBOSS_IMU_INVALID);
+        rejected(&imu, bytes, sizeof(bytes), now, QUEST_IMU_INVALID);
         int zero_raw[7] = {0};
         record(bytes, 2, 1, 10000, zero_raw);
         assert(quest_imu_process_direct(&imu, bytes, sizeof(bytes), now, &result, &dropped) == 0);

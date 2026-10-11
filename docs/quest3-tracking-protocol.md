@@ -400,8 +400,8 @@ the requested time, discards history across a configured gap, and rejects
 invalid or out-of-order samples without changing state or output. It does not
 copy the stock routine's zero-filled startup interpolation. Callers must reset
 on channel restart and supply enough samples within its five-record capacity.
-It remains a separate component: the current `quest_imu_process_direct` API
-does not automatically enable it or choose offsets.
+The direct-record processor uses this component when its caller supplies an
+explicit timing configuration; it does not choose offsets automatically.
 
 All 245,760 retained-output comparisons against the original ARM64 resampler
 are bit-identical, across positive, negative and equal offsets, irregular
@@ -436,13 +436,16 @@ accuracy or pose tracking. Input hashes and results are preserved in
 direct-record processor. Initialization requires one explicit calibration,
 frame, MCU format/conversion parameters and age limit. It copies the prepared
 matrices and retains immutable offset tables owned by the caller. Initialization
-failure preserves an existing stream; successful reinitialization deliberately
-starts a new one. Sample rejection also preserves the stream and output, even
-when calibration arithmetic fails after the raw record passes ordering checks.
+failure preserves an existing stream and alignment history; successful
+reinitialization deliberately starts both again. Sample rejection preserves
+both states and the output, even when calibration arithmetic fails after raw
+ordering checks or time interpolation.
 
 Accepted vectors remain in the selected IMU frame. The prepared device rotation
-is available to the consumer, but no extrinsic, time correction, camera pairing
-or pose estimate is applied. This component does not acquire a ring, select a
+is available to the consumer. Optional timing configuration applies alignment
+before temperature compensation and rectification. A null timing configuration
+retains unaligned diagnostic behavior. No extrinsic, camera pairing or pose
+estimate is applied. This component does not acquire a ring, select a
 unit calibration, open hardware or install a Monado tracking driver.
 
 The processor passes 8,192 synthetic stream cases across all four wire formats
@@ -453,6 +456,26 @@ live records using factory/online models and both frames: 48,128 exact vector
 comparisons and 96,256 state-preserving rejection checks. Recorded delivery
 times simulate consumption; these checks do not measure a live consumer.
 Evidence is in `output/quest-imu-pipeline-20261011-v1/`.
+
+The integrated timing path returns a distinct effective timestamp and preserves
+the current raw capture timestamp, MCU ticks, temperature, delivery and counter.
+Both raw and effective timestamps must be within the caller's age limit and
+not in the future. `QUEST_IMU_NEEDS_HISTORY` consumes a valid raw record and
+reports missing records, while withholding the output sample. Counter loss
+discards interpolation history even when the time gap is short. Capture gaps
+above the configured limit also restart history. Rejected records do not
+advance either state, so a corrected retry remains possible.
+
+The combined processor passes 9,952 aligned cases and 288 history resets across
+all four formats, both frames, positive/negative/equal corrections, changing
+temperature, counter wrap, loss and long gaps. Overflow, stale corrected time,
+invalid configuration and calibration-failure retries are also checked under
+macOS and ARM64 Linux sanitizers. Against the preserved component library, the
+12,032 raw captures produce 48,122 bit-identical calibrated outputs across both
+models and frames, six withheld startup outputs and 96,256 state-preserving
+rejections. Evidence is in `output/quest-aligned-pipeline-20261011-v1/`.
+The live model, MCU scales, camera clock relationship, ring acquisition and
+physical pose tracking remain unverified.
 
 ### Earlier configuration and library evidence
 
