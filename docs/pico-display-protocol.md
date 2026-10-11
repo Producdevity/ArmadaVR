@@ -38,6 +38,38 @@ probe transaction with the same error/output-preservation contract. It returns
 the observed ID, leaving supported-device selection to the caller. No
 firmware-update or power command is issued implicitly by the transport.
 
+## Video observations
+
+[`vxr7200-video.c`](../src/vxr7200-video.c) reads the five timing registers used
+by stock `SynaVxr_Get_IOTimings`, `SynaVxr_IsVideoIn` and `SynaVxr_FrameRate`.
+The stock log strings identify the upper/lower halves of `0x220830` as vertical
+and horizontal totals, and `0x220838` as vertical and horizontal active counts.
+These register names do not establish the selected panel's orientation.
+
+Stock's video-presence check accepts only these `(vertical, horizontal)` pairs:
+`(3840, 2160)`, `(3664, 1920)` and `(3664, 3840)`. The new status reports that
+allowlist result as `stock_dimensions`, alongside the actual counts. It does
+not interpret a match as input lock, sustained video or permission to switch
+the mux. Unknown and zero dimensions remain observable.
+
+The stock frame-rate calculation is
+`1,000,000 * ((reg_200008 >> 16) & 1023) * (reg_220804 & 255) / reg_220814`.
+The new API preserves its numerator and denominator as integers, avoiding
+kernel floating point and division by zero. A zero operand marks the rate
+unavailable. Two complete register observations must match; a change returns
+`-EAGAIN`. Failed or partial I2C transfers stop immediately and leave the output
+unchanged. Matching observations are not an atomic hardware snapshot.
+
+The caller must own power/reset and serialize the complete read against bridge
+commands. The helper issues no writes, retries or power transitions. Host and
+ARM64 sanitizer checks cover 4,096 observations, every transfer-failure position,
+changing registers and numeric boundaries. Another 327,680 comparisons match
+the original dimension predicate, and 8,192 frame-rate comparisons agree within
+`1.4e-7` relative error from stock float rounding. The stock routines run only
+in an isolated process with register reads and logging substituted; no hardware
+or kernel startup is involved. Evidence is in
+`output/pico-video-detection-20261011-v1/`.
+
 ## Board controls
 
 Stock probe at `0xffffff80086d23b0` uses compatible `qcom,vxr7200` and these
