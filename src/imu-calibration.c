@@ -1,5 +1,6 @@
 #include "imu-calibration.h"
 
+#include <float.h>
 #include <math.h>
 
 bool imu_offset_at_temperature(const struct imu_temperature_offset *rows, size_t count,
@@ -141,5 +142,73 @@ bool imu_split_rectification(const double rectification[9], double rotation[9],
             rotation[row * 3 + column] = q[column][row];
             correction[row * 3 + column] = r[row * 3 + column];
         }
+    return true;
+}
+
+static bool proper_rotation(const double matrix[9])
+{
+    for (unsigned i = 0; i < 9; ++i)
+        if (!isfinite(matrix[i]) || fabs(matrix[i]) > 1 + 1e-10)
+            return false;
+    for (unsigned row = 0; row < 3; ++row)
+        for (unsigned column = 0; column < 3; ++column) {
+            double dot = 0;
+            for (unsigned k = 0; k < 3; ++k)
+                dot += matrix[row * 3 + k] * matrix[column * 3 + k];
+            if (fabs(dot - (row == column ? 1 : 0)) > 1e-10)
+                return false;
+        }
+    double determinant = matrix[0] * (matrix[4] * matrix[8] - matrix[5] * matrix[7])
+                       - matrix[1] * (matrix[3] * matrix[8] - matrix[5] * matrix[6])
+                       + matrix[2] * (matrix[3] * matrix[7] - matrix[4] * matrix[6]);
+    return fabs(determinant - 1) <= 1e-10;
+}
+
+static bool matrix_to_float(const double matrix[9], float result[9])
+{
+    for (unsigned i = 0; i < 9; ++i) {
+        if (!isfinite(matrix[i]) || fabs(matrix[i]) > FLT_MAX)
+            return false;
+        result[i] = (float)matrix[i];
+        if (matrix[i] != 0 && result[i] == 0)
+            return false;
+    }
+    return true;
+}
+
+bool imu_prepare_rectification(const double accelerometer[9], const double gyroscope[9],
+                               const double device_from_imu[9], enum imu_rectification_frame frame,
+                               struct imu_rectification *result)
+{
+    if (!accelerometer || !gyroscope || !device_from_imu || !result ||
+        (frame != IMU_FRAME_ORIGINAL && frame != IMU_FRAME_ACCELEROMETER) ||
+        !proper_rotation(device_from_imu))
+        return false;
+    double qa[9], ra[9], qg[9], rg[9];
+    if (!imu_split_rectification(accelerometer, qa, ra) ||
+        !imu_split_rectification(gyroscope, qg, rg))
+        return false;
+    struct imu_rectification prepared = {0};
+    if (frame == IMU_FRAME_ORIGINAL) {
+        if (!matrix_to_float(accelerometer, prepared.accelerometer) ||
+            !matrix_to_float(gyroscope, prepared.gyroscope))
+            return false;
+        for (unsigned i = 0; i < 9; ++i)
+            prepared.device_from_imu[i] = device_from_imu[i];
+    } else {
+        double aligned_gyro[9] = {0};
+        for (unsigned row = 0; row < 3; ++row)
+            for (unsigned column = 0; column < 3; ++column)
+                for (unsigned k = 0; k < 3; ++k) {
+                    aligned_gyro[row * 3 + column] += qa[k * 3 + row] * gyroscope[k * 3 + column];
+                    prepared.device_from_imu[row * 3 + column] +=
+                        device_from_imu[row * 3 + k] * qa[k * 3 + column];
+                }
+        if (!matrix_to_float(ra, prepared.accelerometer) ||
+            !matrix_to_float(aligned_gyro, prepared.gyroscope) ||
+            !proper_rotation(prepared.device_from_imu))
+            return false;
+    }
+    *result = prepared;
     return true;
 }

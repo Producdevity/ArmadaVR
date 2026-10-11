@@ -338,10 +338,32 @@ including full 3D rotations and all four factory/online accelerometer/gyro
 matrices, within `8.881784197001252e-16` per component. Another 12,288 scale and
 rotation cases plus rejection checks pass host and ARM64 sanitizers.
 
-This resolves the decomposition used by one constructor branch. The active
-branch, the order of its rotation composition and the final camera-to-IMU
-mapping remain unverified; the new helper does not choose them. Sources,
-decompilation and comparisons are in `output/quest-imu-parameters-20261011-v1/`.
+The constructor's math prefix at ELF `0x1bd5550` establishes the composition:
+for accelerometer matrix `Ma = Qa * Ra`, gyro matrix `Mg`, and device rotation
+`D`, its aligned branch produces `Ra`, `transpose(Qa) * Mg`, and `D * Qa`.
+Translation remains unchanged. Both sensors then share the accelerometer frame;
+the adjusted device rotation preserves their device-space interpretation.
+The other branch keeps both complete matrices and the original device rotation.
+Offsets are subtracted in the raw sensor frame before rectification.
+
+`imu_prepare_rectification` implements these two explicit choices. It requires
+an already proper orthonormal device rotation, valid invertible calibration
+matrices, and float-representable results. Invalid input leaves the output
+unchanged. It does not select factory versus online calibration or assume which
+branch the live service uses.
+
+The API matches **8,196** isolated stock-prefix executions: 8,192 synthetic
+cases and both modes for the unit's factory and online matrices. Synthetic
+accelerometer/gyro float outputs match exactly; device rotation differs by at
+most `4e-15`. Another 8,192 frame-invariance cases and invalid-input checks pass
+macOS and ARM64 Linux sanitizers. The comparison intercepts the constructor
+after its math and before configuration access or model allocation; no ELF
+initializers, services or hardware are invoked. Sources and receipts are in
+`output/quest-frame-composition-20261011-v1/`. The decomposition investigation
+remains in `output/quest-imu-parameters-20261011-v1/`.
+
+Active model/branch selection, time corrections and camera-to-IMU mapping still
+need verification before a calibrated physical tracking claim.
 
 ### Earlier configuration and library evidence
 
