@@ -1,0 +1,35 @@
+Subject: drm/msm: propagate Pico panel GPIO setup failures
+
+Do not let panel-test input setup hide a failed mode-select GPIO operation.
+Stop before enabling regulators when panel VIO configuration fails.
+
+---
+diff --git a/techpack/display/msm/dsi/dsi_panel.c b/techpack/display/msm/dsi/dsi_panel.c
+--- a/techpack/display/msm/dsi/dsi_panel.c
++++ b/techpack/display/msm/dsi/dsi_panel.c
+@@ -489,8 +489,10 @@
+ 
+ 		rc = gpio_direction_output(
+ 			panel->reset_config.lcd_mode_sel_gpio, out);
+-		if (rc)
++		if (rc) {
+ 			DSI_ERR("unable to set dir for mode gpio rc=%d\n", rc);
++			goto exit;
++		}
+ 	}
+ 
+ 	if (gpio_is_valid(panel->panel_test_gpio)) {
+@@ -555,7 +557,12 @@
+ 	vxr7200_panel_off = 0;
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up vio enable begin */
+ 	if (gpio_is_valid(panel->panel_vio_gpio)) {
+-		gpio_direction_output(panel->panel_vio_gpio, 1);
++		rc = gpio_direction_output(panel->panel_vio_gpio, 1);
++		if (rc) {
++			DSI_ERR("[%s] failed to enable panel VIO, rc=%d\n",
++				panel->name, rc);
++			return rc;
++		}
+ 	}
+ 	/*Added by gavin.zhao for sxr2130 lcd bring up vio enable end */
+ 

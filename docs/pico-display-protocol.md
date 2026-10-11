@@ -163,6 +163,19 @@ shuts down in 5.576 seconds. The Image SHA-256 is
 These results verify build integration and virtual ABI behavior; the QEMU board
 does not contain the physical Pico mux, panel or display controller.
 
+Patch `0026-panel-gpio-errors.patch` additionally preserves two panel-startup
+failures in the published DSI code. A failed mode-select GPIO operation no
+longer gets replaced by the subsequent panel-test GPIO result. Failure to
+configure panel VIO now stops startup before regulator enable and reset. It
+does not change the successful sequence or the existing power-rollback policy.
+The original code reproduces both masked errors; all 17 corrected startup
+cases pass macOS and ARM64 sanitizer tests. The complete panel object compiles
+with `-Werror` against the accepted kernel headers and has the same undefined
+symbols. The patch applies without fuzz. This later patch has not yet been
+included in a new full Image or physically tested; the earlier Image hash above
+still identifies the preserved `0025` build. Evidence is in
+`output/pico-panel-errors-20261011-v1/`.
+
 The published `techpack/display/msm/dsi/dsi_panel.c` already contains
 `dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
 control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
