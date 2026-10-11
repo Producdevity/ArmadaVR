@@ -6,11 +6,63 @@ Checked 2026-09-10 against Meta's pinned kernel
 No physical-device command or firmware installation was performed.
 
 The complete native tracking driver remains required. The public source inspected
-provides a useful IMU packet identifier and transport interfaces, but does not
-provide a verified Quest 3 sample decoder, factory-calibration schema or native
-Quest 3 Monado tracking implementation. The existing
+provides an IMU packet identifier and transport interfaces. The October 11
+firmware analysis below adds a tested raw sample decoder, but factory calibration
+and native Quest 3 Monado integration remain unverified. The existing
 [`syncboss-replay.py`](../tools/syncboss-replay.py) correctly leaves sensor payloads
 opaque; decoding the FIFO wrapper does not produce calibrated motion.
+
+## Current firmware IMU conversion
+
+On October 11, offline analysis of authenticated build `52433670036000520`
+identified four raw IMU formats in `/odm/lib64/libsyncboss.so`, SHA-256
+`a3164d43adb9de5eddb9fa38fd221701a6c4bbf3faa12a216a462b4831555c57`.
+The containing ODM image was verified against the retained signed firmware.
+Ghidra decompilation was checked against AArch64 instructions and constant bytes.
+No stock service or device initialization was run.
+
+[`syncboss-imu.c`](../src/syncboss-imu.c) implements the conversion behind the
+bounded [`syncboss_imu_decode`](../src/syncboss-imu.h) interface:
+
+| Format | Required bytes | Motion fields | Timestamp and device |
+|---|---:|---|---|
+| 1 | 36 | Six float32 values and float32 temperature | Full first uint64 timestamp; device 0 |
+| 2 | 22 | Six signed int16 values and signed int16 temperature | Full first uint64 timestamp; device 0 |
+| 3 | 22 | Same integer fields as format 2 | Upper 48 timestamp bits; low four device bits |
+| 4 | 36 | Same float fields as format 1 | Upper 48 timestamp bits; low four device bits |
+
+These sizes are the consumed fields, not measured transport record lengths.
+The decoder accepts trailing padding up to the FIFO payload limit of 252 bytes.
+All wire fields are little endian and unaligned input is supported. It returns
+acceleration in m/s², angular velocity in rad/s and temperature in °C. Timestamp
+ticks remain unconverted, with no axis remapping, factory bias/alignment or NSYNC
+offset applied. It rejects incomplete payloads, unknown versions, invalid scales
+and non-finite outputs, leaving the caller's sample unchanged on failure.
+
+The Eureka device descriptor selects format 2. Its built-in fallback conversion
+uses 16.384 LSB/(°/s), 4096 LSB/g, 126.8 LSB/°C and 25 °C offset. Firmware also
+requests conversion parameters from the MCU; the fallback is not evidence of
+the connected unit's active values. Callers must supply the version and
+parameters explicitly. The integer converter truncates its temperature scale
+and offset to signed integers before calculating temperature. Its optional
+temperature compensation uses a factor of `2^-17`, separately rounded float32
+operations, and different coefficients for the three axes. This behavior is
+preserved; it is distinct from factory calibration.
+
+Validation used only the four isolated conversion entry points from the pinned
+ELF in a network-disabled ARM64 Linux process, without ELF constructors, service
+startup or hardware access. All **24,000** synthetic cases match the original
+44 output bytes exactly, covering every version and both integer compensation
+modes. Six fixed vectors are retained in [`tests/syncboss-imu.c`](../tests/syncboss-imu.c).
+Its **1,382** conversion/rejection checks pass with AddressSanitizer and
+UndefinedBehaviorSanitizer on both macOS ARM64 and Linux ARM64. `just check`
+also compiles and runs the native fixture. Compile without fast-math; the test
+builds use `-ffp-contract=off`.
+
+Private firmware, Ghidra projects, comparison runner and results remain under
+`output/quest-tracking-524-20261011-v1/`. These tests establish offline conversion
+compatibility only. Live packet selection, timestamp units, active MCU scales,
+sensor axes, calibration and physical tracking acceptance remain open.
 
 ## Additional interface found in Meta's kernel
 
@@ -127,10 +179,10 @@ not validate the headset's factory calibration.
 
 ## Concrete remaining inputs
 
-1. A version-matched packet-80 schema or analysis of the matching
-   `libsyncboss` consumer, validated with labeled stationary and axis-motion
-   captures. Establish field widths, signedness, scaling, batch structure and
-   MCU timestamp behavior before producing `xrt_imu_sample` values.
+1. Validate the decoded raw formats with labeled stationary and axis-motion
+   captures. Confirm the active variant and conversion parameters, packet
+   selection, batch structure, sensor axes and MCU timestamp behavior before
+   producing `xrt_imu_sample` values.
 2. The unit's calibration blobs with their encoding, provenance and validity
    checks, including IMU scale/bias/alignment and each tracking camera's
    intrinsics, distortion and IMU-relative extrinsics.
