@@ -376,6 +376,15 @@ excerpts and the call-path receipt are in
 Active model selection, time corrections and camera-to-IMU mapping still need
 verification before a calibrated physical tracking claim.
 
+The calibration JSON parser at ELF `0xca9c00` stores `DtAccelRef` as a double at
+input offset `0x1b8` and `DtGyroRef` at `0x1b0`; the serializer at `0xa8c160`
+confirms that mapping. Constructor `0x1bd5550` uses these values unless a
+nonzero runtime override replaces each with the negated override. The
+temperature-model constructor stores the resulting pair separately at object
+offsets `0x8` and `0x10`. This identifies the fields and override behavior, but
+does not yet establish how the final estimator aligns their timestamps with
+camera capture. No inferred time shift is applied by the new processor.
+
 Combined offline replay now runs all 12,032 preserved live records through the
 raw decoder, stream-order gate, temperature offsets and frame preparation for
 both factory and online models. Both frame choices preserve the resulting
