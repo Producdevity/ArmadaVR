@@ -15,6 +15,21 @@ requires bit 2 of byte 1. These are observed configuration values, not inferred
 hardware model names. The SLPI startup requests a Qualcomm SSC stream named
 `ble_mcu`; it is not equivalent to opening the SPI command device.
 
+The service loads `sensors-common-imu.pvr.so`, SHA-256
+`0fc16cf6482c852c64be9035c8286c7f467a4518989843aeecce607270070159`,
+from the same authenticated system image. Its `SLPIInit("ble_mcu", 480)` route
+uses `libssc.so` and `libsns_api.so`. For SSC message ID `0x400`, the library
+parses `sns_ble_mcu_data` and copies 25 uint32 words into the 100-byte station
+record at offset `0x1018` of a `0x1980`-byte event. This establishes the inner
+record boundary; the protobuf schema and live SSC connection still need validation.
+
+The outer event timestamp at offset `0x10` uses SSC ticks multiplied by
+`52.083333333333336`, plus an offset measured from Android elapsed real time and
+the CPU counter. This is distinct from the timestamps inside the controller IMU
+payload. The callback receives a queue-owned pointer, while `pollEvents` copies
+an entire event before freeing its queue entry. A receiver must establish buffer
+ownership and shutdown ordering; retaining the callback pointer is unsafe.
+
 The bounded receive-only implementation is
 [`pico_controller_decode`](../src/pico-controller.h) in
 [`pico-controller.c`](../src/pico-controller.c). It checks length, header, CRC
