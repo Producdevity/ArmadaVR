@@ -37,6 +37,12 @@ def service_failures(log):
     return sorted(set(failures))
 
 
+def missing_root_failure(log):
+    log = re.sub(r"\x1b\[[0-9;]*m", "", log)
+    return ("/dev/disk/by-label/absent-root does not exist" in log or
+            "Timed out waiting for device /dev/disk/by-label/absent-root." in log)
+
+
 def run(args):
     kernel, initramfs, output = args.kernel.resolve(), args.initramfs.resolve(), args.output.resolve()
     build, hashes, _, _ = builder.inputs(kernel)
@@ -85,7 +91,9 @@ def run(args):
         report["commands"].append(command)
         subprocess.run(command, check=True, timeout=60)
         report["root_sha256"] = builder.digest(output / "root.ext4")
-        for name, label in (("overlay", "armada-vr-root"), ("missing-root", "absent-root")):
+        for name, label, device_timeout in (("overlay", "armada-vr-root", 10),
+                                            ("missing-root", "absent-root", 30),
+                                            ("missing-root-device", "absent-root", 2)):
             disk = output / (name + ".ext4")
             shutil.copyfile(output / "root.ext4", disk)
             disk_options = (["-drive", f"file={disk},if=none,id=root,format=raw",
@@ -96,7 +104,7 @@ def run(args):
                        *disk_options, "-append",
                        f"console=ttyAMA0 earlycon selinux=0 audit=0 root=LABEL={label} ro rootfstype=ext4 rootflags=noload "
                        "systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 "
-                       "systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=5 rd.timeout=10 "
+                       f"systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=5 rd.timeout={device_timeout} "
                        "init=/sbin/init armada.root_test=1" + (" initcall_blacklist=hwinfo_init" if pico else "")]
             report["commands"].append(command)
             case = {"name": name, "status": "started"}
@@ -122,7 +130,7 @@ def run(args):
                 raise RuntimeError(f"Root handoff {name} has failed services: {', '.join(case['service_failures'])}")
             passed = "ARMADA_ROOT_OVERLAY_PASS" in log
             expected = passed if name == "overlay" else (
-                not passed and "/dev/disk/by-label/absent-root does not exist" in log and "Powering off." in log)
+                not passed and missing_root_failure(log) and "Powering off." in log)
             if (case["returncode"] or not expected or "ARMADA_ROOT_FAIL" in log or
                     "reboot: Power down" not in log or not case["backing_image_unchanged"]):
                 raise RuntimeError(f"Root handoff {name} failed; inspect its log")

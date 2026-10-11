@@ -12,6 +12,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
+VOLATILE_ROOT = ROOT / "system/systemd/volatile-root.conf"
 QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
                 "system/quest/module-setup.sh", "profiles/qcom-services.json",
                 "patches/qrtr/0001-check-qmi-packet-bounds.patch",
@@ -85,6 +86,7 @@ dracut --kver "$1" --kmoddir "/lib/modules/$1" \
     --no-hostonly-default-device --no-early-microcode --reproducible \
     --nostrip --gzip --nofscks --nomdadmconf --nolvmconf \
     --conf /dev/null --confdir /tmp/dracut-conf \
+    --include /volatile-root.conf /etc/systemd/system/systemd-volatile-root.service.d/root.conf \
     --modules 'systemd systemd-initrd systemd-udevd systemd-modules-load kernel-modules rootfs-block fs-lib base shutdown dracut-systemd initqueue' \
     --add-drivers "$2" "${@:5}" /output/initramfs.img
 cd /tmp/unpacked
@@ -123,6 +125,10 @@ if actual!={item['path'] for item in firmware_files}:
 required=['init','usr/lib/systemd/systemd','usr/lib/systemd/systemd-volatile-root',
           'usr/lib/systemd/system/systemd-volatile-root.service','usr/bin/mount','usr/bin/kmod',
           'usr/bin/dracut-emergency','usr/lib/systemd/system/dracut-initqueue.service']
+dropin=Path('etc/systemd/system/systemd-volatile-root.service.d/root.conf')
+if dropin.is_symlink() or dropin.read_bytes()!=Path('/volatile-root.conf').read_bytes():
+    raise SystemExit('Volatile-root mount dependency changed')
+required.append(str(dropin))
 quest_files=[]
 if sys.argv[4]=='yes':
     pairs=[('/quest/armada-quest-boot','usr/libexec/armada-quest-boot'),
@@ -177,6 +183,7 @@ def run(args):
               "kernel_build_sha256": digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "hardware_boot_verified": False, "hardware_flash_image": False,
               "container_image": image, "builder_sha256": digest(Path(__file__)),
+              "volatile_root_dependency_sha256": digest(VOLATILE_ROOT),
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
               "firmware_validator_sha256": digest(Path(firmware.__file__)),
               "systemd_runtime_sha256": runtime_sha, "systemd_runtime_helper_sha256": runtime_helper_sha}
@@ -185,7 +192,8 @@ def run(args):
                "--tmpfs", "/tmp:rw,exec,size=512m", "--tmpfs", "/var/tmp:rw,exec,size=512m",
                "--tmpfs", "/usr/lib/modules:rw,nosuid,size=128m",
                "-e", "SOURCE_DATE_EPOCH=0", "-e", "PYTHONDONTWRITEBYTECODE=1",
-               "-v", f"{kernel}:/kernel:ro", "-v", f"{output}:/output"]
+               "-v", f"{kernel}:/kernel:ro", "-v", f"{output}:/output",
+               "-v", f"{VOLATILE_ROOT}:/volatile-root.conf:ro"]
     if runtime_dir:
         command.extend(["-v", f"{runtime_dir}:/systemd-runtime:ro",
                         "-v", f"{Path(systemd_runtime.__file__)}:/systemd-runtime.py:ro"])
@@ -212,6 +220,8 @@ def run(args):
             raise ValueError("Firmware inputs changed during initramfs construction")
         if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
             raise ValueError("Quest startup inputs changed during construction")
+        if digest(VOLATILE_ROOT) != result["volatile_root_dependency_sha256"]:
+            raise ValueError("Volatile-root dependency changed during construction")
         if runtime_dir and (systemd_runtime.validate(runtime_dir) != runtime or
                             digest(runtime_dir / "manifest.json") != runtime_sha or
                             digest(Path(systemd_runtime.__file__)) != runtime_helper_sha):

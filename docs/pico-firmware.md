@@ -388,6 +388,15 @@ initramfs construction. The full Pico root and Lepton environment still require
 integration and runtime acceptance. None of these results establishes physical
 boot, recovery or flash readiness.
 
+The builder also requires `sysroot.mount` before starting the volatile-root
+service. Without that dependency, an early device timeout could start it after
+the root mount failed. The regression now forces both timeout paths separately:
+dracut's initqueue deadline and systemd's device deadline. The preserved old
+initramfs fails the latter case; the corrected image passes normal handoff and
+both failures with no failed services, unchanged disks and normal power-off.
+Receipts: `output/pico-tagged-root-handoff-negative-20261011-v1` and
+`output/pico-tagged-root-handoff-20261011-v3`.
+
 To prepare this input locally, use Python with `dissect.btrfs`, Zig, the preserved
 original Frame `rootfs-A.img`, and an unpacked initramfs from the same builder
 image. The source image must match the checksum pinned in the preparation tool.

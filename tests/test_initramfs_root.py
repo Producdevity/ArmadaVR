@@ -26,6 +26,16 @@ class RootMachineTests(unittest.TestCase):
 
 
 class RootServiceTests(unittest.TestCase):
+    def test_missing_root_reports_either_dracut_or_device_timeout(self):
+        for log in ("Warning: /dev/disk/by-label/absent-root does not exist",
+                    "Timed out waiting for device \x1b[0;1;39m/dev/disk/by-label/absent-root\x1b[0m."):
+            with self.subTest(log=log):
+                self.assertTrue(root_test.missing_root_failure(log))
+        for log in ("root=LABEL=absent-root", "Expecting device /dev/disk/by-label/absent-root...",
+                    "Timed out waiting for device /dev/disk/by-label/other-root."):
+            with self.subTest(log=log):
+                self.assertFalse(root_test.missing_root_failure(log))
+
     def test_handoff_marker_does_not_hide_failed_credentials(self):
         log = """systemd[1]: systemd-journald.service: Failed with result 'exit-code'.
 (systemd-journald)[278]: systemd-journald.service: Failed at step CREDENTIALS spawning /usr/lib/systemd/systemd-journald: Function not implemented
