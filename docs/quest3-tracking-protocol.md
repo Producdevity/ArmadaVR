@@ -149,9 +149,10 @@ updated IMU matrices and six cameras:
 
 Each camera includes `DeviceFromCamera`, `PinholeSymmetric` projection,
 eight-coefficient `Fisheye62` distortion and an unprojected field-of-view boundary.
-These names and values are recorded calibration metadata; distortion equations,
-coordinate conventions, time offsets and correspondence to captured images
-still need verification. In particular, the factory and online IMU matrices
+These names and values are recorded calibration metadata. Forward projection
+has since been checked against the stock implementation below; inverse
+projection, coordinate conventions, time offsets and correspondence to captured
+images still need verification. In particular, the factory and online IMU matrices
 distribute rotation differently. Applying both sets would risk applying the
 same correction twice.
 
@@ -175,6 +176,35 @@ The original capture and both exact blobs remain private under
 `output/quest-tracking-524-20261011-v1/runtime-diagnostics/`. Public tests use
 synthetic calibration only. This closes the missing calibration-data input;
 physical validity, interpretation and native tracking integration remain open.
+
+### Fisheye62 forward projection
+
+[`fisheye62.c`](../src/fisheye62.c) implements a shared focal length, six radial
+coefficients and two tangential coefficients. Its parameter order is
+`f, cx, cy, k0, k1, k2, k3, k4, k5, p0, p1`. The model agrees with Meta's
+[published Fisheye62 equations](https://facebookresearch.github.io/projectaria_tools/docs/tech_insights/camera_intrinsic_models#the-fisheye62-model).
+It is not interchangeable with a four-coefficient OpenCV fisheye model.
+
+The authenticated build's `libtrackingengines.so`, SHA-256
+`a462214606167735bb70f7112c72fed3bb9f2632b107d7d9f82005e4e4c65f29`,
+contains the corresponding projection at ELF address `0xdb0420`. Its camera
+model reports eleven total parameters, three projection parameters and eight
+distortion parameters. Isolated comparisons against this original routine
+cover 28,672 rays using the six recovered camera models and a synthetic model.
+The maximum pixel difference is `1.1823431123048067e-11`. Only the math helper
+runs, with its `atan` import supplied by the host; constructors, services and
+device access are excluded. The comparison accounts for the routine's hidden
+ARM64 return buffer in `x8`.
+
+The maintained tests cover 37,441 projection cases per host, including each
+distortion coefficient independently, the optical axis and spherical projection,
+plus invalid inputs and output preservation. They pass under address/undefined
+behavior sanitizers on macOS and ARM64 Linux. The API accepts finite front-facing
+camera-frame points and rejects non-finite results. Image bounds, calibrated
+field of view, inverse projection and camera-to-IMU transforms remain separate
+integration requirements. No physical camera image or tracking pose is validated
+by this mathematical comparison. Private analysis is retained in
+`output/quest-tracking-524-20261011-v1/calibration-analysis/`.
 
 ### Earlier configuration and library evidence
 
@@ -265,7 +295,7 @@ not validate the headset's factory calibration.
    selection, batch structure, sensor axes and MCU timestamp behavior before
    producing `xrt_imu_sample` values.
 2. Verify the recovered calibration's units, matrix/application order, time
-   offsets and Fisheye62 equations. Select the appropriate factory/online model
+   offsets and inverse Fisheye62 projection. Select the appropriate factory/online model
    and map each camera into the IMU frame without applying corrections twice.
 3. A camera stream with real image format, exposure timing, frame identifiers
    and a verified mapping into the same clock as the IMU. Kernel camera nodes
