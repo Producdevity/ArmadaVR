@@ -127,6 +127,57 @@ these inspected interfaces.
 
 ## Exact-unit information and calibration boundary
 
+### Calibration recovered through stock diagnostics
+
+On October 11, a read-only `dumpsys sensorservice` capture from build
+`52433670036000520` exposed the unit's calibration in the JSON name of the
+`Syncboss IMU Android Sensor` descriptor. Its nested `calibration.factory` and
+`calibration.online` strings both identify the connected Eureka unit and
+`ICM45688` IMU. The descriptor advertises 800 Hz; that is not a measured sample
+delivery rate. No sensor was enabled, app installed, permission changed or
+service restarted to obtain this data.
+
+The factory blob contains constant IMU offsets, rectification matrices and
+`DeviceFromImu`. The online blob includes temperature-dependent offset tables,
+updated IMU matrices and six cameras:
+
+| Camera IDs | Sensor | Image size | Shutter |
+|---|---|---|---|
+| 0, 1 | OG01A | 1280 × 1024 | Global |
+| 2, 3 | OV7251 | 640 × 480 | Global |
+| 4, 5 | IMX471 | 2328 × 1748 | Rolling, about 10.75 ms readout |
+
+Each camera includes `DeviceFromCamera`, `PinholeSymmetric` projection,
+eight-coefficient `Fisheye62` distortion and an unprojected field-of-view boundary.
+These names and values are recorded calibration metadata; distortion equations,
+coordinate conventions, time offsets and correspondence to captured images
+still need verification. In particular, the factory and online IMU matrices
+distribute rotation differently. Applying both sets would risk applying the
+same correction twice.
+
+[`extract-quest-calibration.py`](../tools/extract-quest-calibration.py) imports an
+offline capture with an explicit expected serial and a new private destination:
+
+```sh
+python3 tools/extract-quest-calibration.py CAPTURE --serial EXPECTED_SERIAL --output NEW_DIRECTORY
+```
+
+It preserves the embedded JSON strings byte-for-byte with hashes, checks both
+unit identities and supported schemas, and validates matrix dimensions,
+non-singularity, rigid transforms, unique camera IDs and strictly ordered
+temperature tables. Unknown models, duplicate keys, non-finite values,
+incomplete captures and existing output directories are rejected. Unit files
+are created with mode 0600 inside a 0700 directory. The parser does not apply
+calibration or authenticate the original capture; its read-only ADB provenance
+is recorded separately.
+
+The original capture and both exact blobs remain private under
+`output/quest-tracking-524-20261011-v1/runtime-diagnostics/`. Public tests use
+synthetic calibration only. This closes the missing calibration-data input;
+physical validity, interpretation and native tracking integration remain open.
+
+### Earlier configuration and library evidence
+
 The read-only stock file
 [`sensorservice.cfg`](../output/device-inventory/quest3-stock-52083180031500520/thermal-sensors/sensorservice.cfg),
 SHA-256 `5b39783bf303a9366f18f487b5fb8fbc97f0e37f2755a03398783927891e6a73`,
@@ -213,9 +264,9 @@ not validate the headset's factory calibration.
    captures. Confirm the active variant and conversion parameters, packet
    selection, batch structure, sensor axes and MCU timestamp behavior before
    producing `xrt_imu_sample` values.
-2. The unit's calibration blobs with their encoding, provenance and validity
-   checks, including IMU scale/bias/alignment and each tracking camera's
-   intrinsics, distortion and IMU-relative extrinsics.
+2. Verify the recovered calibration's units, matrix/application order, time
+   offsets and Fisheye62 equations. Select the appropriate factory/online model
+   and map each camera into the IMU frame without applying corrections twice.
 3. A camera stream with real image format, exposure timing, frame identifiers
    and a verified mapping into the same clock as the IMU. Kernel camera nodes
    and firmware filenames do not establish those semantics.
