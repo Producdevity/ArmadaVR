@@ -568,7 +568,7 @@ Read-only stock observations narrow the hardware work:
 | Component | Observed on this Pro Eye | Remaining integration |
 |---|---|---|
 | Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound | Resolve the missing bridge implementation and actual panel/mode ownership; driver binding alone does not prove a replacement display path |
-| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice` | Preserve the transport and reconstruct the missing station interface, pairing, input and haptics |
+| Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder](pico-controller-protocol.md) matches stock parsing offline | Complete the missing station/SSC transport, verify physical inputs, pairing, haptics and optical tracking |
 | IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
 | Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
 | Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules now build and pass offline ABI/signature checks; routing, DSP and physical audio remain. Wi-Fi needs matching firmware API headers and validation |

@@ -1,0 +1,72 @@
+# Pico Neo3 controller receive protocol
+
+The b1977 stock system image from the authenticated 5.8.4.0 OTA contains
+`libstationopticsservice.so`, SHA-256
+`91b45470678ca7d614a7f12ccb21261f3cda273c4ba6b08c1edb153cd5b6286e`.
+Ghidra and AArch64 disassembly identify a receive path distinct from the
+40-byte MCU command/response protocol on `/dev/spidev0.0`.
+
+`StationService::SlpiDataAnalyze` consumes a **100-byte** record. Byte 99 is
+CRC-8 over bytes 0–98, initialized to zero, with reflected polynomial `0x8c`
+and no final XOR. Its complete lookup table matches that polynomial. Input
+records begin with `0xa5`; `0xbb` heartbeat and `0xaa` test records are separate.
+For stock MCU type 1, key data is processed only when byte 1 equals 1. Type 2
+requires bit 2 of byte 1. These are observed configuration values, not inferred
+hardware model names. The SLPI startup requests a Qualcomm SSC stream named
+`ble_mcu`; it is not equivalent to opening the SPI command device.
+
+The bounded receive-only implementation is
+[`pico_controller_decode`](../src/pico-controller.h) in
+[`pico-controller.c`](../src/pico-controller.c). It checks length, header, CRC
+and key-data presence before changing the caller's sample.
+
+| Offset | Meaning |
+|---:|---|
+| 3 | Trigger analog byte |
+| 4, 5 | Stick X and Y analog bytes |
+| 6 | Grip analog byte |
+| 7, bits 0–5 | Home, app/menu, A/X, B/Y, grip, stick click |
+| 7, bit 6 | Hand: set means left (1), clear means right (2) |
+| 7, bit 7 | Trigger click |
+| 8, bits 0–4 | A/X, B/Y, stick, thumb-rest and trigger touch |
+| 9 | Battery, interpreted according to the explicit radio type |
+| 99 | CRC-8 |
+
+Radio type 1 maps battery values 0–5, 6–25, 26–50, 51–75 and 76–255 to levels
+1–5. Radio type 2 keeps the low three bits. The stock service gates touch fields
+with its touch-support flag; the decoder takes that flag explicitly. Analog
+values remain unsigned bytes. A default value of 128 appears for disabled stick
+axes in the service, but does not establish the physical center, dead zone,
+range, axis sign or calibration of an enabled controller.
+
+The stock service separately applies per-button configuration masks and a test
+hook, checks controller online state, updates shared memory, and emits Binder
+notifications. The raw decoder performs none of those lifecycle operations. Its
+caller must obtain the active MCU/radio configuration and supply complete records
+from a verified transport. It does not pair controllers, send haptics, access a
+device, load firmware or produce a tracked pose.
+
+## Verification
+
+An isolated ARM64 Linux process executed the stock CRC and key parsing functions
+against synthetic buffers, with both controllers online, service key masks
+enabled, the test hook disabled, and callbacks/logging avoided. It did not run
+ELF constructors, Android service initialization or hardware operations. The new
+decoder matched all eight output fields on **16,384** records covering both
+hands, all button bits, both MCU/radio modes, touch enabled/disabled and all
+256 battery values. CRC bytes for those comparisons came from the original
+function rather than the new implementation.
+
+Sixteen fixed records and expected outputs are retained in
+[`tests/pico-controller.c`](../tests/pico-controller.c). The fixture passes
+**14,625** decoding and rejection checks on macOS ARM64 and Linux ARM64 with
+AddressSanitizer and UndefinedBehaviorSanitizer. It tests unaligned buffers,
+every short length, overlong records, unsupported configuration, records without
+key data, and every single-bit corruption in each complete record. Rejection
+preserves the previous sample. `just check` compiles and runs this fixture.
+
+The private firmware, analysis, comparison runner and results are retained in
+`output/pico-block-ota-20261011-v1/`. Physical button/axis captures, SSC transport
+startup and lifetime, station driver reconstruction, pairing, haptics and optical
+controller tracking remain unverified. This decoder establishes offline parsing
+compatibility, not a working physical controller driver or flash readiness.
