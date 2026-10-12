@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import types
 import unittest
+from unittest.mock import patch
 import zipfile
 
 
@@ -72,6 +73,9 @@ class BlockOtaTests(unittest.TestCase):
         self.archive = self.directory / 'ota.zip'
         self.compressed = subprocess.check_output(['brotli', '--stdout'], input=b'a' * 4096 + b'b' * 4096)
         self.make_archive()
+        space = patch.object(OTA.shutil, 'disk_usage', return_value=types.SimpleNamespace(free=4 * 1024**3))
+        self.disk_usage = space.start()
+        self.addCleanup(space.stop)
 
     def make_archive(self, compressed=None, patch=b''):
         with zipfile.ZipFile(self.archive, 'w') as archive:
@@ -85,6 +89,7 @@ class BlockOtaTests(unittest.TestCase):
                                          expected_device='test', expected_build='b1', brotli=shutil.which('brotli'))
 
     def test_complete_zip_stream_reconstruction(self):
+        self.disk_usage.return_value.free = 16384 + 2 * 1024**3
         OTA.run(self.args)
         image = (self.args.output / 'system.img').read_bytes()
         self.assertEqual(image, b'b' * 4096 + b'\0' * 4096 + b'a' * 4096 + b'\0' * 4096)
@@ -92,6 +97,15 @@ class BlockOtaTests(unittest.TestCase):
         self.assertEqual(receipt['image_sha256'], hashlib.sha256(image).hexdigest())
         self.assertFalse(receipt['avb_verified'])
         self.assertFalse(receipt['restore_verified'])
+
+    def test_insufficient_space_refuses_before_creating_output_or_decompressing(self):
+        for free in (0, 16384 + 2 * 1024**3 - 1):
+            self.disk_usage.return_value.free = free
+            with self.subTest(free=free), patch.object(OTA.subprocess, 'Popen') as process:
+                with self.assertRaisesRegex(ValueError, 'partition size plus 2 GiB'):
+                    OTA.run(self.args)
+                process.assert_not_called()
+                self.assertFalse(self.args.output.exists())
 
     def test_hash_and_identity_mismatch_leave_no_output(self):
         for field, bad in [('expected_sha256', '0' * 64), ('expected_device', 'other'),
