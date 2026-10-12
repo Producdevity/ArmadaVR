@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import struct
 import tempfile
 import unittest
@@ -104,3 +105,63 @@ class PicoFirmwareTests(unittest.TestCase):
         with patch.object(initramfs.firmware, "validate", return_value={"component": "quest3-adsp"}):
             self.assertEqual(initramfs.firmware_input(quest, self.root, None, True)[1]["component"], "quest3-adsp")
         self.assertIsNone(initramfs.firmware_input(pico, None, None, False)[1])
+
+    def dsp_bundle(self):
+        directory = self.root / "dsp"
+        files = directory / "files"
+        files.mkdir(parents=True)
+        for processor in ("adsp", "cdsp", "slpi"):
+            (files / (processor + ".mdt")).write_bytes(mdt() + bytes(16))
+            (files / (processor + ".b01")).write_bytes(bytes(16))
+            (files / (processor + ".b02")).write_bytes(b"data")
+        for name, (domain, subdomain, instance) in firmware.dsp.DOMAIN_FILES.items():
+            (files / name).write_text(json.dumps({"sr_domain": {"soc": "msm", "domain": domain,
+                "subdomain": subdomain, "qmi_instance_id": instance},
+                "sr_service": [{"provider": "tms", "service": "servreg"}]}))
+        records, domains = firmware.dsp.inspect_files(files)
+        manifest = {"schema_version": 1, "status": "prepared", "component": "pico-neo3-dsp",
+                    "reference_build": self.manifest["reference_build"], "source_image_sha256": "b" * 64,
+                    "files": records, "service_domains": domains}
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+        return directory, manifest
+
+    def test_combined_bundle_preserves_sources_and_checks_both_components(self):
+        directory, manifest = self.dsp_bundle()
+        firmware.include_dsp(self.root, directory)
+        result = firmware.validate(self.root)
+        self.assertEqual(result["component"], "pico-neo3-firmware")
+        self.assertEqual(result["dsp"], manifest)
+        self.assertEqual(result["source_image_sha256"], self.manifest["source_image_sha256"])
+        self.assertEqual(len(result["files"]), len(self.manifest["files"]) + len(manifest["files"]))
+        pico = json.loads((ROOT / "profiles/kernel/pico-neo3.json").read_text())
+        self.assertEqual(initramfs.firmware_input(pico, None, self.root, False)[1], result)
+        for name in ("a650_zap.b02", "adsp.b02", "cdsp.b02", "slpi.b02"):
+            path = self.files / name
+            old = path.read_bytes()
+            path.write_bytes(b"evil")
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                firmware.validate(self.root)
+            path.write_bytes(old)
+        shutil.rmtree(directory)
+        self.assertEqual(firmware.validate(self.root), result)
+
+    def test_mixed_reference_builds_rejected_before_copy(self):
+        directory, manifest = self.dsp_bundle()
+        manifest["reference_build"] = "smartcm.1696861507"
+        (directory / "manifest.json").write_text(json.dumps(manifest))
+        before = {p.name: p.read_bytes() for p in self.files.iterdir()}
+        with self.assertRaisesRegex(ValueError, "same reference build"):
+            firmware.include_dsp(self.root, directory)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in self.files.iterdir()})
+        self.assertEqual(firmware.validate(self.root), self.manifest)
+
+    def test_combined_manifest_cannot_hide_or_misidentify_dsp_files(self):
+        directory, _ = self.dsp_bundle()
+        firmware.include_dsp(self.root, directory)
+        result = firmware.validate(self.root)
+        for replacement in ({**result, "component": "pico-neo3-gpu"},
+                            {**result, "dsp": {**result["dsp"], "reference_build": "smartcm.1696861507"}},
+                            {**result, "dsp": {**result["dsp"], "files": []}}):
+            (self.root / "manifest.json").write_text(json.dumps(replacement))
+            with self.assertRaises(ValueError):
+                firmware.validate(self.root)

@@ -438,6 +438,8 @@ def run(args):
     inputs["tools/build-headset-initramfs.py"] = builder.digest(Path(builder.__file__))
     inputs["profiles/kernel/" + args.profile + ".json"] = builder.digest(ROOT / "profiles/kernel" / (args.profile + ".json"))
     inputs["tools/" + Path(validator.__file__).name] = builder.digest(Path(validator.__file__))
+    if args.profile == "pico-neo3":
+        inputs["tools/prepare-pico-dsp.py"] = builder.digest(Path(builder.pico_firmware.dsp.__file__))
     if runtime:
         inputs["tools/systemd-runtime.py"] = builder.digest(Path(builder.systemd_runtime.__file__))
     inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")

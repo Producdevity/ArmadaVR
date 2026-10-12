@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Prepare private Adreno 650 firmware from a verified Neo3 vendor image."""
+"""Prepare private Neo3 GPU firmware with optional matching DSP firmware."""
 import argparse
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import struct
 import subprocess
 
@@ -13,19 +14,22 @@ import subprocess
 spec = importlib.util.spec_from_file_location("qcom_firmware", Path(__file__).with_name("prepare-quest-firmware.py"))
 qcom = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qcom)
+spec = importlib.util.spec_from_file_location("pico_dsp", Path(__file__).with_name("prepare-pico-dsp.py"))
+dsp = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dsp)
 digest = qcom.digest
 GMU_RANGES = ((0, 0x4000), (0x4000, 0x1000000), (0x10004000, 0x10008000),
               (0x60000000, 0x80000000), (0x80000000, 0xc0000000))
 
 
-def inspect_files(directory):
+def inspect_files(directory, extra_files=()):
     mdt = directory / "a650_zap.mdt"
     digest(mdt)
     if mdt.stat().st_size > 1024**2:
         raise ValueError("MDT exceeds size limit")
     required = qcom.required_segments(mdt.read_bytes(), "a650_zap")
     names = {"a650_zap.mdt", *required, "a650_sqe.fw", "a650_gmu.bin"}
-    if {p.name for p in directory.iterdir()} != names:
+    if {p.name for p in directory.iterdir()} != names | set(extra_files):
         raise ValueError("Pico GPU directory has missing or unexpected files")
     records = []
     for name in sorted(names):
@@ -48,15 +52,43 @@ def validate(directory):
         raise ValueError("Firmware directories must not be symlinks")
     digest(directory / "manifest.json")
     manifest = json.loads((directory / "manifest.json").read_text())
-    if (manifest.get("schema_version") != 1 or manifest.get("component") != "pico-neo3-gpu" or
+    component = manifest.get("component")
+    if (manifest.get("schema_version") != 1 or component not in ("pico-neo3-gpu", "pico-neo3-firmware") or
             manifest.get("status") != "prepared" or
             not re.fullmatch(r"smartcm\.[0-9]{10}", manifest.get("reference_build", "")) or
             not re.fullmatch(r"[0-9a-f]{64}", manifest.get("source_image_sha256", ""))):
         raise ValueError("Invalid Pico GPU firmware manifest")
-    records, details = inspect_files(directory / "files")
+    extra = []
+    if component == "pico-neo3-firmware":
+        supplied = manifest.get("dsp", {})
+        if supplied.get("reference_build") != manifest["reference_build"]:
+            raise ValueError("GPU and DSP reference builds differ")
+        extra = [item["path"] for item in supplied.get("files", [])]
+    elif "dsp" in manifest:
+        raise ValueError("GPU-only manifest cannot contain DSP firmware")
+    records, details = inspect_files(directory / "files", extra)
+    if component == "pico-neo3-firmware":
+        supplied = dsp.validate_record(supplied, directory / "files", [item["path"] for item in records])
+        records = sorted(records + supplied["files"], key=lambda item: item["path"])
     if manifest.get("files") != records or manifest.get("gpu") != details:
         raise ValueError("Pico GPU manifest does not match its files")
     return manifest
+
+
+def include_dsp(output, dsp_directory):
+    manifest, supplied = validate(output), dsp.validate(dsp_directory)
+    if manifest["component"] != "pico-neo3-gpu" or supplied["reference_build"] != manifest["reference_build"]:
+        raise ValueError("Requires GPU and DSP firmware from the same reference build")
+    for item in supplied["files"]:
+        target = output / "files" / item["path"]
+        if target.exists() or target.is_symlink():
+            raise ValueError("DSP firmware collides with GPU file: " + item["path"])
+    for item in supplied["files"]:
+        shutil.copyfile(dsp_directory / "files" / item["path"], output / "files" / item["path"])
+    manifest.update(component="pico-neo3-firmware", dsp=supplied,
+                    files=sorted(manifest["files"] + supplied["files"], key=lambda item: item["path"]))
+    (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    validate(output)
 
 
 def extract(source, output, expected, build):
@@ -96,10 +128,16 @@ def run(args):
             not re.fullmatch(r"smartcm\.[0-9]{10}", args.reference_build)):
         raise ValueError("Requires a vendor SHA-256 and Neo3 reference build")
     source, output = args.vendor_image.absolute(), args.output.absolute()
+    dsp_directory = args.dsp_firmware.absolute() if args.dsp_firmware else None
+    dsp_manifest = dsp.validate(dsp_directory) if dsp_directory else None
+    if dsp_manifest and dsp_manifest["reference_build"] != args.reference_build:
+        raise ValueError("GPU and DSP reference builds differ")
     if args.inside_container:
         extract(source, output, args.sha256, args.reference_build)
+        if dsp_directory:
+            include_dsp(output, dsp_directory)
         return
-    if any(c in str(p) for p in (source, output, Path(__file__).parent) for c in (",", ":")):
+    if any(c in str(p) for p in (source, output, Path(__file__).parent, dsp_directory) for c in (",", ":")):
         raise ValueError("Container paths must not contain commas or colons")
     if output.exists() or output.is_symlink():
         raise ValueError("Output exists; choose a new directory")
@@ -108,14 +146,18 @@ def run(args):
     image = subprocess.check_output([args.engine, "image", "inspect", args.image, "--format", "{{.Id}}"],
                                     text=True, timeout=30).strip()
     output.mkdir(parents=True)
-    helpers = {p.name: digest(p) for p in (Path(__file__), Path(qcom.__file__))}
+    helpers = {p.name: digest(p) for p in (Path(__file__), Path(qcom.__file__), Path(dsp.__file__))}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--read-only",
                "--memory", "256m", "--memory-swap", "256m", "--cpus", "1", "--pids-limit", "64",
                "--tmpfs", "/tmp:rw,noexec,nosuid,size=16m", "-v", f"{source}:/vendor.img:ro",
-               "-v", f"{output}:/output", "-v", f"{Path(__file__).resolve().parent}:/tools:ro",
-               "--entrypoint", "timeout", image, "--kill-after=5", "120", "python3", "-B",
+               "-v", f"{output}:/output", "-v", f"{Path(__file__).resolve().parent}:/tools:ro"]
+    if dsp_directory:
+        command.extend(["-v", f"{dsp_directory}:/dsp-firmware:ro"])
+    command.extend(["--entrypoint", "timeout", image, "--kill-after=5", "120", "python3", "-B",
                "/tools/prepare-pico-firmware.py", "/vendor.img", "--output", "/output",
-               "--sha256", args.sha256, "--reference-build", args.reference_build, "--inside-container"]
+               "--sha256", args.sha256, "--reference-build", args.reference_build, "--inside-container"])
+    if dsp_directory:
+        command.extend(["--dsp-firmware", "/dsp-firmware"])
     report = {"status": "started", "command": command, "container_image": image,
               "helpers_sha256": helpers, "source_image_sha256": args.sha256}
     try:
@@ -124,6 +166,8 @@ def run(args):
         if result.returncode:
             raise RuntimeError("Pico firmware extraction failed; inspect " + str(output / "prepare.log"))
         validate(output)
+        if dsp_directory and dsp.validate(dsp_directory) != dsp_manifest:
+            raise ValueError("DSP firmware changed during preparation")
         if digest(source) != args.sha256 or any(digest(Path(__file__).parent / n) != h for n, h in helpers.items()):
             raise ValueError("Firmware inputs changed during preparation")
         report.update(status="prepared", manifest_sha256=digest(output / "manifest.json"))
@@ -141,6 +185,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--sha256", required=True)
     parser.add_argument("--reference-build", required=True)
+    parser.add_argument("--dsp-firmware", type=Path, help="include prepared DSP firmware from the same Neo3 build")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--image", default="localhost/armada-vr:vm")
     parser.add_argument("--inside-container", action="store_true", help=argparse.SUPPRESS)

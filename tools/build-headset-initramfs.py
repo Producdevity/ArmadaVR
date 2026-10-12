@@ -211,6 +211,7 @@ def run(args):
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
               "firmware_validator_sha256": digest(Path(validator.__file__)),
               "qcom_firmware_helper_sha256": digest(Path(firmware.__file__)),
+              "pico_dsp_helper_sha256": digest(Path(pico_firmware.dsp.__file__)) if args.pico_firmware else None,
               "systemd_runtime_sha256": runtime_sha, "systemd_runtime_helper_sha256": runtime_helper_sha}
     command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                "--cpus", "2", "--pids-limit", "256",
@@ -246,6 +247,8 @@ def run(args):
         if (digest(Path(validator.__file__)) != result["firmware_validator_sha256"] or
                 digest(Path(firmware.__file__)) != result["qcom_firmware_helper_sha256"]):
             raise ValueError("Firmware validators changed during initramfs construction")
+        if args.pico_firmware and digest(Path(pico_firmware.dsp.__file__)) != result["pico_dsp_helper_sha256"]:
+            raise ValueError("Pico DSP validator changed during initramfs construction")
         if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
             raise ValueError("Quest startup inputs changed during construction")
         if digest(VOLATILE_ROOT) != result["volatile_root_dependency_sha256"]:
@@ -274,7 +277,7 @@ if __name__ == "__main__":
     parser.add_argument("--systemd-runtime", type=Path, help="prepared private systemd runtime matching this initramfs template")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
-    group.add_argument("--pico-firmware", type=Path, help="prepared Neo3 Adreno 650 firmware; requires the Pico kernel")
+    group.add_argument("--pico-firmware", type=Path, help="prepared Neo3 GPU or GPU/DSP firmware; requires the Pico kernel")
     parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
     parser.add_argument("--image", default="localhost/armada-vr:vm")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))

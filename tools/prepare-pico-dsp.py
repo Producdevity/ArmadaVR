@@ -135,7 +135,7 @@ class FirmwareVolume:
         return self.content(item['clusters'], item['bytes'])
 
 
-def inspect_files(directory):
+def inspect_files(directory, extra_files=()):
     records, domains, expected = [], [], set(DOMAIN_FILES)
     for processor in ('adsp', 'cdsp', 'slpi'):
         name = processor + '.mdt'
@@ -148,7 +148,8 @@ def inspect_files(directory):
             qcom.digest(directory / segment)
             require((directory / segment).stat().st_size == size, 'DSP segment length mismatch: ' + segment)
         require(data.endswith((directory / (processor + '.b01')).read_bytes()), 'DSP signing metadata differs')
-    require({p.name for p in directory.iterdir()} == expected, 'Missing or unexpected DSP firmware files')
+    require({p.name for p in directory.iterdir()} == expected | set(extra_files),
+            'Missing or unexpected DSP firmware files')
     for name, (processor, subdomain, instance) in DOMAIN_FILES.items():
         path = directory / name
         qcom.digest(path)
@@ -169,18 +170,21 @@ def inspect_files(directory):
     return records, domains
 
 
-def validate(directory):
-    directory = Path(directory)
-    require(not directory.is_symlink() and not (directory / 'files').is_symlink(), 'DSP directories must not be symlinks')
-    qcom.digest(directory / 'manifest.json')
-    record = json.loads((directory / 'manifest.json').read_text())
+def validate_record(record, files_directory, extra_files=()):
     require(record.get('schema_version') == 1 and record.get('status') == 'prepared' and
             record.get('component') == 'pico-neo3-dsp' and
             re.fullmatch(r'smartcm\.[0-9]{10}', record.get('reference_build', '')) and
             re.fullmatch(r'[a-f0-9]{64}', record.get('source_image_sha256', '')), 'Invalid Pico DSP manifest')
-    files, domains = inspect_files(directory / 'files')
+    files, domains = inspect_files(files_directory, extra_files)
     require(record.get('files') == files and record.get('service_domains') == domains, 'DSP bundle changed')
     return record
+
+
+def validate(directory):
+    directory = Path(directory)
+    require(not directory.is_symlink() and not (directory / 'files').is_symlink(), 'DSP directories must not be symlinks')
+    qcom.digest(directory / 'manifest.json')
+    return validate_record(json.loads((directory / 'manifest.json').read_text()), directory / 'files')
 
 
 def prepare(source, expected_sha, reference_build, output):

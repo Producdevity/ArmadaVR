@@ -163,6 +163,34 @@ Evidence is retained under `output/pico-dsp-firmware-20261012-v1/` and
 authentication, DSP startup, routing, sensor transport and recovery remain
 unverified.
 
+Pass `--dsp-firmware DSP_DIRECTORY` to `prepare-pico-firmware.py` to include
+these files with the GPU bundle. The two reference builds must match. The
+combined manifest retains both source-image identities and the DSP service
+declarations; changing either component is rejected before boot assembly.
+`build-headset-initramfs.py --pico-firmware` and the Pico root builder accept
+this combined bundle and verify its complete file inventory after packaging.
+
+The resulting physical initramfs contains 38 matching modules and 60 firmware
+files. Its SHA-256 is
+`128de360fbebdce14d5adfbaa63e22c3cbd4247b63de72fde80672320218732c`.
+The existing root was cloned and updated offline, preserving the original;
+the new root SHA-256 is
+`6803b65ae04307b43fed298cd8e10bc8b536724bf02682bb75897a966dd69f3e`.
+Re-extraction and filesystem checks pass. Its separate QEMU-module derivative
+passes the packaged-root test with all 60 firmware files, 541 runtime entries,
+128 command dependencies, user-session startup, service isolation and zero
+backing-disk writes. The normal and two missing-root initramfs cases also pass.
+The virtual board does not execute the physical DSP firmware.
+
+The updated unsigned boot container passes stock roundtrip and component
+checks, with 26,873,856 bytes of partition headroom. These artifacts are under
+`output/headset-initramfs-pico-dsp-20261012-v1/`,
+`output/headset-root-pico-dsp-20261012-v1/`,
+`output/pico-root-dsp-acceptance-20261012-v1/` and
+`output/pico-boot-container-20261012-v5/`. All 362 host tests pass. No image
+has been installed on the headset, and no automatic DSP startup service has
+been enabled by this packaging change.
+
 ## EDL identity and partition backups
 
 A serial- and USB-port-guarded software EDL entry and Sahara query succeeded on
