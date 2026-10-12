@@ -6,6 +6,7 @@
 #include "pico-controller.h"
 #include "ssc-clock.h"
 #include "pico-controller-stream.h"
+#include "pico-monado-input.h"
 
 struct state {
     GMainLoop *loop;
@@ -15,6 +16,7 @@ struct state {
     struct ssc_clock clock;
     struct pico_controller_stream stream;
     uint64_t generation;
+    struct pico_monado_input inputs[2];
     int64_t last_ns;
     unsigned samples, rejected, hands;
     gboolean opened, closing, closed, timed_out;
@@ -46,6 +48,18 @@ static void report(GObject *client, guint id, guint64 high, guint64 low,
         return;
     }
     struct pico_controller_sample sample = event.sample;
+    struct pico_monado_input *input = &state->inputs[sample.hand - 1];
+    g_assert_true(pico_monado_input_update(input, &event));
+    for (unsigned i = 0; i < PICO_MONADO_INPUT_COUNT; i++) {
+        struct xrt_input *value = &input->inputs[i];
+        g_assert_cmpint(value->timestamp, ==, event.time.timestamp_ns);
+        if (value->name == XRT_INPUT_PICO_NEO3_TRIGGER_VALUE) {
+            g_assert_true(value->active);
+            g_assert_cmpfloat(value->value.vec1.x, ==, sample.trigger / 255.0f);
+        }
+        if (value->name == XRT_INPUT_PICO_NEO3_GRIP_POSE || value->name == XRT_INPUT_PICO_NEO3_AIM_POSE)
+            g_assert_false(value->active);
+    }
     g_assert_cmpint(event.time.timestamp_ns, >, state->last_ns);
     g_assert_cmpint(event.time.uncertainty_ns, ==, 2);
     state->last_ns = event.time.timestamp_ns;
@@ -61,6 +75,11 @@ static void report(GObject *client, guint id, guint64 high, guint64 low,
     if (state->opened && state->samples >= 4 && state->hands == 6 && state->rejected) {
         state->closing = TRUE;
         pico_controller_stream_invalidate(&state->stream);
+        for (unsigned hand = 0; hand < 2; hand++) {
+            g_assert_true(pico_monado_input_disconnect(&state->inputs[hand], 2000000000));
+            for (unsigned i = 0; i < PICO_MONADO_INPUT_COUNT; i++)
+                g_assert_false(state->inputs[hand].inputs[i].active);
+        }
         ssc_sensor_close(state->sensor, NULL, closed, state);
     }
 }
@@ -93,6 +112,13 @@ static void discovered(GObject *object, GAsyncResult *result, gpointer data)
     };
     g_assert_true(pico_controller_stream_begin(&state->stream, &config));
     state->generation = state->stream.generation;
+    const struct pico_analog_calibration fixture_calibration = {
+        .stick_x = {0, 128, 255, 0, false}, .stick_y = {0, 128, 255, 0, false},
+        .trigger_pressed = 255, .grip_pressed = 255,
+    };
+    for (unsigned hand = 0; hand < 2; hand++)
+        g_assert_true(pico_monado_input_begin(&state->inputs[hand], hand + 1, state->generation,
+                                              false, &fixture_calibration));
     g_signal_connect(state->client, "report-timestamped", G_CALLBACK(report), state);
     ssc_sensor_open(state->sensor, NULL, opened, state);
 }
@@ -151,5 +177,6 @@ int main(int argc, char **argv)
     }
     if (expect_open)
         printf("SSC_CONTROLLER_RECONNECT_PASS cycles=%u\n", cycles);
+    printf("SSC_MONADO_INPUT_PASS cycles=%u\n", cycles);
     return 0;
 }

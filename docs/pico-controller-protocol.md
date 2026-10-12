@@ -129,8 +129,31 @@ macOS and ARM64 sanitizer tests cover 3,058 refusals and 1,000 subscription
 generations. The native QRTR client completes three discovery/open/delivery/close
 cycles with the packaged library on the Pico kernel; all ten suites pass.
 Evidence is under `output/pico-controller-stream-20261012-v1/`. DSP reports and
-clock calibration remain synthetic, and this receiver is not yet connected to
-Monado input delivery.
+clock calibration remain synthetic.
+
+[`pico-monado-input`](../src/pico-monado-input.h) maps accepted events to Monado's
+existing Neo3 input names: X/Y on the left, A/B on the right, menu/system,
+trigger, stick and grip, plus supported touch inputs. It clears values and
+deactivates inputs on disconnect. Analog calibration supplies explicit released
+and pressed endpoints, stick centers, ranges, dead zones and axis inversion.
+Without calibration, analog inputs remain inactive. The stock service's disabled
+axis value of 128 is not used as physical calibration. Grip and aim pose inputs
+remain inactive; no tracking result is invented.
+
+Run the adapter tests against the hash-verified Monado archive:
+
+```sh
+python3 tools/test-pico-monado-input.py /path/to/monado-source.tar.gz \
+  --output /path/to/new-results
+```
+
+macOS and native ARM64 sanitizers pass 6,912 mapping checks using actual Monado
+headers. Evidence is under `output/pico-monado-input-20261012-v1/`. The adapter
+also receives both-hand events through the native SSC client on the Pico kernel,
+including three reconnect cycles and disconnect clearing (`controller-vm-v1/`).
+Its calibration and DSP producer are synthetic. The adapter
+still needs a registered Monado device, a live SSC session owner and a verified
+physical calibration source before it can deliver device input to applications.
 
 On a Linux host with the listed development dependencies, run:
 
