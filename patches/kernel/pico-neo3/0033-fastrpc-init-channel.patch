@@ -1,0 +1,21 @@
+Subject: misc: fastrpc: validate channel before process initialization
+
+A newly opened file has cid -1 until GETINFO selects a domain. Reject an
+invalid channel before reading its security policy during INIT or INIT_ATTRS.
+
+---
+--- a/drivers/char/adsprpc.c
++++ b/drivers/char/adsprpc.c
+@@ -2464,7 +2464,11 @@
+ 
+ 	int unsigned_request = (uproc->attrs & FASTRPC_MODE_UNSIGNED_MODULE);
+ 	int cid = fl->cid;
+-	struct fastrpc_channel_ctx *chan = &me->channel[cid];
++	struct fastrpc_channel_ctx *chan;
++
++	if (cid < ADSP_DOMAIN_ID || cid >= NUM_CHANNELS)
++		return -EINVAL;
++	chan = &me->channel[cid];
+ 
+ 	if (chan->unsigned_support &&
+ 		fl->dev_minor == MINOR_NUM_DEV) {

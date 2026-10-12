@@ -137,3 +137,21 @@ records. The current userspace library cannot be installed unchanged against
 that driver. A matching vendor backend, shared-buffer allocation, SUID discovery,
 DSP lifecycle and physical output validation remain necessary. RPC message
 compatibility alone does not resolve those requirements.
+
+The kernel patch `0033-fastrpc-init-channel.patch` rejects `INIT` and
+`INIT_ATTRS` before domain selection. The original file starts with channel
+`-1` and reads the channel's security policy before the later transport check.
+The guard returns `EINVAL` before that array access. Valid domain policy and
+transport errors retain their existing behavior.
+
+`tools/test-pico-fastrpc.py` checks its initialization fixture against the
+checksum-pinned vendor source, reproduces both array-boundary failures with
+ASan, and checks the patched path with ASan/UBSan. Its transport boundary is
+stubbed; these checks do not establish DSP communication or physical boot.
+
+The rebuilt physical configuration also passes 512 real `INIT`/`INIT_ATTRS`
+calls in diskless QEMU using `tests/pico-fastrpc-ioctl.c`: both device nodes,
+32-bit and 64-bit callers, all four initialization flags and signed/unsigned
+attributes. Kernel taint is unchanged. The previous kernel fails the same
+test with `ECONNREFUSED` before selecting a domain. No DSP is attached by
+this test, and no headset is accessed.
