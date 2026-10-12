@@ -1,0 +1,23 @@
+--- a/pd-mapper.c
++++ b/pd-mapper.c
+@@ -287,7 +287,7 @@
+ 	int class_fd;
+ 	DIR *fw_dir;
+ 	size_t len;
+-	size_t n;
++	ssize_t n;
+ 
+ 	class_fd = open("/sys/class/remoteproc", O_RDONLY | O_DIRECTORY);
+ 	if (class_fd < 0) {
+@@ -315,9 +315,9 @@
+ 		if (firmware_fd < 0)
+ 			continue;
+ 
+-		n = read(firmware_fd, firmware_value, sizeof(firmware_value));
++		n = read(firmware_fd, firmware_value, sizeof(firmware_value) - 1);
+ 		close(firmware_fd);
+-		if (n < 0) {
++		if (n <= 0 || (size_t)n == sizeof(firmware_value) - 1) {
+ 			continue;
+ 		}
+ 

@@ -121,7 +121,15 @@ header read in the unmodified pinned library. Those tests run against the
 patched library source during the container build. This is a targeted fix,
 not a complete audit of the upstream JSON or QMI parsers.
 
-A second patch makes PD mapper report the actual missing firmware directory.
+The firmware-attribute read patch keeps the signed read result, rejects empty
+or potentially truncated values, and reserves space for the terminator. The
+unmodified source writes outside its buffer after an I/O error or full-buffer
+read; an empty value accidentally scans the firmware root. Actual-source
+sanitizer regressions cover all three failures and a valid firmware name.
+The runtime build runs these checks and installs the patch identity. Evidence
+is retained under `output/pico-pd-mapper-20261012-v1/read-checks/`.
+
+A separate patch makes PD mapper report the actual missing firmware directory.
 Upstream's failure message referenced an unset buffer when no custom firmware
 search path was configured.
 
@@ -134,7 +142,7 @@ python3 -B tools/test-qcom-services.py QEMU_KERNEL_BUILD QEMU_INITRAMFS_BUILD \
 
 The test requires a matching, checksum-verified QEMU kernel and firmware-bearing
 initramfs. Physical-headset kernel variants are refused. It uses an immutable
-container ID, verifies the installed source manifest and both patches, and
+container ID, verifies the installed source manifest and applied patches, and
 compiles the probe against the real libqrtr. Compilation runs without network,
 with a 60-second limit, two CPUs and 512 MiB. A separate diskless, networkless
 QEMU run is limited to 45 seconds and 1 GiB.
