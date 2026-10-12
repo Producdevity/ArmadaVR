@@ -45,6 +45,7 @@ def main():
         'u_visibility_mask.c', 'u_debug.c', 'u_logging.c',
     ]]
     inputs.append(source / 'src/external/cjson/cjson/cJSON.c')
+    prober_inputs = [ROOT / 'tests/pico-monado-prober.c', ROOT / 'src/pico-monado-prober.c']
     flags = ['-O1', '-g', '-ffunction-sections', '-fdata-sections', '-pthread',
              '-I', str(ROOT / 'src'), '-I', str(output / 'include'),
              '-isystem', str(include), '-isystem', str(auxiliary),
@@ -77,12 +78,22 @@ def main():
         if 'PICO_MONADO_DEVICE_PASS' not in log or 'events=20000 generations=1000' not in log:
             raise ValueError('Device tests did not complete')
         print(log, end='')
+        prober = output / 'pico-monado-prober'
+        run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
+             *map(str, prober_inputs), objects[-1], '-lm', '-o', str(prober)], 'prober-compile.log')
+        run([str(prober)], 'prober-test.log',
+            env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1',
+                     ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
+        log = (output / 'prober-test.log').read_text()
+        if 'PICO_MONADO_PROBER_PASS checks=123 sessions=100' not in log:
+            raise ValueError('Prober tests did not complete')
+        print(log.splitlines()[-1])
         report['status'] = 'passed'
     except Exception as error:
         report.update(status='failed', error=str(error))
         raise
     finally:
-        report['inputs_sha256'] = {str(path): digest(path) for path in inputs}
+        report['inputs_sha256'] = {str(path): digest(path) for path in inputs + prober_inputs}
         report['headers_sha256'] = {str(path.relative_to(ROOT)): digest(path) for path in (ROOT / 'src').glob('*.h')}
         report['runner_sha256'] = digest(Path(__file__))
         report['generated_config_sha256'] = digest(generated / 'xrt_config_build.h')

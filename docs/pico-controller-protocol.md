@@ -275,6 +275,30 @@ independently and may outlive the session. Status and counters are copied under
 a mutex; a failed startup or lost stream remains visible to the runtime owner.
 This source does not register a runtime builder or start the DSP.
 
+[`pico-monado-prober`](../src/pico-monado-prober.h) adapts the session to Monado's
+auto-prober interface. It stays inactive unless `PICO_SSC_CONFIG` names a
+successful b1977 receipt from the collector above and `PICO_SSC_COUNTER=1`
+explicitly enables ARM counter calibration. This is a developer opt-in; the
+receipt is not proof of the identity of the machine running Monado or of a shared
+CPU/DSP clock origin. It must only be used with the corresponding headset.
+No configuration file or environment setting is installed automatically.
+
+The prober accepts a bounded regular JSON file, rejects ambiguous or unsupported
+configuration, opens at most one session, and creates only the two controllers.
+It owns the session until prober destruction; devices may outlive it. The
+initial limits are 100 ms sample age and 500 ms stream/hand timeout, pending
+physical latency validation. Analog calibration remains absent, so only digital
+and enabled touch inputs can become active. It creates no HMD or tracked pose.
+The current packaged runtime still needs this prober's build registration.
+
+`tools/test-pico-monado-device.py` also compiles the actual prober with upstream
+Monado headers and cJSON. Its 123 checks include 100 create/destroy cycles,
+explicit opt-in, session-start failure, bad/duplicate configuration fields,
+binary/trailing data, oversized files and nonregular paths. The session and
+counter calls are stubbed in this boundary test; transport is tested separately.
+macOS and Linux ARM64 sanitizer results are retained under
+`output/pico-monado-runtime-20261012-v1/`.
+
 `tools/test-pico-ssc-session.py` builds against the pinned Monado source and a
 verified SSC bundle. On native ARM64, 100 alternating immediate-cancellation
 and unavailable-QRTR cycles pass AddressSanitizer/UndefinedBehaviorSanitizer.
