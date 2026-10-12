@@ -33,6 +33,17 @@ struct vendor_init {
     uint32_t memory_length;
     int32_t memory_fd;
 };
+struct vendor_map {
+    int32_t fd;
+    uint32_t flags;
+    uint64_t address;
+    size_t size;
+    uint64_t dsp_address;
+};
+struct vendor_unmap {
+    uint64_t dsp_address;
+    size_t size;
+};
 
 _Static_assert(sizeof(uintptr_t) == 4 || sizeof(uintptr_t) == 8, "Pico Linux ABI");
 _Static_assert(sizeof(struct vendor_arg) == 2 * sizeof(uintptr_t), "FastRPC argument ABI");
@@ -63,6 +74,42 @@ int pico_fastrpc_attach_sensors(int dev)
         return -EINVAL;
     struct vendor_init request = {.flags = 3, .file_fd = -1};
     int result = ioctl(dev, VENDOR_REQUEST(6, struct vendor_init), &request);
+    return result < 0 ? -errno : result;
+}
+
+int pico_fastrpc_set_mode(int dev, uint32_t mode)
+{
+    if (dev < 0 || (mode != 0 && mode != 1 && mode != 2 && mode != 4))
+        return -EINVAL;
+    int result = ioctl(dev, VENDOR_REQUEST(5, uint32_t), (unsigned long)mode);
+    return result < 0 ? -errno : result;
+}
+
+int pico_fastrpc_map(int dev, int fd, uint32_t flags, uintptr_t address, size_t size,
+                     uint64_t *dsp_address)
+{
+    if (dev < 0 || fd < -1 || !dsp_address || !size || size > PTRDIFF_MAX ||
+        size > UINTPTR_MAX - address)
+        return -EINVAL;
+    if (flags != 0 && flags != 4 && flags != 8 && flags != 0x1000 && flags != 0x3000)
+        return -EOPNOTSUPP;
+    if ((flags == 0 && fd < 0) || ((flags == 0x1000 || flags == 0x3000) && address))
+        return -EINVAL;
+    struct vendor_map request = {.fd = fd, .flags = flags, .address = address, .size = size};
+    int result = ioctl(dev, VENDOR_REQUEST(14, struct vendor_map), &request);
+    if (result < 0)
+        return -errno;
+    if (!result)
+        *dsp_address = request.dsp_address;
+    return result;
+}
+
+int pico_fastrpc_unmap(int dev, uint64_t dsp_address, size_t size)
+{
+    if (dev < 0 || !size || size > PTRDIFF_MAX || size > UINT64_MAX - dsp_address)
+        return -EINVAL;
+    struct vendor_unmap request = {.dsp_address = dsp_address, .size = size};
+    int result = ioctl(dev, VENDOR_REQUEST(15, struct vendor_unmap), &request);
     return result < 0 ? -errno : result;
 }
 

@@ -22,3 +22,4 @@ class PicoFastRPCTests(unittest.TestCase):
             )
             self.assertIn("cases=4608", result.stdout)
             self.assertIn("PICO_FASTRPC_UNIT_PASS", result.stdout)
+            self.assertIn("PICO_FASTRPC_MAPPING_PASS maps=60 unmaps=3 modes=8", result.stdout)

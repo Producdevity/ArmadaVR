@@ -21,6 +21,11 @@ static uint32_t expected_scalar, expected_domain, *expected_crc;
 static unsigned long expected_request;
 static unsigned calls;
 static int injected_status, injected_errno;
+static uint32_t expected_mode, expected_map_flags;
+static int32_t expected_map_fd;
+static uintptr_t expected_map_address;
+static size_t expected_map_size;
+static uint64_t expected_dsp_address;
 
 static uint32_t word(const void *data, size_t offset)
 {
@@ -42,11 +47,30 @@ static int mock_ioctl(int fd, unsigned long request, ...)
     calls++;
     va_list ap;
     va_start(ap, request);
+    unsigned number = request & 255;
+    if (number == 5) {
+        assert(va_arg(ap, unsigned long) == expected_mode);
+        va_end(ap);
+        errno = injected_errno;
+        return injected_status;
+    }
     void *data = va_arg(ap, void *);
     va_end(ap);
     size_t width = sizeof(uintptr_t);
-    unsigned number = request & 255;
-    if (number == 8) {
+    if (number == 14) {
+        assert(word(data, 0) == (uint32_t)expected_map_fd);
+        assert(word(data, 4) == expected_map_flags);
+        uint64_t mapped_address;
+        memcpy(&mapped_address, (char *)data + 8, 8);
+        assert(mapped_address == expected_map_address);
+        assert(address(data, 16) == expected_map_size);
+        memcpy((char *)data + 24, &expected_dsp_address, 8);
+    } else if (number == 15) {
+        uint64_t mapped_address;
+        memcpy(&mapped_address, data, 8);
+        assert(mapped_address == expected_dsp_address);
+        assert(address(data, 8) == expected_map_size);
+    } else if (number == 8) {
         assert(word(data, 0) == expected_domain);
         *(uint32_t *)data = 1;
     } else if (number == 6) {
@@ -80,6 +104,74 @@ static int mock_ioctl(int fd, unsigned long request, ...)
     }
     errno = injected_errno;
     return injected_status;
+}
+
+static void mapping_tests(void)
+{
+    const uint32_t modes[] = {0, 1, 2, 4};
+    for (unsigned i = 0; i < 4; i++) {
+        expected_mode = modes[i];
+        expected_request = 0xc0045205;
+        injected_status = 0;
+        assert(pico_fastrpc_set_mode(7, expected_mode) == 0);
+        injected_status = -1;
+        injected_errno = EINTR;
+        unsigned before = calls;
+        assert(pico_fastrpc_set_mode(7, expected_mode) == -EINTR);
+        assert(calls == before + 1);
+    }
+    const uint32_t flags[] = {0, 4, 8, 0x1000, 0x3000};
+    const size_t sizes[] = {1, 4096, 851968, 0x7ffff000};
+    expected_dsp_address = UINT64_C(0x123456781000);
+    for (unsigned f = 0; f < 5; f++) {
+        expected_map_flags = flags[f];
+        expected_map_fd = f ? -1 : 0;
+        expected_map_address = f ? 0 : 0x1000;
+        for (unsigned n = 0; n < 4; n++) {
+            expected_map_size = sizes[n];
+            expected_request = 0xc020520e;
+            for (int status = -1; status < 2; status++) {
+                uint64_t output = UINT64_MAX;
+                injected_status = status;
+                injected_errno = EIO;
+                unsigned before = calls;
+                assert(pico_fastrpc_map(7, expected_map_fd, expected_map_flags,
+                                        expected_map_address, expected_map_size,
+                                        &output) == (status < 0 ? -EIO : status));
+                assert(calls == before + 1);
+                assert(output == (status == 0 ? expected_dsp_address : UINT64_MAX));
+            }
+        }
+    }
+    expected_request = 0xc010520f;
+    for (int status = -1; status < 2; status++) {
+        injected_status = status;
+        injected_errno = EINTR;
+        unsigned before = calls;
+        assert(pico_fastrpc_unmap(7, expected_dsp_address, expected_map_size) ==
+               (status < 0 ? -EINTR : status));
+        assert(calls == before + 1);
+    }
+    unsigned before = calls;
+    uint64_t output = 99;
+    assert(pico_fastrpc_set_mode(7, 3) == -EINVAL);
+    assert(pico_fastrpc_set_mode(-1, 0) == -EINVAL);
+    assert(pico_fastrpc_map(-1, 0, 0, 0, 4096, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, -2, 0, 0, 4096, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, -1, 0, 0, 4096, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 0, 0, 0, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 0, UINTPTR_MAX, 2, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 0, 0, SIZE_MAX, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 0, 0, 4096, NULL) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 2, 0, 4096, &output) == -EOPNOTSUPP);
+    assert(pico_fastrpc_map(7, 0, 0x1000, 1, 4096, &output) == -EINVAL);
+    assert(pico_fastrpc_map(7, 0, 0x3000, 1, 4096, &output) == -EINVAL);
+    assert(pico_fastrpc_unmap(-1, 0x1000, 4096) == -EINVAL);
+    assert(pico_fastrpc_unmap(7, 0x1000, 0) == -EINVAL);
+    assert(pico_fastrpc_unmap(7, 0x1000, SIZE_MAX) == -EINVAL);
+    assert(pico_fastrpc_unmap(7, UINT64_MAX, 4096) == -EINVAL);
+    assert(calls == before && output == 99);
+    puts("PICO_FASTRPC_MAPPING_PASS maps=60 unmaps=3 modes=8");
 }
 
 static void setup_tests(void)
@@ -207,6 +299,7 @@ int main(void)
     setup_tests();
     invoke_tests();
     rejection_tests();
+    mapping_tests();
     puts("PICO_FASTRPC_UNIT_PASS");
     return 0;
 }

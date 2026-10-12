@@ -44,6 +44,15 @@ static int test_transport(void)
         for (unsigned cycle = 0; cycle < 8; cycle++) {
             int dev = open(nodes[n], O_RDWR | O_CLOEXEC);
             CHECK(dev >= 0);
+            const uint32_t modes[] = {0, 1, 2, 4};
+            for (unsigned m = 0; m < 4; m++) {
+                CHECK(pico_fastrpc_set_mode(dev, modes[m]) == 0);
+                cases++;
+            }
+            uint64_t dsp_address = UINT64_MAX;
+            CHECK(pico_fastrpc_map(dev, 0, 0, 0, 4096, &dsp_address) == EBADR);
+            CHECK(dsp_address == UINT64_MAX);
+            cases++;
             CHECK(pico_fastrpc_attach_sensors(dev) == -EINVAL);
             cases++;
             for (unsigned mode = 0; mode < 4; mode++) {

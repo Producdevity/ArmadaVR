@@ -26,6 +26,14 @@ struct pico_fastrpc_arg {
  * the vendor driver can retain the domain even when GETINFO fails. */
 int pico_fastrpc_select_domain(int dev, uint32_t domain, uint32_t *info);
 int pico_fastrpc_attach_sensors(int dev);
+int pico_fastrpc_set_mode(int dev, uint32_t mode);
+
+/* Map/unmap the borrowed DMA-BUF through the vendor's 64-bit address ioctls.
+ * The caller keeps it alive until confirmed unmap or session teardown.
+ * Failure preserves the returned DSP address. */
+int pico_fastrpc_map(int dev, int fd, uint32_t flags, uintptr_t address, size_t size,
+                     uint64_t *dsp_address);
+int pico_fastrpc_unmap(int dev, uint64_t dsp_address, size_t size);
 
 /* Arguments use vendor attribute bits, not the mainline NOVA value (256).
  * Buffer arguments contain a CPU address and length; DMA handle arguments

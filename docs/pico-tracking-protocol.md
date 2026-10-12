@@ -186,3 +186,9 @@ the pinned kernel header for both ABIs. The diskless VM checks rejection before
 domain selection and preserves the normal/secure node policy differences; it
 also runs the packing tests on both ABIs. Successful DSP attachment, reverse-RPC
 listener integration and sensor delivery still require the native runtime path.
+
+The adapter also exposes vendor mode control and 64-bit map/unmap requests
+for listener allocations. It preserves the returned DSP address on failure
+and retains positive driver error results, including the vendor's `EBADR`
+response to mapping before initialization. Mapping success, cache behavior
+and DSP teardown are not established by the rejection tests.
