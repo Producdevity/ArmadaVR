@@ -122,13 +122,23 @@ On a Linux host with the listed development dependencies, run:
 python3 tools/test-ssc-reports.py /path/to/pinned/libssc --output /path/to/new-results
 ```
 
-The runner verifies source hashes, applies the patch with zero fuzz, generates
+The runner verifies source hashes, applies the patches with zero fuzz, generates
 protobuf-C bindings, and tests the actual original and patched dispatchers with
 AddressSanitizer and UndefinedBehaviorSanitizer. It checks multiple reports,
 SUIDs, zero and maximum timestamps, malformed outer messages, legacy mutation,
 and payload decoding after the wire buffer and client have been destroyed.
 The encoded events also pass an independent Google protobuf parser loaded with
 the exact Pico `sns_client.proto` and `sns_ble_mcu.proto` descriptors.
+
+The [`object cleanup` patch](../patches/libssc/0003-release-partial-and-repeated-disposal.patch)
+also releases a partially initialized client's QRTR bus and makes repeated
+sensor disposal safe. The same runner reproduces the original bus leak and
+double-free, then checks the patched source with sanitizers and GObject weak
+references. The rebuilt library passes all 15 upstream cases and the three
+controller cases on the Pico kernel. Evidence is under
+`output/pico-ssc-lifetime-20261012-v1/`; `controller-vm-v1/verification-v2.json`
+rechecks the saved kernel records after the original host checker incorrectly
+expected three suites instead of ten. This does not verify physical reconnects.
 
 The dispatcher test does not open QRTR or start a DSP. Docker's current kernel
 does not provide AF_QIPCRTR. A separate diskless VM runs the exact Pico kernel

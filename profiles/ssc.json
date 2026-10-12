@@ -5,10 +5,11 @@
   "license": "GPL-3.0-or-later",
   "source_archive_sha256": "ff723a4aa39f692e3a53d6dbf64d5b7831c6a6839eb98a9dfb2acd5de2030357",
   "report_source_sha256": "9706915d79ebc504063900f4f748332d394b4d5c70900dd5a4824dfc00e9ff09",
-  "patched_report_source_sha256": "4177763002e2a6f0d02fbab07cddef3f504a7984730ff8fc1b2070853ec70b12",
+  "patched_report_source_sha256": "3143649a76ae912396cc6334767cb667972fbc630c811bb14e64029ded7ced1b",
   "patches": [
     "patches/libssc/0001-report-timestamps.patch",
-    "patches/libssc/0002-ble-mcu-startup.patch"
+    "patches/libssc/0002-ble-mcu-startup.patch",
+    "patches/libssc/0003-release-partial-and-repeated-disposal.patch"
   ],
   "hardware_verified": false,
   "test_source_sha256": {
@@ -18,7 +19,8 @@
     "src/libssc-common-private.h": "b8b2b2771c465175c1f09739286c568a0c37eb8fc91dbe240c5e8dfc78609816",
     "src/libssc-sensor.h": "eea6b1a6b316c8fa8408e9d0a25f6e7b697859d7f4ed6564918c418c2dcf73b2",
     "data/ssc-common.proto": "1fb2d07b2f752723c1e9d4927c52247a6900c66be2dc3cbf4e26e8a08e682165",
-    "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885"
+    "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885",
+    "data/ssc-sensor-suid.proto": "e7237d39dffa248ca84bf65bacf255cbae3176cf67f05c1068947cd77fe34e76"
   },
-  "patched_sensor_source_sha256": "efbe8001ef78aff442117be5ad2baf89eb8311a759c36f90fe48e50f21bd2f09"
+  "patched_sensor_source_sha256": "d6d1b32700f735a4f9bedf0b8ad083e8c65918e121e878757f4b4fd24b850831"
 }

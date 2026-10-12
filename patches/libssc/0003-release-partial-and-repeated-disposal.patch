@@ -1,0 +1,53 @@
+--- a/src/libssc-client.c
++++ b/src/libssc-client.c
+@@ -412,7 +412,7 @@
+ 
+ 	if (!priv->qmi_client_ssc) {
+ 		g_debug ("No SSC QMI client to release.");
+-		return;
++		goto cleanup;
+ 	}
+ 
+ 	ssc_common_init_sync_context (&ctx);
+@@ -451,13 +451,14 @@
+ 	if (!qmi_device_close_finish (priv->device, ctx.result, &error))
+ 		g_warning ("Could not close SSC QMI client: %s\n", error->message);
+ 
++	ssc_common_clear_sync_context (&ctx);
++
++cleanup:
+ 	g_clear_object (&priv->qmi_client_ssc);
+ 	g_clear_object (&priv->device);
+ 	g_clear_object (&priv->bus);
+ 
+ 	G_OBJECT_CLASS (ssc_client_parent_class)->dispose (object);
+-
+-	ssc_common_clear_sync_context (&ctx);
+ }
+ 
+ static void
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -822,16 +822,14 @@
+ 
+ 	g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
+ 
+-	if (priv->name)
+-		g_free (priv->name);
+-
+-	if (priv->vendor)
+-		g_free (priv->vendor);
+-
+-	if (priv->data_type)
+-		g_free (priv->data_type);
++	g_clear_pointer (&priv->name, g_free);
++
++	g_clear_pointer (&priv->vendor, g_free);
++
++	g_clear_pointer (&priv->data_type, g_free);
+ 
+ 	g_clear_object (&priv->client);
++	G_OBJECT_CLASS (ssc_sensor_parent_class)->dispose (object);
+ }
+ 
+ static void

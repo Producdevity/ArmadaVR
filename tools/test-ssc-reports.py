@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify timestamp and payload ownership in the pinned native SSC dispatcher."""
+"""Verify SSC report ownership, timestamps and object cleanup in pinned sources."""
 import argparse
 import hashlib
 import json
@@ -43,11 +43,12 @@ def main():
     generated = output / "generated"
     generated.mkdir()
     subprocess.run(["protoc-c", "--proto_path=" + str(source / "data"),
-                    "--c_out=" + str(generated), str(source / "data/ssc-common.proto")],
+                    "--c_out=" + str(generated), str(source / "data/ssc-common.proto"),
+                    str(source / "data/ssc-sensor-suid.proto")],
                    check=True, timeout=10)
     flags = shlex.split(subprocess.check_output(
-        ["pkg-config", "--cflags", "--libs", "gio-2.0", "qmi-glib", "libprotobuf-c"], text=True))
-    commands = {}
+        ["pkg-config", "--cflags", "--libs", "gio-2.0", "qmi-glib", "qrtr-glib", "libprotobuf-c"], text=True))
+    commands, lifetime = {}, {}
     for name, tree in (("original", source), ("patched", patched)):
         binary = output / ("test-" + name)
         command = [args.cc, "-std=gnu11", "-g", "-O1", "-Wall", "-Wextra", "-Werror",
@@ -66,11 +67,35 @@ def main():
             subprocess.run([str(binary)], env=env, stdout=log, stderr=subprocess.STDOUT,
                            check=True, timeout=15)
         commands[name] = command
+        for kind in ("sensor", "client"):
+            test = output / f"lifetime-{name}-{kind}"
+            counterpart = "libssc-client.c" if kind == "sensor" else "libssc-sensor.c"
+            command = [args.cc, "-std=gnu11", "-g", "-O1", "-Wall", "-Wextra", "-Werror",
+                       "-Wno-unused-parameter", "-fsanitize=address,undefined", '-DG_LOG_DOMAIN="libssc"']
+            if kind == "client":
+                command.append("-DTEST_CLIENT")
+            command += ["-I" + str(tree / "src"), "-I" + str(generated),
+                        str(ROOT / "tests/ssc-lifetime.c"), str(tree / "src" / counterpart),
+                        str(tree / "src/libssc-common.c"), str(generated / "ssc-common.pb-c.c"),
+                        str(generated / "ssc-sensor-suid.pb-c.c"), *flags, "-o", str(test)]
+            with (output / f"build-lifetime-{name}-{kind}.log").open("w") as log:
+                subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+            result = subprocess.run([str(test)], env=env, capture_output=True, text=True, timeout=15)
+            log = result.stdout + result.stderr
+            (output / f"lifetime-{name}-{kind}.log").write_text(log)
+            if name == "original":
+                marker = "attempting double-free" if kind == "sensor" else "'freed' should be TRUE"
+                if result.returncode == 0 or marker not in log:
+                    raise ValueError("Original lifetime defect was not reproduced: " + kind)
+            elif result.returncode != 0 or "SSC_LIFETIME_PASS" not in log:
+                raise ValueError("Patched lifetime check failed: " + kind)
+            lifetime[name + "-" + kind] = {"command": command, "returncode": result.returncode}
     if (output / "wire-original.pb").read_bytes() != (output / "wire-patched.pb").read_bytes():
         raise ValueError("The test inputs differ between source revisions")
     report = {"passed": True, "source_commit": profile["commit"],
               "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
               "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
+              "lifetime_test_sha256": digest(ROOT / "tests/ssc-lifetime.c"), "lifetime": lifetime,
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")
