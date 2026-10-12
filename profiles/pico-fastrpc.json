@@ -1,0 +1,41 @@
+{
+  "repository": "https://github.com/qualcomm/fastrpc",
+  "commit": "a56e9d4de3614a8d8f4b0e15ff561350c4b686e3",
+  "archive_url": "https://api.github.com/repos/qualcomm/fastrpc/tarball/a56e9d4de3614a8d8f4b0e15ff561350c4b686e3",
+  "archive_root": "qualcomm-fastrpc-a56e9d4",
+  "source_archive_sha256": "e92e6519f909f7653fb9032c8d0cdeefbb804ad77e652e51bea015956cb96012",
+  "license": "BSD-3-Clause",
+  "architecture": "aarch64",
+  "patches": [
+    "patches/fastrpc/0001-pico-vendor-backend.patch"
+  ],
+  "sources": [
+    "pico-fastrpc.c",
+    "pico-fastrpc.h",
+    "ion-buffer.c",
+    "ion-buffer.h",
+    "pico-rpcmem.c"
+  ],
+  "runtime_dependencies": {
+    "libbsd0:arm64": {
+      "version": "0.11.7-2",
+      "library": "libbsd.so.0",
+      "target": "libbsd.so.0.11.7",
+      "copyright": "libbsd0/copyright"
+    },
+    "libmd0:arm64": {
+      "version": "1.0.4-2",
+      "library": "libmd.so.0",
+      "target": "libmd.so.0.0.5",
+      "copyright": "libmd0/copyright"
+    },
+    "libyaml-0-2:arm64": {
+      "version": "0.2.5-1",
+      "library": "libyaml-0.so.2",
+      "target": "libyaml-0.so.2.0.9",
+      "copyright": "libyaml-0-2/copyright"
+    }
+  },
+  "hardware_verified": false,
+  "flash_ready": false
+}

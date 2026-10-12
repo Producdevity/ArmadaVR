@@ -192,3 +192,8 @@ for listener allocations. It preserves the returned DSP address on failure
 and retains positive driver error results, including the vendor's `EBADR`
 response to mapping before initialization. Mapping success, cache behavior
 and DSP teardown are not established by the rejection tests.
+
+The [native FastRPC bundle](pico-fastrpc.md) reuses Qualcomm's listener and
+buffer registry with this adapter and the ION allocator. Its isolated runtime
+test covers allocation/registration/release through the complete library;
+the physical DSP and tracking stream remain unverified.

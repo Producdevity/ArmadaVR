@@ -1,0 +1,309 @@
+--- a/inc/fastrpc_ioctl.h
++++ b/inc/fastrpc_ioctl.h
+@@ -27,17 +27,17 @@
+ #define FASTRPC_IOCTL_SET_OPTION		_IOWR('R', 12, struct fastrpc_ioctl_set_option)
+ #define FASTRPC_IOCTL_GET_DSP_INFO		_IOWR('R', 13, struct fastrpc_ioctl_capability)
+ 
+-#define ADSPRPC_DEVICE "/dev/fastrpc-adsp"
+-#define SDSPRPC_DEVICE "/dev/fastrpc-sdsp"
+-#define MDSPRPC_DEVICE "/dev/fastrpc-mdsp"
+-#define CDSPRPC_DEVICE "/dev/fastrpc-cdsp"
++#define ADSPRPC_DEVICE "/dev/adsprpc-smd"
++#define SDSPRPC_DEVICE "/dev/adsprpc-smd"
++#define MDSPRPC_DEVICE "/dev/adsprpc-smd"
++#define CDSPRPC_DEVICE "/dev/adsprpc-smd"
+ #define CDSP1RPC_DEVICE "/dev/fastrpc-cdsp1"
+ #define GDSP0RPC_DEVICE "/dev/fastrpc-gdsp0"
+ #define GDSP1RPC_DEVICE "/dev/fastrpc-gdsp1"
+-#define ADSPRPC_SECURE_DEVICE "/dev/fastrpc-adsp-secure"
+-#define SDSPRPC_SECURE_DEVICE "/dev/fastrpc-sdsp-secure"
+-#define MDSPRPC_SECURE_DEVICE "/dev/fastrpc-mdsp-secure"
+-#define CDSPRPC_SECURE_DEVICE "/dev/fastrpc-cdsp-secure"
++#define ADSPRPC_SECURE_DEVICE "/dev/adsprpc-smd-secure"
++#define SDSPRPC_SECURE_DEVICE "/dev/adsprpc-smd-secure"
++#define MDSPRPC_SECURE_DEVICE "/dev/adsprpc-smd-secure"
++#define CDSPRPC_SECURE_DEVICE "/dev/adsprpc-smd-secure"
+ #define CDSP1RPC_SECURE_DEVICE "/dev/fastrpc-cdsp1-secure"
+ #define GDSP0RPC_SECURE_DEVICE "/dev/fastrpc-gdsp0-secure"
+ #define GDSP1RPC_SECURE_DEVICE "/dev/fastrpc-gdsp1-secure"
+--- a/src/Makefile.am
++++ b/src/Makefile.am
+@@ -18,6 +18,7 @@
+ 		fastrpc_mem.c \
+ 		fastrpc_notif.c \
+ 		fastrpc_ioctl.c \
++		pico-fastrpc.c \
+ 		fastrpc_log.c \
+ 		fastrpc_procbuf.c \
+ 		fastrpc_cap.c \
+@@ -29,7 +30,8 @@
+ 		apps_std_imp.c \
+ 		apps_mem_imp.c \
+ 		apps_mem_skel.c \
+-		rpcmem_linux.c \
++		pico-rpcmem.c \
++		ion-buffer.c \
+ 		adspmsgd.c \
+ 		adspmsgd_printf.c \
+ 		std_path.c \
+--- a/src/fastrpc_apps_user.c
++++ b/src/fastrpc_apps_user.c
+@@ -3675,8 +3675,7 @@
+            __func__, domain);
+       flags = FASTRPC_INIT_ATTACH_SENSORS;
+       ioErr = ioctl_init(dev, flags, 0, (unsigned char *)0, 0, -1, 0, 0, 0, 0);
+-      VERIFYC((!ioErr || errno == ENOTTY || errno == ENXIO || errno == EINVAL),
+-              AEE_ERPC);
++      VERIFYC(!ioErr, AEE_ERPC);
+     } else if (pd_type == USERPD) {
+       uint64_t len = 0;
+       int readlen = 0, eof;
+--- a/src/fastrpc_ioctl.c
++++ b/src/fastrpc_ioctl.c
+@@ -9,59 +9,40 @@
+ #include "fastrpc_notif.h"
+ #include "remote.h"
+ #include <sys/ioctl.h>
++#include "pico-fastrpc.h"
++
++static int vendor_status(int result) {
++  if (result < 0) { errno = -result; return -1; }
++  return result;
++}
++static int vendor_unsupported(void) { errno = ENOTTY; return -1; }
++
+ 
+ int ioctl_init(int dev, uint32_t flags, int attr, unsigned char *shell, int shelllen,
+                int shellfd, char *mem, int memlen, int memfd, int tessiglen) {
+-  int ioErr = 0;
+-  struct fastrpc_ioctl_init_create init = {0};
+-  struct fastrpc_ioctl_init_create_static init_static = {0};
+-
+-  switch (flags) {
+-  case FASTRPC_INIT_ATTACH:
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_INIT_ATTACH, NULL);
+-    break;
+-  case FASTRPC_INIT_ATTACH_SENSORS:
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_INIT_ATTACH_SNS, NULL);
+-    break;
+-  case FASTRPC_INIT_CREATE_STATIC:
+-    init_static.namelen = shelllen;
+-    init_static.memlen = memlen;
+-    init_static.name = (uint64_t)(uintptr_t)shell;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_INIT_CREATE_STATIC,
+-                  (unsigned long)&init_static);
+-    break;
+-  case FASTRPC_INIT_CREATE:
+-    init.file = (uint64_t)(uintptr_t)shell;
+-    init.filelen = shelllen;
+-    init.filefd = shellfd;
+-    init.attrs = attr;
+-    init.siglen = tessiglen;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_INIT_CREATE, (unsigned long)&init);
+-    break;
+-  default:
+-    FARF(ERROR, "ERROR: %s Invalid init flags passed %d", __func__, flags);
+-    ioErr = AEE_EBADPARM;
+-    break;
+-  }
+-
+-  return ioErr;
++  if (flags != FASTRPC_INIT_ATTACH_SENSORS || attr || shell || shelllen ||
++      shellfd != -1 || mem || memlen || memfd || tessiglen)
++    return vendor_status(-EOPNOTSUPP);
++  return vendor_status(pico_fastrpc_attach_sensors(dev));
+ }
+ 
+ int ioctl_invoke(int dev, int req, remote_handle handle, uint32_t sc, void *pra,
+                  int *fds, unsigned int *attrs, unsigned int *crc,
+                  uint64_t *perf_kernel, uint64_t *perf_dsp) {
+-  int ioErr = AEE_SUCCESS;
+-  struct fastrpc_ioctl_invoke invoke = {0};
+-
+-  invoke.handle = handle;
+-  invoke.sc = sc;
+-  invoke.args = (uint64_t)(uintptr_t)pra;
+-  if (req >= INVOKE && req <= INVOKE_FD)
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_INVOKE, (unsigned long)&invoke);
+-  else
+-    return AEE_EUNSUPPORTED;
+-
+-  return ioErr;
++  if (req < INVOKE || req > INVOKE_CRC || fds || attrs || perf_kernel || perf_dsp)
++    return vendor_unsupported();
++  size_t count = REMOTE_SCALARS_LENGTH(sc);
++  if (count && !pra) { errno = EINVAL; return -1; }
++  struct fastrpc_invoke_args *input = pra;
++  struct pico_fastrpc_arg args[540];
++  for (size_t i = 0; i < count; i++) {
++    uint32_t attributes = input[i].attr;
++    if (attributes & ~UINT32_C(0x17e)) { errno = EINVAL; return -1; }
++    if (attributes & FASTRPC_ATTR_NOVA)
++      attributes = (attributes & ~FASTRPC_ATTR_NOVA) | PICO_FASTRPC_NOVA;
++    args[i] = (struct pico_fastrpc_arg){input[i].ptr, input[i].length, input[i].fd, attributes};
++  }
++  return vendor_status(pico_fastrpc_invoke(dev, handle, sc, args, count, crc));
+ }
+ 
+ int ioctl_invoke2_notif(int dev, int *domain, int *session, int *status) {
+@@ -70,108 +51,63 @@
+ 
+ int ioctl_mmap(int dev, int req, uint32_t flags, int attr, int fd, int offset,
+                size_t len, uintptr_t vaddrin, uint64_t *vaddrout) {
+-  int ioErr = AEE_SUCCESS;
+-
+-  switch (req) {
+-  case MEM_MAP: {
+-    struct fastrpc_ioctl_mem_map map = {0};
+-    map.version = 0;
+-    map.fd = fd;
+-    map.offset = offset;
+-    map.flags = flags;
+-    map.vaddrin = (uint64_t)vaddrin;
+-    map.length = len;
+-    map.attrs = attr;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_MEM_MAP, (unsigned long)&map);
+-    *vaddrout = (uint64_t)map.vaddrout;
+-  } break;
+-  case MMAP:
+-  case MMAP_64: {
+-    struct fastrpc_ioctl_req_mmap map = {0};
+-    map.fd = fd;
+-    map.flags = flags;
+-    map.vaddrin = (uint64_t)vaddrin;
+-    map.size = len;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_MMAP, (unsigned long)&map);
+-    *vaddrout = (uint64_t)map.vaddrout;
+-  } break;
+-  default:
+-    FARF(ERROR, "ERROR: %s Invalid request passed %d", __func__, req);
+-    ioErr = AEE_EBADPARM;
+-    break;
+-  }
+-  return ioErr;
++  if (offset || attr || (req != MMAP && req != MMAP_64 && req != MEM_MAP))
++    return vendor_unsupported();
++  if (req == MEM_MAP && flags != FASTRPC_MAP_STATIC)
++    return vendor_unsupported();
++  return vendor_status(pico_fastrpc_map(dev, fd, flags, vaddrin, len, vaddrout));
+ }
+ 
+ int ioctl_munmap(int dev, int req, int attr, void *buf, int fd, int len,
+                  uint64_t vaddr) {
+-  int ioErr = AEE_SUCCESS;
+-
+-  switch (req) {
+-  case MEM_UNMAP:
+-  case MUNMAP_FD: {
+-    struct fastrpc_ioctl_mem_unmap unmap = {0};
+-    unmap.version = 0;
+-    unmap.fd = fd;
+-    unmap.vaddr = vaddr;
+-    unmap.length = len;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_MEM_UNMAP, (unsigned long)&unmap);
+-  } break;
+-  case MUNMAP:
+-  case MUNMAP_64: {
+-    struct fastrpc_ioctl_req_munmap unmap = {0};
+-    unmap.vaddrout = vaddr;
+-    unmap.size = (ssize_t)len;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_MUNMAP, (unsigned long)&unmap);
+-  } break;
+-  default:
+-    FARF(ERROR, "ERROR: %s Invalid request passed %d", __func__, req);
+-    break;
++  if (len <= 0) { errno = EINVAL; return -1; }
++  if (req == MUNMAP_FD) {
++    if (sizeof(void *) != 8) return vendor_unsupported();
++    struct { int32_t fd; uint32_t flags; uintptr_t address; intptr_t length; } request =
++      {fd, 0, (uintptr_t)buf, len};
++    return ioctl(dev, 0xc018520dUL, &request);
+   }
+-
+-  return ioErr;
++  if (attr || (req != MUNMAP && req != MUNMAP_64 && req != MEM_UNMAP))
++    return vendor_unsupported();
++  return vendor_status(pico_fastrpc_unmap(dev, vaddr, (size_t)len));
+ }
+ 
+ int ioctl_getinfo(int dev, uint32_t *info) {
+-  *info = 1;
+-  return AEE_SUCCESS;
++  if (!info) { errno = EINVAL; return -1; }
++  return vendor_status(pico_fastrpc_select_domain(dev, *info, info));
+ }
+ 
+ int ioctl_getdspinfo(int dev, int domain, uint32_t attr, uint32_t *capability) {
+-  int ioErr = AEE_SUCCESS;
+-  static struct fastrpc_ioctl_capability cap = {0};
+-
+-  if (attr >= PERF_V2_DRIVER_SUPPORT && attr < FASTRPC_MAX_ATTRIBUTES) {
+-    *capability = 0;
+-    return 0;
+-  }
+-
+-  cap.domain = domain;
+-  cap.attribute_id = attr;
+-  cap.capability = 0;
+-  ioErr = ioctl(dev, FASTRPC_IOCTL_GET_DSP_INFO, &cap);
+-  *capability = cap.capability;
+-  return ioErr;
++  if (!capability || domain < 0 || domain >= 4) { errno = EINVAL; return -1; }
++  if (attr >= 7) { *capability = 0; return 0; }
++  struct { uint32_t domain, attributes[7]; } request = {.domain = domain};
++  int result = ioctl(dev, 0xc0205210UL, &request);
++  if (!result) *capability = request.attributes[attr];
++  return result;
+ }
+ 
+ int ioctl_setmode(int dev, int mode) {
+-  if (mode == FASTRPC_SESSION_ID1)
+-    return AEE_SUCCESS;
+-
+-  return AEE_EUNSUPPORTED;
++  return vendor_status(pico_fastrpc_set_mode(dev, (uint32_t)mode));
+ }
+ 
+ int ioctl_control(int dev, int req, void *c) {
+-  int ioErr = AEE_SUCCESS;
+-  struct fastrpc_ioctl_set_option opt = {0};
+-
+-  if (req == FASTRPC_POLL_MODE) {
+-    opt = *(struct fastrpc_ioctl_set_option *)c;
+-    ioErr = ioctl(dev, FASTRPC_IOCTL_SET_OPTION, &opt);
+-
+-    return ioErr;
++  struct { uint32_t request, values[2]; } control = {0};
++  if (!c) { errno = EINVAL; return -1; }
++  switch (req) {
++  case DSPRPC_CONTROL_LATENCY:
++    control.request = 1; memcpy(control.values, c, 8); break;
++  case DSPRPC_KALLOC_SUPPORT:
++    control.request = 3; break;
++  case DSPRPC_CONTROL_WAKELOCK:
++    control.request = 4; memcpy(control.values, c, 4); break;
++  case DSPRPC_PM:
++    control.request = 5; memcpy(control.values, c, 4); break;
++  default:
++    return vendor_unsupported();
+   }
+-  return AEE_EUNSUPPORTED;
++  int result = ioctl(dev, 0xc00c520cUL, &control);
++  if (!result && req == DSPRPC_KALLOC_SUPPORT) memcpy(c, control.values, 4);
++  return result;
+ }
+ 
+ int ioctl_getperf(int dev, int key, void *data, int *datalen) {
+--- a/src/fastrpc_mem.c
++++ b/src/fastrpc_mem.c
+@@ -336,6 +336,10 @@
+     }
+   }
+   return nErr;
++}
++
++int pico_rpcmem_register(void *buf, size_t size, int fd) {
++  return remote_register_buf_common(buf, size, fd, 0);
+ }
+ 
+ void remote_register_buf(void *buf, int size, int fd) {
