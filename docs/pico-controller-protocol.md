@@ -116,6 +116,22 @@ native SSC controller client also uses it on both-hand reports in the Pico
 kernel VM. Evidence is under `output/pico-ssc-clock-20261012-v1/`; its clock
 calibration and DSP reports are synthetic, so physical timing remains unverified.
 
+[`pico-controller-stream`](../src/pico-controller-stream.h) combines the payload
+decoder and clock mapper with subscription identity. Each new subscription has
+a generation number; callbacks must retain their original number. Reports from
+an old generation, another SUID, or another message type are refused. Timestamp
+ordering is independent for each hand, so a newer left-hand report does not
+discard a valid right-hand report. Duplicate, reversed, stale, future and
+host-clock-regressing reports leave both stream state and output unchanged.
+Disconnect invalidates the stream immediately; consumers must release active
+controls and obtain a fresh calibration before resubscribing.
+macOS and ARM64 sanitizer tests cover 3,058 refusals and 1,000 subscription
+generations. The native QRTR client completes three discovery/open/delivery/close
+cycles with the packaged library on the Pico kernel; all ten suites pass.
+Evidence is under `output/pico-controller-stream-20261012-v1/`. DSP reports and
+clock calibration remain synthetic, and this receiver is not yet connected to
+Monado input delivery.
+
 On a Linux host with the listed development dependencies, run:
 
 ```sh
