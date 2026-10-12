@@ -171,3 +171,18 @@ Fault tests cover allocation/mapping failures, ownership preservation and
 all CPU access modes. The real kernel test uses a virtual system heap and
 checks both ABIs, cached/uncached memory, zeroed allocation, alias mappings
 and cleanup. Physical cache coherency and sensor-DSP mapping remain unverified.
+
+`src/pico-fastrpc.c` implements domain selection, sensor attachment and the
+vendor invoke variants. It packs pointer-sized buffer records plus separate
+FD/attribute arrays, checks scalar argument counts and rejects truncating
+addresses or DMA offsets. The vendor NOVA bit is `1`, unlike current mainline
+userspace's `256`. CRC calls retain the vendor's 64-entry output array.
+Descriptors remain caller-owned; a failed GETINFO requires reopening because
+the kernel may retain the selected domain even when session allocation fails.
+Neither attachment errors nor interrupted invocations are treated as success.
+
+The adapter tests compare ioctl bytes and compile layout assertions against
+the pinned kernel header for both ABIs. The diskless VM checks rejection before
+domain selection and preserves the normal/secure node policy differences; it
+also runs the packing tests on both ABIs. Successful DSP attachment, reverse-RPC
+listener integration and sensor delivery still require the native runtime path.
