@@ -57,6 +57,14 @@ class ArgumentTests(unittest.TestCase):
         self.assertNotIn("armada.quest=usb-root", plain)
         self.assertEqual(enabled, plain + ["armada.quest=usb-root"])
 
+    def test_pico_startup_preserves_locator_enablement_and_root_protections(self):
+        plain = assembly.root_arguments("armada-vr-root").split()
+        enabled = assembly.root_arguments("armada-vr-root", pico_services=True).split()
+        self.assertEqual(enabled, plain + ["armada.pico=qrtr", "service_locator.enable=1"])
+        self.assertNotIn("armada.quest=usb-root", enabled)
+        with self.assertRaisesRegex(ValueError, "one headset"):
+            assembly.root_arguments("armada-vr-root", quest_services=True, pico_services=True)
+
 
 class OverlayTests(unittest.TestCase):
     def setUp(self):

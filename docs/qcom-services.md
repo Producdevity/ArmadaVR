@@ -44,6 +44,16 @@ It refuses an existing name service, waits for successful discovery before
 notifying systemd, and stops its own daemon on exit. Startup failure requests
 power-off. It does not start a DSP or load sensor firmware.
 
+Pico boot arguments must also retain `service_locator.enable=1` from the stock
+boot image. The pinned 4.19 driver's default is zero; its initialization returns
+`ENODEV` while disabled. The shared boot-argument helper's `pico_services=True`
+option emits both this parameter and `armada.pico=qrtr`, preserving the
+read-only/volatile-root protections and refusing mixed Quest/Pico startup.
+Two diskless boots of the exact physical-configuration kernel verify the
+service-locator sysfs parameter reads zero without the option and one with it.
+This enables the kernel interface; a running mapper and physical DSPs still
+need separate verification.
+
 The initramfs service stops before `initrd-switch-root.target`. When the selected
 initramfs includes Pico services, the root builder installs the corresponding
 root-stage service, native QRTR binaries, library, source pins and licenses.

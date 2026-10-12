@@ -95,13 +95,16 @@ def overlay_table(data, compiled):
     return records
 
 
-def root_arguments(label, *, quest_services=False):
+def root_arguments(label, *, quest_services=False, pico_services=False):
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,16}", label):
         raise ValueError("Root label must be 1–16 ASCII letters, digits, hyphens or underscores")
+    if quest_services and pico_services:
+        raise ValueError("Choose one headset's startup services")
     return (f"root=LABEL={label} ro rootfstype=ext4 rootflags=noload systemd.volatile=overlay "
             "rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 "
             "rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30"
-            + (" armada.quest=usb-root" if quest_services else ""))
+            + (" armada.quest=usb-root" if quest_services else "")
+            + (" armada.pico=qrtr service_locator.enable=1" if pico_services else ""))
 
 
 def checked_kernel_image(path, expected_sha256):
