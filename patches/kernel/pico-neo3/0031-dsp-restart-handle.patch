@@ -1,0 +1,30 @@
+Subject: soc: reject failed DSP handles before subsystem restart
+
+A failed firmware acquisition leaves an ERR_PTR in the loader handle.
+Reject it before the restart entry dereferences the subsystem device.
+
+---
+diff --git a/audio-kernel/dsp/adsp-loader.c b/audio-kernel/dsp/adsp-loader.c
+--- a/audio-kernel/dsp/adsp-loader.c
++++ b/audio-kernel/dsp/adsp-loader.c
+@@ -188,7 +188,7 @@
+ 		return -EINVAL;
+ 
+ 	adsp_dev = (struct subsys_device *)priv->pil_h;
+-	if (!adsp_dev)
++	if (IS_ERR_OR_NULL(adsp_dev))
+ 		return -EINVAL;
+ 
+ 	dev_err(&pdev->dev, "requesting for ADSP restart\n");
+diff --git a/drivers/sensors/sensors_ssc.c b/drivers/sensors/sensors_ssc.c
+--- a/drivers/sensors/sensors_ssc.c
++++ b/drivers/sensors/sensors_ssc.c
+@@ -163,7 +163,7 @@
+ 		return -EINVAL;
+ 
+ 	sns_dev = (struct subsys_device *)priv->pil_h;
+-	if (!sns_dev)
++	if (IS_ERR_OR_NULL(sns_dev))
+ 		return -EINVAL;
+ 
+ 	dev_err(&pdev->dev, "Something went wrong with SLPI, restarting\n");

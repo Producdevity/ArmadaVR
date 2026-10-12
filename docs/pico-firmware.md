@@ -119,8 +119,49 @@ malformed bundles and cross-target refusal. Evidence is in
 `output/pico-firmware-20261012-v1/`.
 
 These checks close the early GPU firmware packaging gap. They do not execute
-the firmware on the replacement kernel, prove panel output, supply the remaining
-DSP/radio firmware or establish boot/recovery readiness.
+the firmware on the replacement kernel, prove panel output, supply radio
+firmware or establish boot/recovery readiness.
+
+## Audio, compute and sensor firmware
+
+`tools/prepare-pico-dsp.py` extracts ADSP, CDSP and SLPI files from the locally
+supplied, checksum-pinned `NON-HLOS.bin`. The 5.8.4.0 b1977 image omits the
+unused tail of its FAT16 volume. The reader checks both allocation tables,
+every file's declared bytes and cluster ownership before extraction; it rejects
+truncation, cycles, shared chains and unreferenced allocations. It does not
+modify or pad the input.
+
+```sh
+python3 -B tools/prepare-pico-dsp.py NON-HLOS.bin \
+    --sha256 8d9a542b56549f17c3699caae2931189dd38cd11ff7f321bc557d31a19048e81 \
+    --reference-build smartcm.1696861506 --output OUTPUT_DIRECTORY
+```
+
+The actual image's 3,730 allocated clusters are accounted for. All 55 packaged
+files (28,635,187 bytes) match an independent 7-Zip extraction of a derived
+sparse volume. Split MDT segment lengths and signing-metadata copies match;
+the five service declarations identify ADSP instance 74, CDSP 76 and SLPI 90.
+The selected stock device tree requests `adsp`, `cdsp` and `slpi` through
+Qualcomm PIL with authentication IDs 1, 18 and 12 respectively. These are
+firmware and interface checks, not verification that the replacement kernel
+can start the DSPs or deliver audio and sensor streams.
+
+Patch `0031-dsp-restart-handle.patch` rejects error-valued handles in the ADSP
+and SLPI restart attributes. A failed firmware acquisition can leave such a
+handle behind; the original handlers accept it and the restart entry
+dereferences it. Tests using the actual source routines exercise all 4,095
+kernel error-pointer values per handler: 8,190 invalid dispatches before the
+fix, zero afterward. Valid restart and error-return behavior are preserved.
+macOS and ARM64 Linux address/undefined-behavior sanitizer checks pass.
+
+The full physical-configuration kernel through `0031` builds with all 38
+modules. Artifact hashes, module signatures, imported symbol versions,
+dependency closure and a modified-signature rejection check pass. The exact
+Image also passes the diskless virtual ABI fixture and normal shutdown.
+Evidence is retained under `output/pico-dsp-firmware-20261012-v1/` and
+`output/kernel/pico-neo3/linux-dsp-restart-20261012-v1/`. Physical firmware
+authentication, DSP startup, routing, sensor transport and recovery remain
+unverified.
 
 ## EDL identity and partition backups
 
