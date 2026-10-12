@@ -79,6 +79,49 @@ caller must obtain the active MCU/radio configuration and supply complete record
 from a verified transport. It does not pair controllers, send haptics, access a
 device, load firmware or produce a tracked pose.
 
+## Controller configuration
+
+The stock MCU selector reads `/sys/hwinfo/version_id`. In station mode 0,
+revision bits `0x38` select MCU type 2 when any are set, otherwise type 1.
+Mode 1 uses bit `0x10`; a low byte of `0xff` is unknown. Stock constructs
+`MCUNRF52832` for type 1 and `MCUIN618` for type 2. This sysfs file is not
+readable by the Android shell on the inspected Pro Eye.
+
+The radio type comes from a separate MCU device-info reply: byte 16 equal to
+0 selects type 1, and 1 selects type 2. Other values leave the previous value
+unchanged. The constructor's zero is therefore not a usable default. These
+findings come from `mcuGetType`, `MCUServer::initialize` and
+`StationService::MCUCallBackDataProcess` in the hash-pinned stock library.
+
+[`pico-controller-config.py`](../tools/pico-controller-config.py) reads the stock
+configuration through verified Binder getters. It checks the device, exact
+b1977 fingerprint, station library hash and configuration-service APK hash
+before making any Binder call. Station transactions 76 and 74 return radio
+type and touch enablement. ConfigurationService transaction 3 reads
+`sys_controller_chip` and `sys_controller_prototype`. The latter must agree
+with the live radio getter. Two snapshots and the Android boot ID must agree.
+Exceptions, unexpected response layouts and unsupported values fail the read.
+
+```sh
+python3 tools/pico-controller-config.py --serial DEVICE_SERIAL \
+  --output output/pico-controller-config.json
+```
+
+The collector issues no setters, resets, sensor subscriptions or firmware
+operations. The output contains the device serial and belongs in private
+evidence. It describes stock service state, not independently measured silicon
+or analog calibration, and must not become a default for another unit.
+
+The connected Neo3 Pro Eye running 5.8.4.0 reports **MCU type 1, radio type 2,
+touch enabled**. The stored touch property is empty while the live getter
+returns 1; an empty property must not be interpreted as disabled. The MCU type
+is the value published by stock startup into its configuration service; direct
+revision readback remains unavailable. The configuration APK is SHA-256
+`701ac92f7d5598f0f7dbd7fa5bdd276cbecc19c967e5472c3090396fb39f595f`.
+Its getter dispatch and query implementation were inspected offline. Private
+analysis and physical read receipts are retained in
+`output/pico-controller-config-20261012-v1/`.
+
 ## Native Linux SSC transport
 
 The native [libssc](https://codeberg.org/DylanVanAssche/libssc) source is pinned
