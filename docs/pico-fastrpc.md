@@ -61,3 +61,17 @@ does not retry. A failed or malformed initialization has an uncertain channel
 state, so close refuses to discard it. Its buffer must remain owned until an
 independently confirmed DSP teardown; this recovery path is not yet verified.
 The client never equates a failed RPC with proof that the DSP released memory.
+
+## Offline root installation
+
+Pass `--fastrpc /path/to/verified/bundle` to `tools/build-headset-root.py` when
+building a Pico root with its DSP startup services. The installer verifies the
+source and profile hashes, complete library inventory, ARM64 ELF headers,
+permissions, licenses and relative library links before copying the bundle.
+The libraries stay under `/opt/armada-vr/fastrpc`; installation does not select
+a heap or start a sensor stream.
+
+The root builder checks symbol resolution using the target root's dynamic
+loader and libraries, then reads the installed files back from the resulting
+ext4 image. The build record binds these checks to the bundle and kernel.
+These checks establish offline packaging and dependency compatibility only.

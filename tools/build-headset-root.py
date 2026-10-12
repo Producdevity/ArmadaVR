@@ -34,6 +34,10 @@ spec = importlib.util.spec_from_file_location("ssc_artifact", ROOT / "tools/ssc-
 ssc_artifact = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ssc_artifact)
 
+spec = importlib.util.spec_from_file_location("fastrpc_artifact", ROOT / "tools/fastrpc-artifact.py")
+fastrpc_artifact = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fastrpc_artifact)
+
 SCRIPT = r'''
 set -eu
 mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
@@ -128,6 +132,12 @@ if Path('/output/ssc.json').is_file():
     spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/ssc',root,ssc)
+fastrpc=None
+if Path('/output/fastrpc.json').is_file():
+    fastrpc=json.loads(Path('/output/fastrpc.json').read_text())
+    spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.install('/fastrpc',root,fastrpc)
 monado=None
 if Path('/output/monado.json').is_file():
     monado=json.loads(Path('/output/monado.json').read_text())
@@ -143,7 +153,7 @@ if Path('/output/lepton.json').is_file():
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'fastrpc':fastrpc,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
 PYROOT
 if test -d /systemd-runtime; then
     python3 /systemd-runtime.py /systemd-runtime --install /tmp/root
@@ -156,6 +166,15 @@ spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
 artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
 Path('/output/ssc-loader.json').write_text(json.dumps(artifact.check_loader('/tmp/root'),indent=2)+'\n')
 PYSSC
+fi
+if test -f /output/fastrpc.json; then
+    python3 - <<'PYFASTRPC'
+import importlib.util,json
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+Path('/output/fastrpc-loader.json').write_text(json.dumps(artifact.check_loader('/tmp/root'),indent=2)+'\n')
+PYFASTRPC
 fi
 if test -f /output/pico-services.json; then
     python3 - <<'PYQRTR'
@@ -313,9 +332,15 @@ if Path('/output/ssc.json').is_file():
     spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_image('/output/rootfs.ext4',ssc,'/tmp/verify/ssc-root')
+fastrpc=None
+if Path('/output/fastrpc.json').is_file():
+    fastrpc=json.loads(Path('/output/fastrpc.json').read_text())
+    spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.verify_image('/output/rootfs.ext4',fastrpc,'/tmp/verify/fastrpc-root')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,'pico_services':pico_services,
     'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest() if Path('/quest.service').exists() else None,
-    'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc},indent=2)+'\n')
+    'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'fastrpc':fastrpc},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -469,6 +494,11 @@ def run(args):
     if ssc_dir and any(c in str(ssc_dir) for c in (",", ":")):
         raise ValueError("Choose an SSC path without commas or colons")
     ssc = ssc_artifact.package(ssc_dir) if ssc_dir else None
+    fastrpc_path = getattr(args, "fastrpc", None)
+    fastrpc_dir = fastrpc_path.absolute() if fastrpc_path else None
+    if fastrpc_dir and (args.profile != "pico-neo3" or any(c in str(fastrpc_dir) for c in (",", ":"))):
+        raise ValueError("FastRPC requires a Pico root and a path without commas or colons")
+    fastrpc = fastrpc_artifact.package(fastrpc_dir) if fastrpc_dir else None
     if monado and monado.get('ssc_dependency') is not None and monado['ssc_dependency'] != ssc:
         raise ValueError("The Pico Monado runtime requires its exact SSC bundle")
     lepton_dir = args.lepton.absolute() if args.lepton else None
@@ -499,6 +529,10 @@ def run(args):
         raise ValueError("SSC currently requires the Pico QRTR root services")
     if ssc:
         inputs["tools/ssc-artifact.py"] = builder.digest(ROOT / "tools/ssc-artifact.py")
+    if fastrpc:
+        if not pico_services:
+            raise ValueError("FastRPC requires the Pico DSP startup services")
+        inputs["tools/fastrpc-artifact.py"] = builder.digest(ROOT / "tools/fastrpc-artifact.py")
     if pico_services:
         for name in ("tools/pico-services.py", "system/pico/armada-pico-qrtr-root.service",
                      "system/pico/armada-pico-pd-mapper-root.service"):
@@ -539,10 +573,12 @@ def run(args):
         (output / "lepton.json").write_text(json.dumps(lepton, indent=2) + "\n")
     if ssc:
         (output / "ssc.json").write_text(json.dumps(ssc, indent=2) + "\n")
+    if fastrpc:
+        (output / "fastrpc.json").write_text(json.dumps(fastrpc, indent=2) + "\n")
     if rpms:
         (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
     report = {"status": "started", "profile": args.profile, "systemd_runtime_sha256": runtime_sha,
-              "turnip": turnip, "monado": monado, "lepton": lepton, "ssc": ssc, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
+              "turnip": turnip, "monado": monado, "lepton": lepton, "ssc": ssc, "fastrpc": fastrpc, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw,
@@ -610,6 +646,7 @@ print('Monado runtime image preflight: passed')
                    *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
                    *(["-v", f"{ssc_dir}:/ssc:ro", "-v", f"{ROOT / 'tools/ssc-artifact.py'}:/ssc-artifact.py:ro"] if ssc_dir else []),
+                   *(["-v", f"{fastrpc_dir}:/fastrpc:ro", "-v", f"{ROOT / 'tools/fastrpc-artifact.py'}:/fastrpc-artifact.py:ro"] if fastrpc_dir else []),
                    *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
                    *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/lepton-artifact.py:ro"] if lepton_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "900", "bash", "-c", SCRIPT,
@@ -632,6 +669,8 @@ print('Monado runtime image preflight: passed')
             raise ValueError("Turnip changed during root construction")
         if ssc_dir and ssc_artifact.package(ssc_dir) != ssc:
             raise ValueError("SSC changed during root construction")
+        if fastrpc_dir and fastrpc_artifact.package(fastrpc_dir) != fastrpc:
+            raise ValueError("FastRPC changed during root construction")
         if monado_dir and monado_artifact.package(monado_dir) != monado:
             raise ValueError("Monado changed during root construction")
         if lepton_dir and lepton_artifact.validate(lepton_dir, lepton_host_dir) != lepton:
@@ -647,6 +686,8 @@ print('Monado runtime image preflight: passed')
             names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
         if ssc:
             names += ["ssc.json", "ssc-loader.json"]
+        if fastrpc:
+            names += ["fastrpc.json", "fastrpc-loader.json"]
         if monado:
             names += ["monado.json", "monado-dependencies.txt", "monado-loader.txt"]
             if (output / "monado-preflight.txt").exists():
@@ -688,6 +729,7 @@ if __name__ == "__main__":
     parser.add_argument("--reuse-export", type=Path, help="Reuse rootfs.tar from a successful root build with the same userspace image")
     parser.add_argument("--userspace-export", type=Path, help="Use a verified prior root export (tar or tar.zst); --image supplies only build tools")
     parser.add_argument("--ssc", type=Path, help="Verified native sensor runtime bundle for the Pico root")
+    parser.add_argument("--fastrpc", type=Path, help="Verified Pico FastRPC bundle; installs libraries without starting sensor streams")
     parser.add_argument("--runtime-rpms", type=Path, help="Manifest-pinned RPMs; signatures and dependencies must validate inside the selected userspace")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--root-label", default="armada-vr-root")

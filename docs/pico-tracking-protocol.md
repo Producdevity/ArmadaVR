@@ -197,3 +197,13 @@ The [native FastRPC bundle](pico-fastrpc.md) reuses Qualcomm's listener and
 buffer registry with this adapter and the ION allocator. Its isolated runtime
 test covers allocation/registration/release through the complete library;
 the physical DSP and tracking stream remain unverified.
+
+The b1977 tracking library's `SlpiDataReader::start` calls this low-latency
+wrapper for `ble_mcu`, requesting period `100000` microseconds, flags `0` and
+sensor handle `1`. Its reader uses 100-byte controller slots, checks CRC-8 and
+orders them by the nonzero 64-bit field at byte 56, which stock calls station
+time. These observations describe a controller path. They do not establish a
+native head-IMU transport, the controller's actual reporting rate or that
+field's clock origin. The separate head reader still uses Android's 104-byte
+direct-channel records described above. Do not apply its layout or clock
+calibration to the controller ring.
