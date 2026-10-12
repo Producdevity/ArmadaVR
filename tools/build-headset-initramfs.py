@@ -14,8 +14,13 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 VOLATILE_ROOT = ROOT / "system/systemd/volatile-root.conf"
 PICO_INPUTS = ["system/pico/armada-pico-qrtr", "system/pico/armada-pico-qrtr.service",
+               "system/pico/armada-pico-pd-mapper", "system/pico/armada-pico-pd-mapper.service",
+               "tools/pico-services.py",
                "system/pico/module-setup.sh", "profiles/qcom-services.json",
-               "patches/qrtr/0001-check-qmi-packet-bounds.patch"]
+               "patches/qrtr/0001-check-qmi-packet-bounds.patch",
+               "patches/pd-mapper/0001-report-actual-firmware-path.patch",
+               "patches/pd-mapper/0002-explicit-service-maps.patch",
+               "patches/pd-mapper/0003-check-firmware-attribute-length.patch"]
 QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
                 "system/quest/module-setup.sh", "profiles/qcom-services.json",
                 "patches/qrtr/0001-check-qmi-packet-bounds.patch",
@@ -105,6 +110,18 @@ if [ "$4" = yes ] || [ "$5" = yes ]; then
     cmp /qmi-bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
 fi
 if [ "$5" = yes ]; then
+    python3 - <<'PYPICO'
+import importlib.util,json
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('pico_services','/repo/tools/pico-services.py')
+pico=importlib.util.module_from_spec(spec);spec.loader.exec_module(pico)
+checksums=pico.service_maps(json.loads(Path('/firmware/manifest.json').read_text()))
+if checksums is not None:
+    for name,reference in pico.MAPPER_PROVENANCE.items():
+        if Path('/'+name).read_bytes()!=Path('/repo',reference).read_bytes():
+            raise SystemExit('Pico PD mapper source identity mismatch: '+name)
+    Path('/tmp/pico-service-maps.sha256').write_bytes(checksums)
+PYPICO
     cp -a /pico /usr/lib/dracut/modules.d/95armada-pico
     set -- "$@" --add armada-pico
 fi
@@ -190,12 +207,18 @@ if sys.argv[5]=='yes':
     pairs=[('/pico/armada-pico-qrtr','usr/libexec/armada-pico-qrtr'),
            ('/pico/armada-pico-qrtr.service','usr/lib/systemd/system/armada-pico-qrtr.service'),
            ('/usr/bin/qrtr-ns','usr/bin/qrtr-ns'),('/usr/bin/qrtr-lookup','usr/bin/qrtr-lookup')]
+    if Path('/tmp/pico-service-maps.sha256').is_file():
+        pairs += [('/pico/armada-pico-pd-mapper','usr/libexec/armada-pico-pd-mapper'),
+                  ('/pico/armada-pico-pd-mapper.service','usr/lib/systemd/system/armada-pico-pd-mapper.service'),
+                  ('/tmp/pico-service-maps.sha256','etc/armada-vr/pico-service-maps.sha256'),
+                  ('/usr/bin/pd-mapper','usr/bin/pd-mapper')]
+        required += ['usr/bin/sha256sum','etc/systemd/system/initrd.target.wants/armada-pico-pd-mapper.service']
     for source,name in pairs:
         path=Path(name)
         sha=hashlib.sha256(Path(source).read_bytes()).hexdigest()
         if not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=sha:
             raise SystemExit('Missing or changed Pico startup file: '+name)
-        if name != 'usr/lib/systemd/system/armada-pico-qrtr.service' and not path.stat().st_mode & 0o111:
+        if name.startswith(('usr/bin/','usr/libexec/')) and not path.stat().st_mode & 0o111:
             raise SystemExit('Pico startup executable has no execute permission: '+name)
         pico_files.append({'path':name,'sha256':sha})
     required += [item['path'] for item in pico_files]
@@ -261,6 +284,8 @@ def run(args):
         command.extend(["-v", f"{firmware_dir}:/firmware:ro"])
     if args.pico_services:
         for source, target in [("system/pico", "/pico"), ("profiles/qcom-services.json", "/qcom-profile.json"),
+                               ("tools/pico-services.py", "/repo/tools/pico-services.py"),
+                               ("patches/pd-mapper", "/repo/patches/pd-mapper"),
                                ("patches/qrtr/0001-check-qmi-packet-bounds.patch", "/qmi-bounds.patch")]:
             command.extend(["-v", f"{ROOT / source}:{target}:ro"])
     if args.quest_services:

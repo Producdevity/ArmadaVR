@@ -54,6 +54,31 @@ service-locator sysfs parameter reads zero without the option and one with it.
 This enables the kernel interface; a running mapper and physical DSPs still
 need separate verification.
 
+With a combined Pico GPU/DSP bundle, the builders also install a supervised
+PD mapper and checksums for the five validated service maps. The mapper unit
+requires QRTR, checks the Kona identity, command-line opt-in, enabled kernel
+locator and map hashes, then passes the maps explicitly. It refuses an existing
+mapper and reports readiness only after service 64, version 1, instance 1 is
+registered. Startup is bounded; failure requests power-off. Stopping QRTR stops
+the mapper, and the initramfs units stop before switching roots. GPU-only
+bundles retain QRTR without enabling a mapper. Neither service starts a DSP.
+
+The production mapper helper passes 18 lifecycle checks and 256 QMI requests
+on the exact Pico kernel in diskless QEMU. These cover platform and token
+refusal, a disabled locator, missing or changed maps, unavailable QRTR,
+duplicates, owned-child shutdown, daemon exit, timeout cleanup and restart.
+The real systemd manager passes another 384 requests across startup/restart
+and verifies dependency shutdown and stopping at the switch-root target.
+The physical board identity is modeled only inside this isolated fixture.
+Evidence, including failed fixture attempts, is under
+`output/pico-pd-startup-20261012-v1/`.
+
+The corresponding offline root installs 17 service/runtime files and three
+links. Exact ext4 readback, filesystem checks and relocations using that root's
+own native loader and libc pass. The source root remains unchanged. These
+checks establish packaging and service behavior; they do not establish a
+physical DSP boot, display output or a recoverable firmware installation.
+
 The initramfs service stops before `initrd-switch-root.target`. When the selected
 initramfs includes Pico services, the root builder installs the corresponding
 root-stage service, native QRTR binaries, library, source pins and licenses.
@@ -111,8 +136,8 @@ not duplicate domains. Unknown services and malformed QMI requests are also
 checked. Another 192 requests verify baseline and patched automatic discovery
 with modeled remoteproc entries and four Quest-domain fixtures. Invalid CLI
 and map inputs fail before service publication. Evidence is under
-`output/pico-pd-mapper-20261012-v1/vm-v3/`; no DSP executes in this test. Mapper
-service startup still needs integration into the Pico images.
+`output/pico-pd-mapper-20261012-v1/vm-v3/`; no DSP executes in this test. The
+firmware-read fix is retested with the packaged runtime in `vm-v5/`.
 
 Real malformed QMI requests exposed missing packet bounds checks in libqrtr.
 The local patch checks header and TLV lengths, scalar/array payload sizes and
@@ -169,9 +194,9 @@ the error-message defect fixed for version 6.
 
 ## Remaining boot work
 
-The service mapper is built and protocol-tested. It still needs deliberate
-initramfs service ordering, bounded ADSP startup and handoff to the real root
-filesystem. These tests do not establish PMIC-GLINK/UCSI readiness, DSP
+The Pico service mapper is packaged and its startup ordering is tested.
+Bounded DSP startup and verification on the physical root remain outstanding.
+These tests do not establish PMIC-GLINK/UCSI readiness, DSP
 authentication, USB-C negotiation or physical USB storage operation. Exact-unit
 recovery and acceptance of a custom kernel remain unresolved. This work does
 not establish flash readiness.

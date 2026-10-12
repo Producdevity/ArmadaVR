@@ -1,0 +1,21 @@
+[Unit]
+Description=Pico DSP service map registry
+ConditionKernelCommandLine=armada.pico=qrtr
+ConditionPathExists=!/etc/initrd-release
+ConditionPathExists=/etc/armada-vr/pico-service-maps.sha256
+BindsTo=armada-pico-qrtr.service
+After=local-fs.target armada-pico-qrtr.service
+FailureAction=poweroff
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/usr/libexec/armada-pico-pd-mapper
+TimeoutStartSec=12
+TimeoutStopSec=5
+KillMode=control-group
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,89 @@
+#!/bin/bash
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mapper=
+
+fail() {
+    echo "Armada Pico PD mapper startup failed: $*" >&2
+    exit 1
+}
+
+cleanup() {
+    if [[ -n $mapper && $(jobs -p) == "$mapper" ]]; then
+        kill "$mapper" 2>/dev/null || :
+        local until=$((SECONDS + 2))
+        while [[ $(jobs -p) == "$mapper" ]] && ((SECONDS < until)); do
+            sleep 0.1
+        done
+        if [[ $(jobs -p) == "$mapper" ]]; then
+            kill -KILL "$mapper" 2>/dev/null || :
+        fi
+        wait "$mapper" 2>/dev/null || :
+    fi
+}
+trap cleanup EXIT
+trap 'exit 0' TERM INT HUP
+
+[[ $EUID == 0 ]] || fail 'requires root'
+case " $(< /proc/cmdline) " in
+    *' armada.pico=qrtr '*) ;;
+    *) fail 'Pico services were not requested' ;;
+esac
+platform=
+while IFS= read -r -d '' item; do
+    [[ $item != qcom,kona ]] || platform=yes
+done < /sys/firmware/devicetree/base/compatible
+[[ $platform == yes ]] || fail 'requires Kona device tree'
+[[ $(< /sys/module/service_locator/parameters/enable) == 1 ]] || fail 'kernel service locator is disabled'
+
+manifest=/etc/armada-vr/pico-service-maps.sha256
+[[ -f $manifest && ! -L $manifest ]] || fail 'missing service map checksums'
+mapfile -t checksums < "$manifest"
+names=(adspr.jsn adspua.jsn cdspr.jsn slpir.jsn slpius.jsn)
+[[ ${#checksums[@]} == ${#names[@]} ]] || fail 'unexpected service map count'
+arguments=()
+for index in "${!names[@]}"; do
+    file=/usr/lib/firmware/${names[index]}
+    checksum=${checksums[index]%% *}
+    [[ $checksum =~ ^[0-9a-f]{64}$ && ${checksums[index]} == "$checksum  $file" ]] || fail 'unexpected service map checksum entry'
+    [[ -f $file && ! -L $file ]] || fail 'missing service map'
+    arguments+=(-f "$file")
+done
+sha256sum --check --strict "$manifest" >/dev/null || fail 'service map checksum mismatch'
+
+lookup() {
+    local data service version instance node port rest
+    data=$(qrtr-lookup 64) || fail 'QRTR discovery is unavailable'
+    count=0
+    valid=0
+    while read -r service version instance node port rest; do
+        if [[ $service == 64 ]]; then
+            count=$((count + 1))
+            if [[ $version == 1 && $instance == 1 ]]; then
+                valid=$((valid + 1))
+            fi
+        fi
+    done <<< "$data"
+}
+lookup
+((count == 0)) || fail 'a service mapper is already active'
+/usr/bin/pd-mapper "${arguments[@]}" &
+mapper=$!
+deadline=$((SECONDS + 8))
+while :; do
+    [[ $(jobs -p) == "$mapper" ]] || fail 'service mapper exited'
+    lookup
+    ((count <= 1)) || fail 'multiple service mappers appeared'
+    if ((count == 1 && valid == 1)); then
+        break
+    fi
+    ((SECONDS < deadline)) || fail 'discovery timed out'
+    sleep 0.1
+done
+[[ $(jobs -p) == "$mapper" ]] || fail 'service mapper exited'
+systemd-notify --ready --status='Pico DSP service maps available'
+echo 'Armada Pico PD mapper ready'
+result=0
+wait "$mapper" || result=$?
+mapper=
+fail "service mapper stopped (status $result)"

@@ -100,7 +100,7 @@ pico_services=None
 if target.get('pico_services'):
     spec=importlib.util.spec_from_file_location('pico_services','/repo/tools/pico-services.py')
     pico=importlib.util.module_from_spec(spec);spec.loader.exec_module(pico)
-    pico_services=pico.install('/',root)
+    pico_services=pico.install('/',root,manifest)
     Path('/output/pico-services.json').write_text(json.dumps(pico_services,indent=2)+'\n')
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
@@ -140,10 +140,11 @@ if test -d /systemd-runtime; then
 fi
 if test -f /output/pico-services.json; then
     python3 - <<'PYQRTR'
-import subprocess
+import json,subprocess
 from pathlib import Path
 logs=[]
-for name in ('qrtr-ns','qrtr-lookup'):
+services=json.loads(Path('/output/pico-services.json').read_text())
+for name in ('qrtr-ns','qrtr-lookup')+(('pd-mapper',) if services['pd_mapper'] else ()):
     data=subprocess.check_output(['chroot','/tmp/root','/usr/bin/ldd','-r','/usr/bin/'+name],text=True,stderr=subprocess.STDOUT)
     logs.append(name+'\n'+data)
     if 'not found' in data or 'undefined symbol' in data:
@@ -464,7 +465,8 @@ def run(args):
         args.profile, kernel, firmware, initramfs, runtime_dir, gpu_dir)
     pico_services = "system/pico/armada-pico-qrtr" in inputs
     if pico_services:
-        for name in ("tools/pico-services.py", "system/pico/armada-pico-qrtr-root.service"):
+        for name in ("tools/pico-services.py", "system/pico/armada-pico-qrtr-root.service",
+                     "system/pico/armada-pico-pd-mapper-root.service"):
             inputs[name] = builder.digest(ROOT / name)
     runtime_sha = builder.digest(runtime_dir / "manifest.json") if runtime_dir else None
     if gpu and (gpu["reference_build"] != fw["reference_build"] or gpu["source_image_sha256"] != fw["source_image_sha256"]):
@@ -562,6 +564,7 @@ print('Monado runtime image preflight: passed')
                    "-v", f"{firmware}:/firmware:ro",
                    *(["-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro"] if args.profile == "quest3" else []),
                    *([arg for name in ("tools/pico-services.py", "system/pico", "profiles/qcom-services.json",
+                                        "patches/pd-mapper",
                                         "patches/qrtr/0001-check-qmi-packet-bounds.patch")
                       for arg in ("-v", f"{ROOT / name}:/repo/{name}:ro")] if pico_services else []),
                    *(["-v", f"{runtime_dir}:/systemd-runtime:ro", "-v", f"{ROOT / 'tools/systemd-runtime.py'}:/systemd-runtime.py:ro"] if runtime_dir else []),

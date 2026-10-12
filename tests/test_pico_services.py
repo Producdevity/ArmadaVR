@@ -1,4 +1,6 @@
 import importlib.util
+import copy
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -92,3 +94,68 @@ class PicoServicesTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid Pico runtime image path"):
                     pico.verify_image("unused.ext4", manifest, self.root / str(index))
                 run.assert_not_called()
+
+    def mapper_fixture(self):
+        records, domains = [], []
+        for name, (processor, subdomain, instance) in pico.MAP_DOMAINS.items():
+            data = name.encode()
+            records.append({"path": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            domains.append({"file": name, "domain": {"soc": "msm", "domain": processor,
+                                                     "subdomain": subdomain, "qmi_instance_id": instance}})
+            path = self.root / "usr/lib/firmware" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        (self.source / pico.MAPPER).write_bytes((self.source / pico.RUNTIME[0]).read_bytes())
+        (self.source / pico.MAPPER).chmod(0o755)
+        for name, reference in pico.MAPPER_PROVENANCE.items():
+            (self.source / name).write_bytes((pico.ROOT / reference).read_bytes())
+        (self.source / pico.MAPPER_LICENSE).write_text("license")
+        return {"component": "pico-neo3-firmware", "status": "prepared", "schema_version": 1,
+                "files": records, "dsp": {"files": copy.deepcopy(records), "service_domains": domains}}
+
+    def test_mapper_install_checks_maps_and_preserves_provenance(self):
+        firmware = self.mapper_fixture()
+        result = pico.install(self.source, self.root, firmware)
+        self.assertTrue(result["pd_mapper"])
+        self.assertFalse(result["dsp_startup"])
+        self.assertEqual((self.root / pico.MAP_CHECKSUMS).read_bytes(), pico.service_maps(firmware))
+        self.assertEqual(len((self.root / pico.MAP_CHECKSUMS).read_text().splitlines()), 5)
+        self.assertIn("BindsTo=armada-pico-qrtr.service",
+                      (self.root / "usr/lib/systemd/system/armada-pico-pd-mapper.service").read_text())
+        pico.verify(self.root, result)
+
+    def test_gpu_only_bundle_does_not_enable_mapper(self):
+        result = pico.install(self.source, self.root, {"component": "pico-neo3-gpu"})
+        self.assertFalse(result["pd_mapper"])
+        self.assertFalse((self.root / pico.MAPPER).exists())
+        self.assertFalse((self.root / pico.MAP_CHECKSUMS).exists())
+
+    def test_changed_or_missing_map_refused_before_runtime_install(self):
+        firmware = self.mapper_fixture()
+        path = self.root / "usr/lib/firmware/adspr.jsn"
+        path.write_text("changed")
+        with self.assertRaisesRegex(ValueError, "Changed installed Pico service map"):
+            pico.install(self.source, self.root, firmware)
+        self.assertFalse((self.root / pico.RUNTIME[0]).exists())
+        path.unlink()
+        with self.assertRaisesRegex(ValueError, "regular Pico runtime file"):
+            pico.install(self.source, self.root, firmware)
+
+    def test_mapper_patch_identity_is_required(self):
+        firmware = self.mapper_fixture()
+        (self.source / next(iter(pico.MAPPER_PROVENANCE))).write_text("old patch")
+        with self.assertRaisesRegex(ValueError, "source identity mismatch"):
+            pico.install(self.source, self.root, firmware)
+        self.assertFalse((self.root / pico.RUNTIME[0]).exists())
+
+    def test_map_manifest_rejects_wrong_domains_and_inconsistent_records(self):
+        firmware = self.mapper_fixture()
+        for change in (lambda m: m["dsp"]["service_domains"].pop(),
+                       lambda m: m["dsp"]["service_domains"][0]["domain"].update(qmi_instance_id=90),
+                       lambda m: m["dsp"]["files"][0].update(sha256="0" * 64),
+                       lambda m: m["dsp"]["files"].append(m["dsp"]["files"][0]),
+                       lambda m: m["dsp"]["service_domains"].append(m["dsp"]["service_domains"][0])):
+            altered = copy.deepcopy(firmware)
+            change(altered)
+            with self.assertRaisesRegex(ValueError, "Pico service map"):
+                pico.service_maps(altered)
