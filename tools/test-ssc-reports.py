@@ -36,6 +36,8 @@ def main():
         for patch in patches:
             if patch.name == '0005-own-pending-sensor-operations.patch':
                 shutil.copytree(patched, output / 'operation-baseline')
+            if patch.name == '0006-log-close-errors-before-transfer.patch':
+                shutil.copytree(patched, output / 'close-baseline')
             subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
                            cwd=patched, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=10)
     if digest(patched / "src/libssc-client.c") != profile["patched_report_source_sha256"]:
@@ -146,11 +148,32 @@ def main():
                     raise ValueError('SSC operation defect not reproduced: ' + case)
             results[case] = result.returncode
         operations[name] = {'command': command, 'cases': results}
+    close_results = {}
+    for name, tree in (("baseline", output / 'close-baseline'), ("patched", patched)):
+        test = output / ('close-test-' + name)
+        command = [args.cc, '-std=gnu11', '-g', '-O1', '-Wall', '-Wextra', '-Werror',
+                   '-Wno-unused-parameter', '-fsanitize=address,undefined', '-DG_LOG_DOMAIN="libssc"',
+                   '-I' + str(tree / 'src'), '-I' + str(generated), str(ROOT / 'tests/ssc-close.c'),
+                   str(tree / 'src/libssc-client.c'), str(tree / 'src/libssc-common.c'),
+                   str(generated / 'ssc-common.pb-c.c'), str(generated / 'ssc-sensor-suid.pb-c.c'),
+                   *flags, '-o', str(test)]
+        with (output / ('build-close-' + name + '.log')).open('w') as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+        result = subprocess.run([str(test)], env=env, capture_output=True, text=True, timeout=15)
+        log = result.stdout + result.stderr
+        (output / ('close-' + name + '.log')).write_text(log)
+        if name == 'baseline':
+            if not result.returncode or 'heap-use-after-free' not in log or 'in sensor_close_ready' not in log:
+                raise ValueError('Close error ownership defect not reproduced')
+        elif result.returncode or 'SSC_CLOSE_PASS cycles=100' not in log:
+            raise ValueError('Close error ownership regression failed')
+        close_results[name] = {'command': command, 'returncode': result.returncode}
     report = {"passed": True, "source_commit": profile["commit"],
               "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
               "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
               "lifetime_test_sha256": digest(ROOT / "tests/ssc-lifetime.c"), "lifetime": lifetime,
               "context_test_sha256": digest(ROOT / "tests/ssc-context.c"), "contexts": contexts,
+              "close_test_sha256": digest(ROOT / "tests/ssc-close.c"), "close_results": close_results,
               "operation_test_sha256": digest(ROOT / "tests/ssc-operation.c"), "operations": operations,
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}

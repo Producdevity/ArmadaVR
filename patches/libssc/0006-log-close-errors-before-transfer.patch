@@ -1,0 +1,13 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -197,9 +197,9 @@
+ 	GError *error = NULL;
+ 
+ 	if (!ssc_client_send_finish (self, result, &error)) {
++		g_debug ("Sensor disable request failed: %s", error->message);
+ 		g_task_return_error (task, error);
+ 		g_clear_object (&task);
+-		g_debug ("Sensor disable request failed: %s", error->message);
+ 		return;
+ 	}
+ 

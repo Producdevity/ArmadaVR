@@ -133,6 +133,16 @@ host tests pass. Evidence is under `output/pico-ssc-operation-20261012-v1/`.
 The DSP endpoint remains mocked; physical startup and transport loss still need
 device validation.
 
+The [close-error patch](../patches/libssc/0006-log-close-errors-before-transfer.patch)
+fixes a further use-after-free found by removing the mock SSC server during a
+live subscription. The close callback logged an error after transferring it to
+a task; the caller can consume and free that error synchronously. Logging now
+precedes the ownership transfer. The original failure reproduces under ARM64
+AddressSanitizer, and the patched source passes 100 alternating successful and
+failed closes. The server-loss case also exits cleanly on the exact Pico kernel
+in QEMU. Failed runs, the crash backtrace and passing results are retained under
+`output/pico-ssc-session-20261012-v1/`.
+
 [`ssc-clock`](../src/ssc-clock.h) maps the outer 19.2 MHz timestamp into an
 explicitly selected host-clock domain. Initialization takes a CPU QTimer read,
 its measured frequency and two host-clock readings bracketing that read. It
