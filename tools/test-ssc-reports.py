@@ -31,12 +31,15 @@ def main():
     output.mkdir(parents=True, exist_ok=False)
     patched = output / "patched"
     shutil.copytree(source, patched)
-    patch = ROOT / profile["patches"][0]
+    patches = [ROOT / name for name in profile["patches"]]
     with (output / "patch.log").open("w") as log:
-        subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
-                       cwd=patched, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=10)
+        for patch in patches:
+            subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
+                           cwd=patched, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=10)
     if digest(patched / "src/libssc-client.c") != profile["patched_report_source_sha256"]:
         raise ValueError("Patched dispatcher differs from the expected source")
+    if digest(patched / "src/libssc-sensor.c") != profile["patched_sensor_source_sha256"]:
+        raise ValueError("Patched sensor differs from the expected source")
     generated = output / "generated"
     generated.mkdir()
     subprocess.run(["protoc-c", "--proto_path=" + str(source / "data"),
@@ -66,7 +69,8 @@ def main():
     if (output / "wire-original.pb").read_bytes() != (output / "wire-patched.pb").read_bytes():
         raise ValueError("The test inputs differ between source revisions")
     report = {"passed": True, "source_commit": profile["commit"],
-              "patch_sha256": digest(patch), "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
+              "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
+              "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")

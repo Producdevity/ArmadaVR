@@ -121,6 +121,31 @@ The library is staged privately, not installed into the headset image; live
 stream lifetime, suspend/resume, timestamp alignment and controller input
 delivery remain open integration work.
 
+Pico controller samples also expose an upstream subscription-startup mismatch:
+`ble_mcu` reports message `1024`, while libssc normally completes sensor opening
+on measurement `1025`, proximity measurement `769`, or a configuration event.
+[`ble-mcu-startup`](../patches/libssc/0002-ble-mcu-startup.patch) recognizes `1024`
+only for the `ble_mcu` data type. It does not treat arbitrary vendor message IDs
+as a successful subscription.
+
+The public-API client in [`tests/ssc-controller.c`](../tests/ssc-controller.c)
+and [`SSC mock extension`](../tests/ssc-controller-mock.py) exercise discovery,
+subscription, timestamped delivery, both-hand decoding and close over real QRTR
+in the isolated Pico kernel VM. The mock advertises a 480 Hz stream and sends
+the existing stock-validated synthetic records, malformed payloads, another
+SUID and an unrelated message ID. Both programs require the explicit VM marker;
+they are not physical-device test launchers.
+
+With the timestamp patch alone, the client receives 19 valid samples and rejects
+seven malformed payloads, but opening never completes. With both patches,
+opening and closing succeed after four valid samples from both hands and one
+malformed-payload rejection. A different data type emitting `1024` still cannot
+complete opening. The same library passes the 15 generic upstream cases and
+the dispatcher sanitizer checks. Evidence is retained under
+`output/pico-ssc-transport-20261012-v1/research/controller-vm-v2/` and
+`controller-vm-v1/generic-verification.json`. A real Pico stream may require
+additional configuration; these results establish the virtual protocol path.
+
 ## Station interrupt driver
 
 The authenticated b1977 kernel supplies the separate `/dev/stationdev` interface
