@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import runpy
 import sys
+import time
 
 build = Path(sys.argv[1]).resolve()
 if (Path("/proc/device-tree/compatible").read_bytes().split(b"\0")[0] != b"linux,dummy-virt" or
@@ -21,6 +22,8 @@ records = re.findall(r'\{1, 1, false,\s*"([a-f0-9]+)"\s*"([a-f0-9]+)",',
 assert len(records) == 2
 records = [bytes.fromhex(a + b) for a, b in records]
 assert all(len(record) == 100 for record in records)
+fault = sys.argv[3] if len(sys.argv) == 4 else None
+assert fault in (None, "late", "silent", "malformed")
 data = ssc._read_data()
 uids = {}
 for index, name in enumerate(("ble_mcu", "not_ble_mcu")):
@@ -51,10 +54,38 @@ def measurement(high, low, index):
         message.uid.high ^= 0x8000000000000000
     elif index % 6 == 4:
         event.msg_id = 1234
+    if fault == "malformed" or (fault == "silent" and index >= 6):
+        event.msg = b"\x10\x03"
     return message.SerializeToString()
 
 
 ssc.generate_protobuf_sensor_measurement = staticmethod(measurement)
 multiprocessing.set_start_method("fork")
 server = namespace["SSCMockingServer"]()
+if fault == "late":
+    original_reply = server._reply_msg
+
+    def late_reply(node, port, incoming):
+        if incoming[0] != namespace["QMI_REQUEST"]:
+            return original_reply(node, port, incoming)
+        _, data, _ = ssc.parse_message_control_input(incoming)
+        message_id, _, _ = ssc.parse_protobuf_client_request(data)
+        if message_id not in (namespace["SSC_PROTOBUF_ENABLE_REPORT_MSG_ID"],
+                              namespace["SSC_PROTOBUF_ENABLE_CONTINUOUS_MSG_ID"]):
+            return original_reply(node, port, incoming)
+        send = server._qrtr.qrtr_sendto
+        pending = []
+
+        def defer(*args):
+            pending.append(args)
+            server._qrtr.qrtr_sendto = send
+            return 0
+
+        server._qrtr.qrtr_sendto = defer
+        original_reply(node, port, incoming)
+        assert len(pending) == 1
+        time.sleep(1)
+        send(*pending[0])
+
+    server._reply_msg = late_reply
 server.start()

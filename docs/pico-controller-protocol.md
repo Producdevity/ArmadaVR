@@ -197,8 +197,35 @@ The exact Pico kernel also passes SSC discovery, decoded both-hand reports,
 device callbacks, disconnect clearing and three reconnect cycles in diskless
 QEMU. The fixture uses synthetic DSP reports and an explicit monotonic clock
 anchor with a ten-second test age limit; it does not establish hardware latency.
-The factory still needs a production SSC session and runtime builder hookup;
-it is not automatically probed or installed into the headset image.
+The factory is connected to the session owner below. Runtime builder hookup
+remains; it is not automatically probed or installed into the headset image.
+
+[`pico-ssc-session`](../src/pico-ssc-session.h) owns discovery, subscription and
+shutdown on a dedicated GLib context and thread. It discovers the `ble_mcu` SUID,
+calls an explicit monotonic-clock calibration provider, and publishes validated
+reports to the two device objects. MCU/radio configuration and analog
+calibration remain explicit inputs. Invalid calibration fails startup.
+Missing valid reports cancel the subscription and release controls; malformed
+traffic cannot keep the session alive. There is no automatic reconnect using
+an old clock calibration.
+
+Stopping cancels pending operations, attempts sensor disable, disconnects report
+callbacks and drains the context until the sensor and client are destroyed.
+It then joins the worker before releasing the producer. Devices can be released
+independently and may outlive the session. Status and counters are copied under
+a mutex; a failed startup or lost stream remains visible to the runtime owner.
+This source does not register a runtime builder or start the DSP.
+
+`tools/test-pico-ssc-session.py` builds against the pinned Monado source and a
+verified SSC bundle. On native ARM64, 100 alternating immediate-cancellation
+and unavailable-QRTR cycles pass AddressSanitizer/UndefinedBehaviorSanitizer.
+`tests/ssc-session-vm.py` tests the actual session over QRTR on the Pico kernel:
+three both-hand start/stop cycles, immediate stop, absent service, invalid clock,
+delayed enable acknowledgement, loss of valid reports, all-malformed reports,
+and abrupt server termination. All eight scenarios pass and the VM shuts down
+normally. The DSP producer and clock anchor are synthetic; the two-second
+fixture time limits are not physical latency measurements. Evidence is under
+`output/pico-ssc-session-20261012-v1/`.
 
 [`pico-monado-input`](../src/pico-monado-input.h) maps accepted events to Monado's
 existing Neo3 input names: X/Y on the left, A/B on the right, menu/system,
@@ -221,8 +248,8 @@ headers. Evidence is under `output/pico-monado-input-20261012-v1/`. The adapter
 also receives both-hand events through the native SSC client on the Pico kernel,
 including three reconnect cycles and disconnect clearing (`controller-vm-v1/`).
 Its calibration and DSP producer are synthetic. The adapter
-still needs a registered Monado device, a live SSC session owner and a verified
-physical calibration source before it can deliver device input to applications.
+still needs runtime registration and a verified physical calibration source
+before it can deliver device input to applications.
 
 On a Linux host with the listed development dependencies, run:
 
