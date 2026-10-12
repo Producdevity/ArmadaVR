@@ -131,6 +131,30 @@ cycles with the packaged library on the Pico kernel; all ten suites pass.
 Evidence is under `output/pico-controller-stream-20261012-v1/`. DSP reports and
 clock calibration remain synthetic.
 
+[`pico-monado-device`](../src/pico-monado-device.h) creates left and right
+`xrt_device` objects using the pinned runtime's device helpers. A separately
+owned producer publishes accepted stream events under a mutex; `update_inputs`
+copies complete snapshots into the runtime-owned arrays. Each hand times out
+independently, clearing values and deactivating inputs. Transport disconnect or
+producer destruction also clears the next snapshot. Devices and the producer
+can be released in either order; a new connection requires a newer generation.
+The source clock must be calibrated to Monado's `CLOCK_MONOTONIC` domain.
+No pose tracking or output capabilities are advertised. Pose queries return an
+invalid relation, not a simulated controller position.
+
+The device callbacks, upstream allocation-independent device helpers and unique
+IDs pass macOS and ARM64 AddressSanitizer/UndefinedBehaviorSanitizer tests.
+ThreadSanitizer also passes on macOS, including 20,000 events across 1,000
+generations with concurrent per-hand snapshots and device destruction. The
+runner is `tools/test-pico-monado-device.py`; evidence is retained under
+`output/pico-monado-device-20261012-v1/`. These tests use synthetic events.
+The exact Pico kernel also passes SSC discovery, decoded both-hand reports,
+device callbacks, disconnect clearing and three reconnect cycles in diskless
+QEMU. The fixture uses synthetic DSP reports and an explicit monotonic clock
+anchor with a ten-second test age limit; it does not establish hardware latency.
+The factory still needs a production SSC session and runtime builder hookup;
+it is not automatically probed or installed into the headset image.
+
 [`pico-monado-input`](../src/pico-monado-input.h) maps accepted events to Monado's
 existing Neo3 input names: X/Y on the left, A/B on the right, menu/system,
 trigger, stick and grip, plus supported touch inputs. It clears values and
