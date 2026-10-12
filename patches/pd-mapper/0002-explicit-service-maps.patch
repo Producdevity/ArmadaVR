@@ -1,0 +1,71 @@
+--- a/pd-mapper.c
++++ b/pd-mapper.c
+@@ -372,30 +372,25 @@
+ 	return 0;
+ }
+ 
+-static int pd_load_maps(void)
+-{
+-	struct assoc json_set;
++static int pd_load_maps(struct assoc *json_set)
++{
+ 	unsigned long it;
+ 	const char *jsn;
+ 	int ret = 0;
+ 
+-	assoc_init(&json_set, 20);
+-
+-	pd_enumerate_jsons(&json_set);
+-
+-	assoc_foreach(jsn, NULL, &json_set, it) {
++	assoc_foreach(jsn, NULL, json_set, it) {
+ 		ret = pd_load_map(jsn);
+ 		if (ret < 0)
+ 			break;
+ 	}
+ 
+-	assoc_destroy(&json_set);
+-
+ 	return ret;
+ }
+ 
+ int main(int argc, char **argv)
+ {
++	struct assoc json_set;
++	bool explicit_maps = false;
+ 	struct sockaddr_qrtr sq;
+ 	struct qrtr_packet pkt;
+ 	unsigned int msg_id;
+@@ -404,7 +399,31 @@
+ 	int ret;
+ 	int fd;
+ 
+-	ret = pd_load_maps();
++	assoc_init(&json_set, 20);
++	while ((ret = getopt(argc, argv, "f:h")) != -1) {
++		switch (ret) {
++		case 'f':
++			assoc_set(&json_set, optarg, NULL);
++			explicit_maps = true;
++			break;
++		case 'h':
++			printf("Usage: %s [-f SERVICE_MAP]...\n", argv[0]);
++			assoc_destroy(&json_set);
++			return 0;
++		default:
++			assoc_destroy(&json_set);
++			return 1;
++		}
++	}
++	if (optind != argc) {
++		fprintf(stderr, "unexpected argument: %s\n", argv[optind]);
++		assoc_destroy(&json_set);
++		return 1;
++	}
++	ret = explicit_maps ? 0 : pd_enumerate_jsons(&json_set);
++	if (!ret)
++		ret = pd_load_maps(&json_set);
++	assoc_destroy(&json_set);
+ 	if (ret)
+ 		exit(1);
+ 

@@ -55,8 +55,24 @@ static struct qrtr_packet discover(int fd)
     return (struct qrtr_packet){0};
 }
 
+struct domain {
+    const char *name;
+    unsigned int instance;
+};
+
+static const struct domain quest_domains[] = {
+    {"msm/adsp/root_pd", 74}, {"msm/adsp/sensor_pd", 74},
+    {"msm/adsp/audio_pd", 74}, {"msm/adsp/charger_pd", 74},
+};
+static const struct domain pico_domains[] = {
+    {"msm/adsp/root_pd", 74}, {"msm/adsp/audio_pd", 74},
+    {"msm/cdsp/root_pd", 76}, {"msm/slpi/root_pd", 90},
+    {"msm/slpi/sensor_pd", 90},
+};
+
 static void query(int fd, const struct qrtr_packet *server, unsigned int transaction,
-                  const char *name, unsigned int domains, bool charger, bool malformed)
+                  const char *name, const struct domain *expected,
+                  unsigned int domains, bool malformed)
 {
     struct servreg_loc_get_domain_list_req request = {0};
     struct servreg_loc_get_domain_list_resp response = {0};
@@ -105,29 +121,27 @@ static void query(int fd, const struct qrtr_packet *server, unsigned int transac
                 response.domain_list_len == domains, "exact domain count");
         require(response.domain_list_valid == (domains != 0), "domain list presence");
         require(response.db_revision_valid && response.db_revision == 1, "service map revision");
-        const char *expected[] = {"msm/adsp/root_pd", "msm/adsp/sensor_pd",
-                                  "msm/adsp/audio_pd", "msm/adsp/charger_pd"};
         unsigned int seen = 0;
-        bool found_charger = false;
         for (unsigned int i = 0; i < domains; ++i) {
-            require(response.domain_list[i].instance_id == 74, "firmware QMI instance");
-            unsigned int match = 4;
-            for (unsigned int j = 0; j < 4; ++j)
-                if (!strcmp(response.domain_list[i].name, expected[j]))
+            unsigned int match = domains;
+            for (unsigned int j = 0; j < domains; ++j)
+                if (!strcmp(response.domain_list[i].name, expected[j].name))
                     match = j;
-            require(match < 4 && !(seen & (1u << match)), "unique expected domain");
+            require(match < domains && !(seen & (1u << match)), "unique expected domain");
+            require(response.domain_list[i].instance_id == expected[match].instance,
+                    "firmware QMI instance");
             seen |= 1u << match;
-            if (!strcmp(response.domain_list[i].name, "msm/adsp/charger_pd"))
-                found_charger = true;
         }
-        require(found_charger == charger, "charger domain mapping");
+        require(seen == (1u << domains) - 1, "complete expected domain set");
         return;
     }
     require(false, "QMI response timed out");
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    bool pico = argc == 2 && !strcmp(argv[1], "--pico");
+    require(argc == 1 || pico, "expected no arguments or --pico");
     FILE *file = fopen("/proc/device-tree/compatible", "rb");
     require(file != NULL, "QEMU identity file");
     char compatible[128] = {0};
@@ -138,11 +152,16 @@ int main(void)
     require(fd >= 0, "open QRTR socket");
     struct qrtr_packet server = discover(fd);
     for (unsigned int i = 0; i < 32; ++i) {
-        query(fd, &server, 100 + i * 3, "tms/servreg", 4, true, false);
-        query(fd, &server, 101 + i * 3, "armada/missing", 0, false, false);
-        query(fd, &server, 102 + i * 3, "", 0, false, true);
+        unsigned int transaction = 100 + i * 4;
+        query(fd, &server, transaction, "tms/servreg", pico ? pico_domains : quest_domains,
+              pico ? 5 : 4, false);
+        query(fd, &server, transaction + 1, "armada/missing", NULL, 0, false);
+        query(fd, &server, transaction + 2, "", NULL, 0, true);
+        if (pico)
+            query(fd, &server, transaction + 3, "avs/audio", &pico_domains[1], 1, false);
     }
     qrtr_close(fd);
-    puts("ARMADA_QMI_PASS requests=96 charger=msm/adsp/charger_pd instance=74");
+    puts(pico ? "ARMADA_PICO_QMI_PASS requests=128 instances=74,76,90" :
+         "ARMADA_QMI_PASS requests=96 charger=msm/adsp/charger_pd instance=74");
     return 0;
 }

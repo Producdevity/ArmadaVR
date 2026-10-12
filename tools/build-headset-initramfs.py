@@ -19,7 +19,8 @@ PICO_INPUTS = ["system/pico/armada-pico-qrtr", "system/pico/armada-pico-qrtr.ser
 QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
                 "system/quest/module-setup.sh", "profiles/qcom-services.json",
                 "patches/qrtr/0001-check-qmi-packet-bounds.patch",
-                "patches/pd-mapper/0001-report-actual-firmware-path.patch"]
+                "patches/pd-mapper/0001-report-actual-firmware-path.patch",
+                "patches/pd-mapper/0002-explicit-service-maps.patch"]
 
 spec = importlib.util.spec_from_file_location("quest_firmware", Path(__file__).with_name("prepare-quest-firmware.py"))
 firmware = importlib.util.module_from_spec(spec)
@@ -108,6 +109,7 @@ if [ "$5" = yes ]; then
 fi
 if [ "$4" = yes ]; then
     cmp /firmware-path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
+    cmp /service-maps.patch /usr/share/armada-qcom-services/0002-explicit-service-maps.patch
     cp -a /quest /usr/lib/dracut/modules.d/95armada-quest
     python3 - <<'PYFW'
 import json
@@ -262,7 +264,8 @@ def run(args):
     if args.quest_services:
         for source, target in [("system/quest", "/quest"), ("profiles/qcom-services.json", "/qcom-profile.json"),
                                ("patches/qrtr/0001-check-qmi-packet-bounds.patch", "/qmi-bounds.patch"),
-                               ("patches/pd-mapper/0001-report-actual-firmware-path.patch", "/firmware-path.patch")]:
+                                ("patches/pd-mapper/0001-report-actual-firmware-path.patch", "/firmware-path.patch"),
+                                ("patches/pd-mapper/0002-explicit-service-maps.patch", "/service-maps.patch")]:
             command.extend(["-v", f"{ROOT / source}:{target}:ro"])
     command.extend(["--entrypoint", "timeout", image, "--kill-after=5", "240", "bash", "-c", SCRIPT,
                     "build-initramfs", version, " ".join(names), "yes" if firmware_dir else "no", "yes" if args.quest_services else "no", "yes" if args.pico_services else "no"])

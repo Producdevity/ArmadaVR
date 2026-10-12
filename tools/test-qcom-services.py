@@ -28,6 +28,7 @@ set -eu
 cmp /profile.json /usr/share/armada-qcom-services/sources.json
 cmp /bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
 cmp /path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
+cmp /maps.patch /usr/share/armada-qcom-services/0002-explicit-service-maps.patch
 mkdir /tmp/pd-mapper
 tar -xzf /sources/pd-mapper.tar.gz -C /tmp/pd-mapper --strip-components=1
 gcc -O2 -Wall -Wextra -Werror -I/tmp/pd-mapper /tests/probe.c /tmp/pd-mapper/servreg_loc.c -lqrtr -o /output/qmi-probe
@@ -80,7 +81,8 @@ def run(args):
     output.mkdir(parents=True)
     files = ["tools/test-qcom-services.py", "tests/qcom-services/init.sh", "tests/qcom-services/probe.c",
              "patches/qrtr/0001-check-qmi-packet-bounds.patch", "profiles/qcom-services.json",
-             "patches/pd-mapper/0001-report-actual-firmware-path.patch"]
+             "patches/pd-mapper/0001-report-actual-firmware-path.patch",
+             "patches/pd-mapper/0002-explicit-service-maps.patch"]
     report = {"status": "started", "scope": "real vendor-kernel QRTR/QMI with modeled remoteproc enumeration",
               "firmware_executed": False, "adsp_boot_verified": False, "hardware_boot_verified": False,
               "container_image": image, "sources": profile, "kernel_sha256": hashes["Image"],
@@ -90,7 +92,8 @@ def run(args):
         mounts = [(source_dir, "/sources:ro"), (ROOT / "tests/qcom-services", "/tests:ro"),
                   (ROOT / "profiles/qcom-services.json", "/profile.json:ro"),
                   (ROOT / "patches/qrtr/0001-check-qmi-packet-bounds.patch", "/bounds.patch:ro"),
-                  (ROOT / "patches/pd-mapper/0001-report-actual-firmware-path.patch", "/path.patch:ro"), (output, "/output")]
+                  (ROOT / "patches/pd-mapper/0001-report-actual-firmware-path.patch", "/path.patch:ro"),
+                  (ROOT / "patches/pd-mapper/0002-explicit-service-maps.patch", "/maps.patch:ro"), (output, "/output")]
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "512m",
                    "--memory-swap", "512m", "--cpus", "2", "--pids-limit", "64"]
         for host, guest in mounts:

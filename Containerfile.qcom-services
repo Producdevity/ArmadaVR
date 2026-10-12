@@ -34,6 +34,7 @@ RUN printf '%s\n' \
        /tmp/qcom/qrtr-ns/src/util.c /tmp/qcom/qrtr-ns/src/waiter.c \
        -lqrtr -o /usr/bin/qrtr-ns \
     && patch -d /tmp/qcom/pd-mapper -p1 < /tmp/pd-mapper-patches/0001-report-actual-firmware-path.patch \
+    && patch --fuzz=0 -d /tmp/qcom/pd-mapper -p1 < /tmp/pd-mapper-patches/0002-explicit-service-maps.patch \
     && timeout -k 5 120 make -C /tmp/qcom/pd-mapper -j2 prefix=/usr \
     && install -m755 /tmp/qcom/pd-mapper/pd-mapper /usr/bin/pd-mapper \
     && mkdir -p /usr/share/licenses/armada-qcom-services \
@@ -42,6 +43,7 @@ RUN printf '%s\n' \
     && cp /tmp/qcom/qrtr-ns/LICENSE /usr/share/licenses/armada-qcom-services/qrtr-ns \
     && cp /tmp/qrtr-patches/0001-check-qmi-packet-bounds.patch /usr/share/armada-qcom-services/ \
     && cp /tmp/pd-mapper-patches/0001-report-actual-firmware-path.patch /usr/share/armada-qcom-services/ \
+    && cp /tmp/pd-mapper-patches/0002-explicit-service-maps.patch /usr/share/armada-qcom-services/ \
     && ldconfig \
     && rpm -q gcc meson xz-libs xz-devel patch > /usr/share/licenses/armada-qcom-services/build-packages.txt \
     && rm -rf /tmp/qcom /tmp/qrtr.tar.gz /tmp/qrtr-ns.tar.gz /tmp/pd-mapper.tar.gz /tmp/qrtr-patches /tmp/qmi-bounds /tmp/qmi-bounds.c /tmp/pd-mapper-patches

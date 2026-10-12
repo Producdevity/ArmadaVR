@@ -95,6 +95,25 @@ physical DSP startup remain outstanding.
 
 ## Local fixes
 
+Pico's selected kernel has `CONFIG_MSM_PIL=y` and no remoteproc framework. The
+mapper's upstream automatic discovery therefore cannot find its service maps.
+The `explicit-service-maps` patch adds repeatable `-f SERVICE_MAP` arguments,
+deduplicates repeated paths and rejects invalid options or unreadable/malformed
+maps before opening QRTR. With no `-f`, automatic remoteproc discovery remains
+available. The build installs the patch alongside the pinned source manifest;
+Quest service builds also verify that identity.
+
+On the exact Pico kernel in diskless QEMU, the packaged mapper answers 256
+requests across two explicit-map starts using all five authenticated Pico
+declarations. Responses identify ADSP instance 74, CDSP 76 and SLPI 90; the
+audio service resolves only to `msm/adsp/audio_pd`. Duplicate file arguments do
+not duplicate domains. Unknown services and malformed QMI requests are also
+checked. Another 192 requests verify baseline and patched automatic discovery
+with modeled remoteproc entries and four Quest-domain fixtures. Invalid CLI
+and map inputs fail before service publication. Evidence is under
+`output/pico-pd-mapper-20261012-v1/vm-v3/`; no DSP executes in this test. Mapper
+service startup still needs integration into the Pico images.
+
 Real malformed QMI requests exposed missing packet bounds checks in libqrtr.
 The local patch checks header and TLV lengths, scalar/array payload sizes and
 string capacity before copying. Sanitizer tests also reproduce an out-of-bounds
