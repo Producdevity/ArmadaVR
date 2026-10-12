@@ -271,3 +271,37 @@ The source regression reproduces all three original failures and verifies
 metadata returned by actual QRTR discovery before opening either sensor.
 Applications must still validate the selected SUIDs, stream type and supported
 rate before starting physical streams.
+
+## Native two-sensor session
+
+[`ssc-imu-session`](../src/ssc-imu-session.h) owns accelerometer and gyroscope
+discovery, subscriptions and shutdown on a private GLib worker context. Before
+opening either stream, it requires the caller's exact SUIDs and advertised rates,
+continuous reporting and availability. It then requests a fresh clock mapping
+from the caller. The advertised rate check does not measure actual delivery.
+
+Reports reach the caller only after both subscriptions open. Each sensor has
+independent timestamp ordering and a deadline for valid reports. Startup failure,
+cancellation or either stream going silent invalidates both streams, disables
+attempted subscriptions and drains outstanding callbacks before destruction.
+Failed cleanup remains visible in the status. There is no automatic restart;
+the owner must establish a new session after suspend or DSP restart.
+
+Callbacks run on the worker, and their data must remain valid until destruction
+succeeds. A callback may request cancellation; destroying its own worker is
+refused so the owner can join it later. Events are borrowed for the callback's
+duration. This layer preserves raw sensor values and accuracy; it does not infer
+physical identity, calibration, coordinate transforms or pose.
+
+`tools/test-ssc-imu-session.py` builds release, ASan/UBSan and UBSan-only fixtures
+against the verified SSC package in an offline ARM64 Linux environment. Native
+sanitizer tests cover 100 alternating immediate cancellations and failures with
+QRTR absent. `tests/ssc-imu-session-vm.py` exercises two simultaneous streams,
+identity/rate mismatch, unavailable or malformed gyro data, partial startup,
+silent gyro, service loss, clock failure and cancellation from a report callback.
+These VM scenarios use real QRTR and libssc with a synthetic DSP endpoint.
+All twelve cases pass on the physical-configuration kernel in release and
+UBSan-only builds. This kernel's 39-bit virtual address space cannot initialize
+the available ASan runtime; ASan coverage is limited to the native tests above.
+Logs, including the failed ASan VM startup, are retained under
+`output/pico-imu-session-20261012-v1/`.
