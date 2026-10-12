@@ -805,6 +805,29 @@ identifier reads remain denied. Neither experimental module is installed or
 enabled in the OS image. Evidence is in
 `output/pico-wlan-6490-20261012-v1/`.
 
+The corresponding hardware ring configuration arrays also match stock byte for
+byte for both chip variants (672 bytes each, with no relocation entries).
+This verifies ring configuration, not every packet descriptor's field semantics.
+Matching QCA6390 and QCA6490 firmware has been extracted and hashed separately
+from the same authenticated OTA. Neither the firmware nor the experimental
+modules are enabled in the current root image.
+
+Patch `0032-wlan-rffem-errors.patch` propagates RF front-end GPIO validation,
+direction and read failures to the existing radio clock/regulator rollback.
+Previously, startup continued and could choose board data from an invalid GPIO
+read. The successful output-low, input, 10 ms delay and sampling order remains
+unchanged. Before/after tests exercise 96 failures across both chip variants and
+both sampled values; all previously ignored failures now roll back. Successful
+startup, repeated power-on and existing regulator/clock/pinctrl failures are also
+covered. The actual source functions pass AddressSanitizer and UndefinedBehaviorSanitizer
+on macOS and ARM64 Linux. This does not establish physical RF GPIO operation.
+The complete kernel through `0032` builds all 38 modules; their signatures,
+2,715 imported symbol versions and dependencies pass, including rejection of a
+modified signed payload. The exact physical-configuration kernel also passes
+the diskless Android ABI fixture and shuts down normally. Evidence is retained
+in `output/pico-radio-power-20261012-v1/`; the virtual board does not exercise
+the physical radio.
+
 Read-only stock observations narrow the hardware work:
 
 | Component | Observed on this Pro Eye | Remaining integration |
