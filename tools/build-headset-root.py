@@ -96,6 +96,12 @@ if target['profile']=='quest3':
 else:
     if any(root.glob('usr/lib/systemd/system/armada-quest*')) or any(root.glob('etc/systemd/system/**/armada-quest*')):
         raise SystemExit('Pico root cannot inherit Quest startup units')
+pico_services=None
+if target.get('pico_services'):
+    spec=importlib.util.spec_from_file_location('pico_services','/repo/tools/pico-services.py')
+    pico=importlib.util.module_from_spec(spec);spec.loader.exec_module(pico)
+    pico_services=pico.install('/',root)
+    Path('/output/pico-services.json').write_text(json.dumps(pico_services,indent=2)+'\n')
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
 shutil.copy2('/firmware/manifest.json',metadata/target['firmware_metadata'])
@@ -127,10 +133,23 @@ if Path('/output/lepton.json').is_file():
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'armada-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'gpu_firmware':gpu},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
 PYROOT
 if test -d /systemd-runtime; then
     python3 /systemd-runtime.py /systemd-runtime --install /tmp/root
+fi
+if test -f /output/pico-services.json; then
+    python3 - <<'PYQRTR'
+import subprocess
+from pathlib import Path
+logs=[]
+for name in ('qrtr-ns','qrtr-lookup'):
+    data=subprocess.check_output(['chroot','/tmp/root','/usr/bin/ldd','-r','/usr/bin/'+name],text=True,stderr=subprocess.STDOUT)
+    logs.append(name+'\n'+data)
+    if 'not found' in data or 'undefined symbol' in data:
+        raise SystemExit('Pico QRTR runtime has unresolved dependencies: '+name)
+Path('/output/pico-services-dependencies.txt').write_text('\n'.join(logs))
+PYQRTR
 fi
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
@@ -262,7 +281,13 @@ if Path('/output/lepton.json').is_file():
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_install('/tmp/verify/lepton-root',lepton)
     artifact.verify_runtime('/tmp/verify/lepton-root',json.loads(Path('/output/lepton-runtime.json').read_text()),'/tmp/verify/lepton-capabilities')
-Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,
+pico_services=None
+if Path('/output/pico-services.json').is_file():
+    pico_services=json.loads(Path('/output/pico-services.json').read_text())
+    spec=importlib.util.spec_from_file_location('pico_services','/repo/tools/pico-services.py')
+    pico=importlib.util.module_from_spec(spec);spec.loader.exec_module(pico)
+    pico.verify_image('/output/rootfs.ext4',pico_services,'/tmp/verify/pico-root')
+Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,'pico_services':pico_services,
     'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest() if Path('/quest.service').exists() else None,
     'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'monado':monado,'lepton':lepton},indent=2)+'\n')
 PYVERIFY
@@ -377,6 +402,8 @@ def target_inputs(profile, kernel, firmware, initramfs, runtime_dir, gpu_dir):
     _, fw, validator = builder.firmware_input(build, firmware if quest else None,
                                               None if quest else firmware, quest)
     initrd = json.loads((initramfs / "build.json").read_text())
+    if type(initrd.get("pico_services", False)) is not bool or (quest and initrd.get("pico_services")):
+        raise ValueError("Invalid Pico startup selection for this root")
     if (initrd.get("status") != "built" or initrd.get("quest_services") is not quest or
             initrd.get("firmware") != fw or
             initrd.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
@@ -393,6 +420,10 @@ def target_inputs(profile, kernel, firmware, initramfs, runtime_dir, gpu_dir):
     inputs = {n: builder.digest(ROOT / n) for n in builder.QUEST_INPUTS} if quest else {}
     if quest and initrd.get("quest_inputs_sha256") != inputs:
         raise ValueError("Quest startup sources changed since the initramfs build")
+    if not quest and initrd.get("pico_services"):
+        inputs = {n: builder.digest(ROOT / n) for n in builder.PICO_INPUTS}
+        if initrd.get("pico_inputs_sha256") != inputs:
+            raise ValueError("Pico startup sources changed since the initramfs build")
     return build, hashes, version, fw, validator, expected, runtime, inputs
 
 
@@ -431,6 +462,10 @@ def run(args):
         raise ValueError("Root size must be 6–32 GiB")
     build, hashes, version, fw, validator, expected, runtime, inputs = target_inputs(
         args.profile, kernel, firmware, initramfs, runtime_dir, gpu_dir)
+    pico_services = "system/pico/armada-pico-qrtr" in inputs
+    if pico_services:
+        for name in ("tools/pico-services.py", "system/pico/armada-pico-qrtr-root.service"):
+            inputs[name] = builder.digest(ROOT / name)
     runtime_sha = builder.digest(runtime_dir / "manifest.json") if runtime_dir else None
     if gpu and (gpu["reference_build"] != fw["reference_build"] or gpu["source_image_sha256"] != fw["source_image_sha256"]):
         raise ValueError("GPU and ADSP firmware must come from the same declared reference image")
@@ -456,7 +491,8 @@ def run(args):
     if export_dir:
         export_source = read_export(export_dir, image["Id"] if args.reuse_export else None)
     output.mkdir(parents=True)
-    target = {"profile": args.profile, "firmware_metadata": "quest-firmware.json" if args.profile == "quest3" else "pico-firmware.json"}
+    target = {"profile": args.profile, "pico_services": pico_services,
+              "firmware_metadata": "quest-firmware.json" if args.profile == "quest3" else "pico-firmware.json"}
     (output / "root-profile.json").write_text(json.dumps(target, indent=2) + "\n")
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
@@ -525,6 +561,9 @@ print('Monado runtime image preflight: passed')
                    "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{archive}:/rootfs.tar:ro", "-v", f"{kernel}:/kernel:ro",
                    "-v", f"{firmware}:/firmware:ro",
                    *(["-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro"] if args.profile == "quest3" else []),
+                   *([arg for name in ("tools/pico-services.py", "system/pico", "profiles/qcom-services.json",
+                                        "patches/qrtr/0001-check-qmi-packet-bounds.patch")
+                      for arg in ("-v", f"{ROOT / name}:/repo/{name}:ro")] if pico_services else []),
                    *(["-v", f"{runtime_dir}:/systemd-runtime:ro", "-v", f"{ROOT / 'tools/systemd-runtime.py'}:/systemd-runtime.py:ro"] if runtime_dir else []),
                    *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
                    *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
@@ -558,6 +597,8 @@ print('Monado runtime image preflight: passed')
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
             raise ValueError("Root build sources changed during construction")
         names = ["rootfs.ext4", "root-profile.json", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
+        if pico_services:
+            names += ["pico-services.json", "pico-services-dependencies.txt"]
         if turnip:
             names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
         if monado:

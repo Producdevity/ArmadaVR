@@ -44,9 +44,12 @@ It refuses an existing name service, waits for successful discovery before
 notifying systemd, and stops its own daemon on exit. Startup failure requests
 power-off. It does not start a DSP or load sensor firmware.
 
-The initramfs service stops before `initrd-switch-root.target`. Restarting QRTR
-in the real root and reconnecting its clients still need integration. Enabling
-the initramfs service alone does not provide continuous sensor transport.
+The initramfs service stops before `initrd-switch-root.target`. When the selected
+initramfs includes Pico services, the root builder installs the corresponding
+root-stage service, native QRTR binaries, library, source pins and licenses.
+It requires the matching QCOM build image and verifies the installed files and
+service links by reading them back from ext4. The root-stage unit also requires
+`armada.pico=qrtr`, so packaging it does not authorize a physical boot.
 
 The packaged daemon and current libqrtr pass all 15 upstream libssc cases in
 seven suites on the exact physical-configuration Pico kernel in diskless QEMU.
@@ -69,6 +72,16 @@ With a deliberately stopped daemon, the real manager records the discovery
 timeout, fails the unit and powers off the VM. The full run takes about 16
 seconds. The earlier failed log assertions remain alongside the final
 `manager-failure-v3` result.
+
+An actual systemd switch-root test stops the initramfs broker, changes to a
+separate RAM root, and verifies that a new root-stage broker becomes ready while
+the old process is gone. Both stages use the production units and helper. This
+test explicitly stops the first unit before requesting the root switch; it does
+not validate the complete physical storage or dracut boot sequence. The
+`output/pico-qrtr-root-20261012-v1/pivot-vm-v2/` result preserves the kernel hash
+and before/after process IDs. Native relocation checks also pass using the
+updated full root image's own loader and libc. Reconnecting sensor clients and
+physical DSP startup remain outstanding.
 
 ## Local fixes
 

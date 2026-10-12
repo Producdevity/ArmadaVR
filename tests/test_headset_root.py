@@ -80,6 +80,27 @@ class RootTargetTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "without --gpu-firmware"):
             self.select(gpu=self.directory)
 
+    def test_pico_startup_requires_matching_initramfs_sources(self):
+        self.initrd["pico_services"] = True
+        self.initrd["pico_inputs_sha256"] = {n: root.builder.digest(root.ROOT / n) for n in root.builder.PICO_INPUTS}
+        self.save()
+        result, _ = self.select()
+        self.assertEqual(result[7], self.initrd["pico_inputs_sha256"])
+        self.initrd["pico_inputs_sha256"].clear()
+        self.save()
+        with self.assertRaisesRegex(ValueError, "Pico startup sources changed"):
+            self.select()
+
+    def test_pico_startup_cannot_be_selected_for_quest(self):
+        self.initrd["pico_services"] = True
+        self.save()
+        with self.assertRaisesRegex(ValueError, "Invalid Pico startup"):
+            self.select(profile="quest3")
+        self.initrd["pico_services"] = 1
+        self.save()
+        with self.assertRaisesRegex(ValueError, "Invalid Pico startup"):
+            self.select()
+
     def test_quest_contract_remains_required(self):
         self.initrd["quest_services"] = True
         self.initrd["quest_inputs_sha256"] = {n: root.builder.digest(root.ROOT / n) for n in root.builder.QUEST_INPUTS}
