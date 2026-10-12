@@ -310,13 +310,19 @@ reports. Uncalibrated analog inputs and unimplemented poses remain inactive.
 Two service/client lifecycles pass with clean shutdown. Counter timestamps use
 the virtual CPU counter; this does not establish a physical CPU/DSP clock origin.
 
-Evidence is in `output/pico-monado-runtime-20261012-v1/runtime-vm-v4/`.
-The derived root `output/headset-root-pico-monado-20261012-v1/` passes exact
-Monado/SSC readback, permissions, filesystem checks and actual-root symbol
-resolution. Its parent remains unchanged. The unsigned boot container in
-`output/pico-boot-container-20261012-v13/` binds that root and passes assembly
-and unpacking checks. None of these tests establish physical boot, recovery,
-panel output, tracking, controller pairing or flash readiness.
+The current runtime was rebuilt against the corrected SSC metadata properties.
+All 25 upstream test executables and the display regressions pass. The OpenXR
+test also passes both lifecycles on the rebuilt FastRPC kernel; evidence is in
+`output/pico-monado-ssc-properties-20261012-v1/runtime-vm-v1/`.
+
+The derived root `output/headset-root-pico-ssc-properties-20261012-v1/` passes
+exact Monado/SSC readback, permissions, filesystem checks and symbol resolution
+across 485 ELF dependencies. Kernel modules, firmware and FastRPC remain intact;
+its parent remains unchanged. The unsigned boot container in
+`output/pico-boot-container-20261012-v15/` binds that root and passes assembly
+and unpacking checks. Native head-IMU session code is tested separately and is
+not started by this runtime. None of these tests establish physical boot,
+recovery, panel output, tracking, controller pairing or flash readiness.
 
 `tools/test-pico-ssc-session.py` builds against the pinned Monado source and a
 verified SSC bundle. On native ARM64, 100 alternating immediate-cancellation
