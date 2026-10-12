@@ -58,7 +58,7 @@ StandardOutput=journal+console
 StandardError=journal+console
 '''
 
-PROBE = r'''import hashlib,json,os,stat,subprocess
+PROBE = r'''import hashlib,json,os,stat,struct,subprocess
 from pathlib import Path
 def sha(p):
     with p.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
@@ -67,6 +67,8 @@ def command(args,timeout=30):
 assert os.getuid()==0 and 'armada.pico_root_test=1' in Path('/proc/cmdline').read_text()
 assert Path('/sys/firmware/devicetree/base/compatible').read_bytes().split(b'\0')[0]==b'linux,dummy-virt'
 expected=json.loads(Path('/run/pico-expected.json').read_text())
+if expected['enforcing_boot']:
+    assert {'selinux=1','enforcing=1'} <= set(Path('/proc/cmdline').read_text().split())
 assert command(['findmnt','-n','-o','FSTYPE','/']).strip()=='overlay'
 assert Path('/sys/block/vda/ro').read_text().strip()=='1'
 for line in Path('/proc/self/mountinfo').read_text().splitlines():
@@ -103,10 +105,20 @@ assert 'PICO_ROOT_ISOLATION_PASS' in isolation and not Path('/tmp/pico-private-p
 Path('/pico-volatile-write').write_text('guest RAM only\n')
 assert Path('/sys/block/vda/stat').read_text().split()[4]=='0'
 assert command(['systemctl','show','--property=NFailedUnits','--value']).strip()=='0'
+selinux=Path('/run/pico-selinux');selinux.mkdir()
+command(['mount','-t','selinuxfs','-o','ro','none',str(selinux)])
+enforcing=int((selinux/'enforce').read_text())
+version,sequence,status_enforcing,policyload,deny_unknown=struct.unpack('=5I',(selinux/'status').read_bytes()[:20])
+assert enforcing==status_enforcing and version==1 and sequence%2==0
+if expected['enforcing_boot']:assert enforcing==1
+policy={'enforcing_flag':bool(enforcing),'policy_load_count':policyload,'policy_loaded':policyload>0,
+        'maximum_policy_version':int((selinux/'policyvers').read_text()),'deny_unknown':bool(deny_unknown)}
+command(['umount',str(selinux)])
 print(json.dumps({'status':'passed','boot_id':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
     'taint':int(Path('/proc/sys/kernel/tainted').read_text()),'runtime_files':len(runtime['files']),
     'runtime_commands':len(runtime['commands']),'modules':len(expected['modules']),'firmware':len(expected['firmware']),
-    'user_session':True,'service_isolation':True,'root_overlay':True,'root_block_readonly':True,'disk_writes':0}),flush=True)
+    'user_session':True,'service_isolation':True,'root_overlay':True,'root_block_readonly':True,'disk_writes':0,
+    'selinux':policy,'selinux_policy_acceptance':False}),flush=True)
 '''
 
 
@@ -168,12 +180,14 @@ def run(args):
     if output.exists() or any(c in str(p) for p in (kernel, initramfs, directory, output) for c in (",", ":")):
         raise ValueError("Choose a new output directory and paths without commas or colons")
     hashes, root, expected, disk, initrd_sha = root_input(kernel, initramfs, directory)
+    expected['enforcing_boot'] = args.enforcing_boot
     if shutil.disk_usage(output.parent).free < 1024**3:
         raise ValueError("Requires 1 GiB free for bounded test evidence")
     output.mkdir()
     record = {"status": "started", "hardware_boot_verified": False, "hardware_recovery_verified": False,
               "kernel_sha256": hashes["Image"], "initramfs_sha256": initrd_sha,
               "root_sha256": root["sha256"]["rootfs.ext4"], "runner_sha256": builder.digest(Path(__file__)),
+              "enforcing_boot_requested": args.enforcing_boot,
               "network": "none", "writable_state": "guest RAM only", "runtime_replaced_in_fixture": False}
     process = None
     started = time.monotonic()
@@ -199,7 +213,8 @@ def run(args):
                        "-object", "rng-random,id=rng,filename=/dev/urandom", "-device", "virtio-rng-device,rng=rng",
                        "-device", "virtio-serial-device", "-chardev", f"socket,path={sockets}/agent.sock,server=on,wait=off,id=agent",
                        "-device", "virtserialport,chardev=agent,name=org.armada.pico_root_test.0", "-append",
-                       "console=ttyAMA0 earlycon selinux=0 audit=0 root=LABEL=" + root["root_label"] +
+                       "console=ttyAMA0 earlycon " + ("selinux=1 enforcing=1" if args.enforcing_boot else "selinux=0") +
+                       " audit=0 root=LABEL=" + root["root_label"] +
                        " ro rootfstype=ext4 rootflags=noload systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0"
                        " rd.systemd.gpt_auto=0 systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30"
                        " initcall_blacklist=hwinfo_init armada.pico_root_test=1 systemd.unified_cgroup_hierarchy=1"]
@@ -268,6 +283,7 @@ if __name__ == "__main__":
     parser.add_argument("rootfs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--qemu", default="qemu-system-aarch64")
+    parser.add_argument("--enforcing-boot", action="store_true", help="Use the physical candidate's SELinux boot flags and report actual policy state")
     try:
         run(parser.parse_args())
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:

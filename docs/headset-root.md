@@ -242,8 +242,11 @@ overlay, no disk writes, no failed services and normal poweroff. The kernel,
 initramfs and complete root-image hashes must remain unchanged. Physical-kernel
 roots and mismatched inputs are refused. QEMU does not execute Pico panel, GPU,
 radio, sensor or controller hardware; this is userspace and boot-handoff evidence.
-The initial acceptance uses SELinux disabled; it does not establish enforcing
-policy compatibility with the complete userspace.
+The initial command line requests `selinux=0`, but this vendor kernel omits
+`CONFIG_SECURITY_SELINUX_BOOTPARAM` and ignores that request. Use
+`--enforcing-boot` to test the physical candidate's `selinux=1 enforcing=1` flags.
+The probe reads the actual enforcement flag and policy-load counter through a
+read-only selinuxfs mount; it does not load a policy or claim policy acceptance.
 
 Build the root with the QEMU kernel and its matching startup initramfs, then run:
 
@@ -444,3 +447,11 @@ isolation. Normal shutdown, zero disk writes and unchanged input hashes pass.
 No runtime or module replacement occurs during this boot test. The known virtual
 board warning/taint remains. Neither image establishes physical driver operation,
 bootloader acceptance, damaged-boot restoration or flash readiness.
+
+The subsequent `output/pico-root-acceptance-20261012-v4` repeats acceptance with
+the candidate's enforcing boot flags and passes in 22.307 seconds, including
+clean shutdown and unchanged inputs. SELinux reports enforcement enabled, policy
+version support through 31, and **zero loaded policies**. The root contains no
+SELinux configuration or targeted policy. Therefore the flag alone does not
+establish mandatory-access-control protection. Earlier small policy-denial
+fixtures remain separate evidence; they do not establish a full root policy.
