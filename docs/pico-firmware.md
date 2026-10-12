@@ -781,25 +781,45 @@ kernel using newer
 [Xiaomi `dagu-s-oss` headers](https://github.com/MiCode/vendor_qcom_opensource_wlan/tree/b7eb630ef0f4ef2058bc94cff72f65168a2c2ae3/fw-api)
 and pointer-width corrections in three driver source files. All 480 imported
 symbol versions match; the signed module verifies against the built kernel's
-embedded certificate and rejects a modified payload. The exact stock firmware
-message ABI, active chip variant and radio operation remain unverified; reading
-the unit's PCI identifiers is denied. QCA6490 has not been compiled. This
-experiment is retained separately and is not part of the maintained build.
+embedded certificate and rejects a modified payload. This experiment is retained
+separately and is not part of the maintained build.
+
+QCA6490 now also compiles against the current kernel through patch `0031`,
+using a separate copy of the same source/header combination and the three
+pointer-width corrections. The actual compilation defines select QCA6490.
+All 482 imported symbol versions match; its signature checks against that
+kernel's embedded certificate and rejects a modified payload. The accepted
+kernel, source and signing keys remained read-only throughout compilation.
+The signed module SHA-256 is
+`ce0ae65db80831c94f3498aac854753388b08e4604f70abbf798c371a9261940`.
+
+`tools/compare-wlan-schema.py` compares the compiled `cmd_attr_list` and
+`evt_attr_list` arrays without loading either module. For both chip variants,
+all 470 command schemas and 264 event schemas match stock exactly, including
+message IDs, TLV order, tags, structure sizes, array sizes and variable flags.
+There are no missing, added or changed entries. An actual-module mutation of
+one structure size is detected and rejected. This narrows the firmware API
+uncertainty; field meanings, hardware descriptor layouts, active chip selection,
+firmware startup and radio operation still need verification. The unit's PCI
+identifier reads remain denied. Neither experimental module is installed or
+enabled in the OS image. Evidence is in
+`output/pico-wlan-6490-20261012-v1/`.
 
 Read-only stock observations narrow the hardware work:
 
 | Component | Observed on this Pro Eye | Remaining integration |
 |---|---|---|
-| Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound | Resolve the missing bridge implementation and actual panel/mode ownership; driver binding alone does not prove a replacement display path |
+| Graphics/display | KGSL, both DSI controllers and `vxr7200_i2c` at I2C `0-0039` are bound; compositor identifies Sharp 493 120, running at 72 Hz | Native panel/mux binding is assembled offline; physical startup, bridge events, suspend and scanout remain |
 | Controllers | SPI `spidev` transport, `/dev/stationdev`, and a running `pxrcontrollerservice`; [SLPI key decoder and rebuilt station driver](pico-controller-protocol.md) pass offline checks | Complete SSC transport; verify physical station IRQs, inputs, pairing, haptics and optical tracking |
 | IMU/tracking | Qualcomm SSC, TDK `icm4x6xx` sensor entries, and running `pvrtrackingservice` | Establish calibrated sample/camera timing and the Linux tracking interface |
 | Eye tracking | Running `pxreyetrackingservice`; Tobii/Pico libraries and preserved calibration | Establish camera ownership, service dependencies and the gaze interface |
-| Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules now build and pass offline ABI/signature checks; routing, DSP and physical audio remain. Wi-Fi needs matching firmware API headers and validation |
+| Audio/WLAN | 29 loaded stock modules: 27 audio, WLAN and `msm_11ad_proxy` | Audio modules and DSP packaging pass offline checks; startup/routing remain. Both experimental Wi-Fi variants compile and match stock WMI schemas; descriptor, firmware and radio checks remain |
 
 Camera HAL advertises five logical devices while six camera sensor nodes are
 bound. Do not infer a one-to-one physical camera mapping from those counts.
-The current shell cannot read the live FDT or DRM status/modes; exact tree
-selection and display topology remain unresolved. Vendor runtime files and
+The shell cannot read the live FDT or DRM status/modes. Boot properties select
+base DTB 3 and overlay 0; compositor observations establish the active panel
+name, but do not verify the replacement driver's physical topology. Vendor runtime files and
 per-unit calibration stay outside the public repository.
 
 ## Work remaining compared with Quest
