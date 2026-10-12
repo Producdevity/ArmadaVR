@@ -1,0 +1,39 @@
+Subject: client: expose timestamped reports with retainable payloads
+
+Keep the existing report signal unchanged. The additional signal delivers raw
+DSP ticks and immutable GBytes so asynchronous consumers can retain the payload.
+
+--- a/src/libssc-client.c
++++ b/src/libssc-client.c
+@@ -20,6 +20,7 @@
+ 
+ enum {
+ 	SIGNAL_REPORT,
++	SIGNAL_REPORT_TIMESTAMPED,
+ 	SIGNAL_SENSOR_INITIALIZED,
+ 	N_SIGNALS
+ };
+@@ -91,6 +92,10 @@
+ 		 * receive sensor specific messages. Drivers can emit the sensor data
+ 		 * once they have processed it.
+ 		 */
++		GBytes *payload = g_bytes_new (body->msg.data, body->msg.len);
++		g_signal_emit (self, signals[SIGNAL_REPORT_TIMESTAMPED], 0, body->msg_id,
++			      msg->uid->high, msg->uid->low, body->timestamp, payload);
++		g_bytes_unref (payload);
+ 		g_signal_emit (self, signals[SIGNAL_REPORT], 0, body->msg_id, msg->uid->high, msg->uid->low, buf);
+ 		g_array_free (buf, TRUE);
+ 	}
+@@ -512,6 +517,12 @@
+ 		0, NULL, NULL, NULL,
+ 		G_TYPE_NONE,
+ 		4, G_TYPE_UINT, G_TYPE_UINT64, G_TYPE_UINT64, G_TYPE_ARRAY);
++	signals[SIGNAL_REPORT_TIMESTAMPED] = g_signal_new ("report-timestamped",
++		G_TYPE_FROM_CLASS (klass),
++		G_SIGNAL_RUN_FIRST,
++		0, NULL, NULL, NULL,
++		G_TYPE_NONE,
++		5, G_TYPE_UINT, G_TYPE_UINT64, G_TYPE_UINT64, G_TYPE_UINT64, G_TYPE_BYTES);
+ 	signals[SIGNAL_SENSOR_INITIALIZED] = g_signal_new ("sensor-initialized",
+ 		G_TYPE_FROM_CLASS (klass),
+ 		G_SIGNAL_RUN_FIRST,

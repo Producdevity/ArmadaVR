@@ -21,8 +21,8 @@ from the same authenticated system image. Its `SLPIInit("ble_mcu", 480)` route
 uses `libssc.so` and `libsns_api.so`. For SSC message ID `0x400`, the library
 parses `sns_ble_mcu_data` and copies 25 uint32 words into the 100-byte station
 record at offset `0x1018` of a `0x1980`-byte event. This establishes the inner
-record boundary. The payload schema is now recovered as described below; the
-live SSC connection and outer event envelope still need validation.
+record boundary. The payload and outer event schemas have been checked offline
+as described below; the live SSC connection still needs validation.
 
 The outer event timestamp at offset `0x10` uses SSC ticks multiplied by
 `52.083333333333336`, plus an offset measured from Android elapsed real time and
@@ -78,6 +78,45 @@ notifications. The raw decoder performs none of those lifecycle operations. Its
 caller must obtain the active MCU/radio configuration and supply complete records
 from a verified transport. It does not pair controllers, send haptics, access a
 device, load firmware or produce a tracked pose.
+
+## Native Linux SSC transport
+
+The native [libssc](https://codeberg.org/DylanVanAssche/libssc) source is pinned
+in [`profiles/ssc.json`](../profiles/ssc.json), including its GPL-3.0-or-later
+license. The complete library, CLI and test executables build on ARM64 Linux
+with GLib 2.88.3, libqmi 1.36.0 and protobuf-c 1.5.2. Its QMI service 400 and
+small/large report IDs `0x21`/`0x22` agree with the same-build Pico library's
+recovered IDL tables. This establishes protocol overlap; it does not prove DSP
+startup, SUID discovery or a physical `ble_mcu` subscription.
+
+Upstream's `report` signal discards the outer DSP timestamp and frees its mutable
+array after callbacks return. The pinned
+[`report-timestamps` patch](../patches/libssc/0001-report-timestamps.patch) adds
+`report-timestamped` with message ID, SUID high/low, raw 64-bit timestamp and
+immutable `GBytes`. Consumers can retain the bytes with `g_bytes_ref`. The
+original signal remains available with its existing arguments. The new payload
+is copied independently, so a legacy callback cannot mutate retained data.
+Timestamps remain raw DSP ticks; clock alignment is still the receiver's job.
+
+On a Linux host with the listed development dependencies, run:
+
+```sh
+python3 tools/test-ssc-reports.py /path/to/pinned/libssc --output /path/to/new-results
+```
+
+The runner verifies source hashes, applies the patch with zero fuzz, generates
+protobuf-C bindings, and tests the actual original and patched dispatchers with
+AddressSanitizer and UndefinedBehaviorSanitizer. It checks multiple reports,
+SUIDs, zero and maximum timestamps, malformed outer messages, legacy mutation,
+and payload decoding after the wire buffer and client have been destroyed.
+The encoded events also pass an independent Google protobuf parser loaded with
+the exact Pico `sns_client.proto` and `sns_ble_mcu.proto` descriptors.
+
+The dispatcher test does not open QRTR or start a DSP. Docker's current kernel
+does not provide AF_QIPCRTR, so upstream's QRTR mock tests cannot run there.
+The library is staged privately, not installed into the headset image; live
+stream lifetime, suspend/resume, timestamp alignment and controller input
+delivery remain open integration work.
 
 ## Station interrupt driver
 

@@ -1,0 +1,21 @@
+{
+  "repository": "https://codeberg.org/DylanVanAssche/libssc",
+  "commit": "54dd13e36d65c21263cf5b0f4a70c230a77b26bc",
+  "version": "0.4.4",
+  "license": "GPL-3.0-or-later",
+  "source_archive_sha256": "ff723a4aa39f692e3a53d6dbf64d5b7831c6a6839eb98a9dfb2acd5de2030357",
+  "report_source_sha256": "9706915d79ebc504063900f4f748332d394b4d5c70900dd5a4824dfc00e9ff09",
+  "patched_report_source_sha256": "4177763002e2a6f0d02fbab07cddef3f504a7984730ff8fc1b2070853ec70b12",
+  "patches": [
+    "patches/libssc/0001-report-timestamps.patch"
+  ],
+  "hardware_verified": false,
+  "test_source_sha256": {
+    "src/libssc-client.c": "9706915d79ebc504063900f4f748332d394b4d5c70900dd5a4824dfc00e9ff09",
+    "src/libssc-client-private.h": "f01d2f12df272d245cf38c3c85b3846e59b180ba2dcd622fbdfd2de4946b0116",
+    "src/libssc-common.c": "0a7882c7b71b7c7cfc2995bdf2f6ec21c91fe26d654ba38e39ddc7835b399477",
+    "src/libssc-common-private.h": "b8b2b2771c465175c1f09739286c568a0c37eb8fc91dbe240c5e8dfc78609816",
+    "src/libssc-sensor.h": "eea6b1a6b316c8fa8408e9d0a25f6e7b697859d7f4ed6564918c418c2dcf73b2",
+    "data/ssc-common.proto": "1fb2d07b2f752723c1e9d4927c52247a6900c66be2dc3cbf4e26e8a08e682165"
+  }
+}
