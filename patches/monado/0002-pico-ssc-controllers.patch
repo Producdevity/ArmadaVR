@@ -1,0 +1,83 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -380,6 +380,7 @@
+ option_with_deps(XRT_BUILD_DRIVER_XREAL_AIR "Enable Xreal Air HMD driver" DEPENDS XRT_HAVE_HIDAPI)
+ option_with_deps(XRT_BUILD_DRIVER_SIMULAVR "Enable simula driver" DEPENDS XRT_HAVE_REALSENSE)
+ option_with_deps(XRT_BUILD_DRIVER_SOLARXR "Enable SolarXR driver" DEPENDS XRT_HAVE_LINUX XRT_MODULE_IPC)
++option(XRT_BUILD_DRIVER_PICO_SSC "Enable opt-in Pico SSC controllers" OFF)
+ option(XRT_BUILD_DRIVER_SIMULATED "Enable simulated driver" ON)
+ 
+ option(XRT_BUILD_SAMPLES "Enable compiling sample code implementations that will not be linked into any final targets" ON)
+@@ -470,6 +471,7 @@
+ 	"BLUBUR_S1"
+ 	"CONTACTGLOVE"
+ 	"DAYDREAM"
++	"PICO_SSC"
+ 	"SIMULATED"
+ 	"HANDTRACKING"
+ 	"HDK"
+--- a/src/xrt/drivers/CMakeLists.txt
++++ b/src/xrt/drivers/CMakeLists.txt
+@@ -68,6 +68,25 @@
+ 		)
+ 	target_include_directories(drv_depthai PRIVATE ${OpenCV_INCLUDE_DIRS})
+ 	list(APPEND ENABLED_DRIVERS depthai)
++endif()
++
++if(XRT_BUILD_DRIVER_PICO_SSC)
++	if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
++		message(FATAL_ERROR "Pico SSC requires Linux ARM64")
++	endif()
++	if(NOT EXISTS "${PICO_SSC_INCLUDE_DIR}/libssc-sensor.h" OR NOT EXISTS "${PICO_SSC_LIBRARY}")
++		message(FATAL_ERROR "Provide the verified SSC header directory and library")
++	endif()
++	pkg_check_modules(PICO_GIO REQUIRED IMPORTED_TARGET gio-2.0)
++	add_library(drv_pico_ssc STATIC
++		pico_ssc/pico-monado-prober.c pico_ssc/pico-ssc-session.c
++		pico_ssc/pico-monado-device.c pico_ssc/pico-monado-input.c
++		pico_ssc/pico-controller.c pico_ssc/pico-controller-stream.c
++		pico_ssc/ssc-clock.c pico_ssc/ssc-clock-linux.c)
++	target_include_directories(drv_pico_ssc PRIVATE "${PICO_SSC_INCLUDE_DIR}")
++	target_link_libraries(drv_pico_ssc PRIVATE xrt-interfaces aux_util aux_os
++		xrt-external-cjson PkgConfig::PICO_GIO "${PICO_SSC_LIBRARY}")
++	list(APPEND ENABLED_DRIVERS pico_ssc)
+ endif()
+ 
+ if(XRT_BUILD_DRIVER_SIMULATED)
+--- a/src/xrt/targets/common/CMakeLists.txt
++++ b/src/xrt/targets/common/CMakeLists.txt
+@@ -102,6 +102,10 @@
+ 
+ target_link_libraries(target_lists PRIVATE drv_cemu)
+ 
++if(XRT_BUILD_DRIVER_PICO_SSC)
++	target_link_libraries(target_lists PRIVATE drv_pico_ssc)
++endif()
++
+ if(XRT_BUILD_DRIVER_DAYDREAM)
+ 	target_link_libraries(target_lists PRIVATE drv_daydream)
+ endif()
+--- a/src/xrt/targets/common/target_lists.c
++++ b/src/xrt/targets/common/target_lists.c
+@@ -9,6 +9,10 @@
+ #include "xrt/xrt_config_drivers.h"
+ 
+ #include "target_lists.h"
++
++#ifdef XRT_BUILD_DRIVER_PICO_SSC
++#include "pico_ssc/pico-monado-prober.h"
++#endif
+ #include "target_builder_interface.h"
+ 
+ 
+@@ -228,6 +232,10 @@
+ };
+ 
+ xrt_auto_prober_create_func_t target_auto_list[] = {
++#ifdef XRT_BUILD_DRIVER_PICO_SSC
++    pico_ssc_create_auto_prober,
++#endif
++
+ #ifdef XRT_BUILD_DRIVER_PSVR
+     psvr_create_auto_prober,
+ #endif

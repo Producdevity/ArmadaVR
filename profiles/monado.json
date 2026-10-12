@@ -2,6 +2,12 @@
   "version": "25.1.0",
   "commit": "01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
   "repository": "https://gitlab.freedesktop.org/monado/monado",
+  "pico_driver_sources": [
+    "pico-monado-prober.c", "pico-monado-prober.h", "pico-ssc-session.c", "pico-ssc-session.h",
+    "pico-monado-device.c", "pico-monado-device.h", "pico-monado-input.c", "pico-monado-input.h",
+    "pico-controller.c", "pico-controller.h", "pico-controller-stream.c", "pico-controller-stream.h",
+    "ssc-clock.c", "ssc-clock.h", "ssc-clock-linux.c", "ssc-clock-linux.h"
+  ],
   "full_source": {
     "url": "https://gitlab.freedesktop.org/api/v4/projects/monado%2Fmonado/repository/archive.tar.gz?sha=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
     "size": 5848758,

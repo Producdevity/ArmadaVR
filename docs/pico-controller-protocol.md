@@ -256,8 +256,8 @@ The exact Pico kernel also passes SSC discovery, decoded both-hand reports,
 device callbacks, disconnect clearing and three reconnect cycles in diskless
 QEMU. The fixture uses synthetic DSP reports and an explicit monotonic clock
 anchor with a ten-second test age limit; it does not establish hardware latency.
-The factory is connected to the session owner below. Runtime builder hookup
-remains; it is not automatically probed or installed into the headset image.
+The factory is connected to the session owner and opt-in runtime prober below.
+No controller subscription is enabled automatically in a headset image.
 
 [`pico-ssc-session`](../src/pico-ssc-session.h) owns discovery, subscription and
 shutdown on a dedicated GLib context and thread. It discovers the `ble_mcu` SUID,
@@ -289,7 +289,8 @@ It owns the session until prober destruction; devices may outlive it. The
 initial limits are 100 ms sample age and 500 ms stream/hand timeout, pending
 physical latency validation. Analog calibration remains absent, so only digital
 and enabled touch inputs can become active. It creates no HMD or tracked pose.
-The current packaged runtime still needs this prober's build registration.
+The optional Pico build registers this prober in Monado's legacy device discovery.
+Other system builders do not acquire the controllers through that path.
 
 `tools/test-pico-monado-device.py` also compiles the actual prober with upstream
 Monado headers and cJSON. Its 123 checks include 100 create/destroy cycles,
@@ -331,8 +332,7 @@ headers. Evidence is under `output/pico-monado-input-20261012-v1/`. The adapter
 also receives both-hand events through the native SSC client on the Pico kernel,
 including three reconnect cycles and disconnect clearing (`controller-vm-v1/`).
 Its calibration and DSP producer are synthetic. The adapter
-still needs runtime registration and a verified physical calibration source
-before it can deliver device input to applications.
+still needs a verified physical calibration source and live headset validation.
 
 On a Linux host with the listed development dependencies, run:
 

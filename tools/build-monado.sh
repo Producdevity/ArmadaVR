@@ -4,7 +4,12 @@ cd "$(dirname "$0")/.."
 engine="${CONTAINER_ENGINE:-docker}"
 out="${1:?Choose a new output directory}"
 [[ ! -e "$out" && ! -L "$out" ]] || { echo "Output exists: $out" >&2; exit 1; }
-image=$("$engine" image inspect --format '{{.Id}}' localhost/armada-vr:monado-tools)
+image=$("$engine" image inspect --format '{{.Id}}' "${MONADO_BUILD_IMAGE_ID:-localhost/armada-vr:monado-tools}")
+extra=()
+if [[ -n "${2:-}" ]]; then
+    ssc=$(cd "$2" && pwd)
+    extra=(--env MONADO_SSC_BUNDLE=/ssc --mount "type=bind,src=$ssc,dst=/ssc,readonly")
+fi
 python3 -B tools/monado-build.py fetch
 archive=$(python3 -B -c 'import json; p=json.load(open("profiles/monado.json")); print("output/downloads/monado-"+p["commit"]+".tar.gz")')
 mkdir -p "$out"
@@ -14,9 +19,11 @@ out=$(cd "$out" && pwd)
     --tmpfs /work:rw,exec,size=1024m --tmpfs /tmp:rw,exec,size=64m \
     --env "MONADO_BUILD_IMAGE_ID=$image" --env PYTHONDONTWRITEBYTECODE=1 \
     --mount "type=bind,src=$PWD/tools,dst=/project/tools,readonly" \
-    --mount "type=bind,src=$PWD/profiles/monado.json,dst=/project/profiles/monado.json,readonly" \
+    --mount "type=bind,src=$PWD/src,dst=/project/src,readonly" \
+    --mount "type=bind,src=$PWD/profiles,dst=/project/profiles,readonly" \
+    --mount "type=bind,src=$PWD/patches/libssc,dst=/project/patches/libssc,readonly" \
     --mount "type=bind,src=$PWD/patches/monado,dst=/project/patches/monado,readonly" \
     --mount "type=bind,src=$PWD/tests,dst=/project/tests,readonly" \
     --mount "type=bind,src=$PWD/$archive,dst=/archive.tar.gz,readonly" \
     --mount "type=bind,src=$out,dst=/output" \
-    "$image" -c 'exec python3 -B /project/tools/monado-build.py build'
+    "${extra[@]}" "$image" -c 'exec python3 -B /project/tools/monado-build.py build'

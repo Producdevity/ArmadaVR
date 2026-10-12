@@ -82,6 +82,34 @@ class MonadoInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'offline staging root'):
             monado.install(self.bundle, Path('/'), self.record)
 
+    def test_pico_runtime_requires_installed_matching_ssc(self):
+        dependency = {'build_sha256': '0' * 64, 'contents': {'files': {}, 'links': {}}}
+        self.record['ssc_dependency'] = dependency
+        with self.assertRaisesRegex(ValueError, 'regular SSC prefix'):
+            monado.install(self.bundle, self.root, self.record)
+        self.assertEqual(list(self.root.iterdir()), [])
+        ssc_prefix = self.root / 'opt/armada-vr/ssc'
+        ssc_prefix.mkdir(parents=True)
+        metadata = self.root / 'usr/share/armada-vr/ssc-build.json'
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text('different SSC build')
+        with self.assertRaisesRegex(ValueError, 'SSC build record'):
+            monado.install(self.bundle, self.root, self.record)
+        self.assertFalse((self.root / monado.INSTALL_PREFIX).exists())
+        dependency['build_sha256'] = monado.digest(metadata)
+        monado.install(self.bundle, self.root, self.record)
+        monado.verify_install(self.root, self.record)
+
+    def test_pico_runtime_refuses_modified_ssc_before_copying(self):
+        ssc_prefix = self.root / 'opt/armada-vr/ssc'
+        ssc_prefix.mkdir(parents=True)
+        (ssc_prefix / 'unexpected').write_text('changed dependency')
+        self.record['ssc_dependency'] = {'build_sha256': '0' * 64,
+                                         'contents': {'files': {}, 'links': {}}}
+        with self.assertRaisesRegex(ValueError, 'SSC inventory'):
+            monado.install(self.bundle, self.root, self.record)
+        self.assertFalse((self.root / monado.INSTALL_PREFIX).exists())
+
     def test_package_refuses_nonexecutable_service_and_privileged_modes(self):
         service = self.bundle / monado.PREFIX / 'bin/monado-service'
         with patch.object(monado, 'validate', return_value={}):

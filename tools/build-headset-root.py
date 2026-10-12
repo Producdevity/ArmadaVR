@@ -122,18 +122,18 @@ if Path('/output/turnip.json').is_file():
         target=root/item['path'];target.parent.mkdir(parents=True,exist_ok=True)
         shutil.copy2(Path('/turnip')/item['source'],target)
     shutil.copy2('/turnip/build.json',metadata/'turnip-build.json')
-monado=None
-if Path('/output/monado.json').is_file():
-    monado=json.loads(Path('/output/monado.json').read_text())
-    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
-    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
-    artifact.install('/monado',root,monado)
 ssc=None
 if Path('/output/ssc.json').is_file():
     ssc=json.loads(Path('/output/ssc.json').read_text())
     spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/ssc',root,ssc)
+monado=None
+if Path('/output/monado.json').is_file():
+    monado=json.loads(Path('/output/monado.json').read_text())
+    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.install('/monado',root,monado)
 lepton=None
 if Path('/output/lepton.json').is_file():
     lepton=json.loads(Path('/output/lepton.json').read_text())
@@ -176,9 +176,9 @@ if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/armada-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
 fi
 if test -f /output/monado.json; then
-    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/ldd -r /opt/armada-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64 /usr/bin/ldd -r /opt/armada-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
     python3 -c 'from pathlib import Path; data=Path("/output/monado-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
-    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/armada-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/armada-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
 fi
 if test -f /output/lepton.json; then
     chroot /tmp/root /bin/sh -ec '
@@ -469,6 +469,8 @@ def run(args):
     if ssc_dir and any(c in str(ssc_dir) for c in (",", ":")):
         raise ValueError("Choose an SSC path without commas or colons")
     ssc = ssc_artifact.package(ssc_dir) if ssc_dir else None
+    if monado and monado.get('ssc_dependency') is not None and monado['ssc_dependency'] != ssc:
+        raise ValueError("The Pico Monado runtime requires its exact SSC bundle")
     lepton_dir = args.lepton.absolute() if args.lepton else None
     lepton_host_dir = args.lepton_host.absolute() if args.lepton_host else None
     if bool(lepton_dir) != bool(lepton_host_dir):
@@ -563,7 +565,8 @@ print('Monado runtime image preflight: passed')
             command = [args.engine, "run", "--rm", "--read-only", "--network", "none",
                        "--memory", "256m", "--memory-swap", "256m", "--cpus", "1", "--pids-limit", "64",
                        "-v", f"{monado_dir / monado_artifact.PREFIX}:/opt/armada-vr/monado:ro",
-                       "-e", "LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64",
+                       *(["-v", f"{ssc_dir / ssc_artifact.PREFIX}:/opt/armada-vr/ssc:ro"] if ssc_dir else []),
+                       "-e", "LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64",
                        "--entrypoint", "python3", image["Id"], "-B", "-c", probe]
             report["commands"].append(command)
             with (output / "monado-preflight.txt").open("wb") as log:

@@ -54,6 +54,7 @@ def build(profile):
         raise ValueError('Build image must be an immutable SHA-256 ID')
     report = {'status': 'started', 'hardware_verified': False, 'flash_image': False,
               'identity': {'profile': profile, 'image': image, 'builder_sha256': digest(Path(__file__)),
+                           'pico_sources': {name: digest(ROOT / 'src' / name) for name in profile['pico_driver_sources']},
                            'patches': [{'path': str(p.relative_to(ROOT)), 'sha256': digest(p)} for p in patches],
                            'tests': {p.name: digest(p) for p in (ROOT / 'tests/monado-display-tests.py', ROOT / 'tests/monado-display-tests.c')}},
               'commands': [], 'limits': {'jobs': 2, 'memory_bytes': 4 * 1024**3, 'scratch_bytes': 1024**3}}
@@ -81,11 +82,41 @@ def build(profile):
             stream.extractall(scratch, filter='data')
         for i, patch in enumerate(patches):
             run(['patch', '--batch', '--fuzz=0', '-d', str(source), '-p1', '-i', str(patch)], f'patch-{i + 1}.log')
+        driver = source / 'src/xrt/drivers/pico_ssc'
+        driver.mkdir()
+        for name in profile['pico_driver_sources']:
+            shutil.copy2(ROOT / 'src' / name, driver / name)
+        options = []
+        if os.environ.get('MONADO_SSC_BUNDLE'):
+            spec = importlib.util.spec_from_file_location('ssc_artifact', ROOT / 'tools/ssc-artifact.py')
+            ssc = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(ssc)
+            bundle = Path(os.environ['MONADO_SSC_BUNDLE'])
+            report['ssc_dependency'] = ssc.package(bundle)
+            prefix = bundle / ssc.PREFIX
+            header_dir = scratch / 'ssc-header'
+            header_dir.mkdir()
+            with tarfile.open(prefix / 'share/ssc/source.tar.gz') as stream:
+                members = [item for item in stream.getmembers() if item.name.endswith('/src/libssc-sensor.h')]
+                if len(members) != 1 or not members[0].isfile() or members[0].size > 65536:
+                    raise ValueError('Expected the pinned SSC public header')
+                (header_dir / 'libssc-sensor.h').write_bytes(stream.extractfile(members[0]).read())
+            expected = json.loads((ROOT / 'profiles/ssc.json').read_text())['test_source_sha256']['src/libssc-sensor.h']
+            if digest(header_dir / 'libssc-sensor.h') != expected:
+                raise ValueError('SSC public header differs from pinned source')
+            report['ssc_header_sha256'] = expected
+            options = ['-DXRT_BUILD_DRIVER_PICO_SSC=ON', '-DPICO_SSC_INCLUDE_DIR=' + str(header_dir),
+                       '-DPICO_SSC_LIBRARY=' + str(prefix / 'lib64/libssc.so.2'),
+                       '-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath-link,' + str(prefix / 'lib64'),
+                       '-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-rpath-link,' + str(prefix / 'lib64')]
+            env['LD_LIBRARY_PATH'] = str(prefix / 'lib64')
+        else:
+            options = ['-DXRT_BUILD_DRIVER_PICO_SSC=OFF']
         report['source_sha256'] = tree_digest(source)
         run([sys.executable, str(ROOT / 'tests/monado-display-tests.py'), str(source), str(output / 'display-tests')],
             'display-tests.log')
         report['display_tests_sha256'] = digest(output / 'display-tests/result.json')
-        run(['cmake', '-S', str(source), '-B', str(build_dir), '-G', 'Ninja', *profile['cmake_options']], 'configure.log')
+        run(['cmake', '-S', str(source), '-B', str(build_dir), '-G', 'Ninja', *profile['cmake_options'], *options], 'configure.log')
         cache = (build_dir / 'CMakeCache.txt').read_text().splitlines()
         for feature in profile['required_features']:
             if feature + ':BOOL=ON' not in cache:
@@ -118,6 +149,15 @@ def build(profile):
             raise ValueError('Direct display was excluded by the actual preprocessor configuration')
         if b'Unable to select a compatible display plane' not in (prefix / 'bin/monado-service').read_bytes():
             raise ValueError('Installed service does not contain the display selection implementation')
+        if 'ssc_dependency' in report:
+            if 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' not in cache:
+                raise ValueError('Pico controller driver was disabled')
+            for name in profile['pico_driver_sources']:
+                if name.endswith('.c') and len([entry for entry in commands if entry['file'].endswith('/pico_ssc/' + name)]) != 1:
+                    raise ValueError('Pico controller source omitted: ' + name)
+            for name in ('monado-service', 'monado-cli'):
+                if b'PICO_SSC_CONFIG' not in (prefix / 'bin' / name).read_bytes():
+                    raise ValueError('Pico prober missing from installed executable: ' + name)
         if tree_digest(source) != report['source_sha256']:
             raise ValueError('Monado source changed during compilation')
         report['status'] = 'compiled'

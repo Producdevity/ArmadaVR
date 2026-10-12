@@ -15,6 +15,28 @@ docker build --platform linux/arm64 -f Containerfile.monado \
 bash tools/build-monado.sh NEW_MONADO_DIRECTORY
 ```
 
+To include the opt-in Pico SSC controller driver, pass a verified SSC bundle as
+the second argument. `MONADO_BUILD_IMAGE_ID` can select an existing immutable
+compiler image instead of the default tag:
+
+```sh
+MONADO_BUILD_IMAGE_ID=sha256:COMPILER_IMAGE_ID \
+  bash tools/build-monado.sh NEW_MONADO_DIRECTORY VERIFIED_SSC_DIRECTORY
+```
+
+The optional build copies the maintained driver sources into the pinned Monado
+tree, verifies the SSC public header and links the exact packaged library. The
+artifact records both the driver source hashes and the full SSC dependency
+inventory. A root build must supply that same SSC bundle; a missing, changed or
+different installed dependency is refused before copying Monado.
+
+The runtime still requires both `PICO_SSC_CONFIG` and `PICO_SSC_COUNTER=1` to
+open a controller session. See [controller configuration](pico-controller-protocol.md#controller-configuration).
+Include `/opt/armada-vr/ssc/lib64` alongside the Monado library directory in
+`LD_LIBRARY_PATH` for this optional build. No configuration, default runtime or
+automatic subscription is installed. The prober supplies digital/touch controls;
+physical analog calibration, tracking and haptics remain separate work.
+
 The source archive is verified by size and SHA-256. Compilation uses the resolved
 immutable tools image without network access, two CPUs, a 4 GiB memory limit and
 1 GiB of temporary build space. Existing output directories are refused. The
@@ -115,3 +137,23 @@ operation, optics calibration, exact-device custom boot or recovery. The complet
 root build and boot integration with the updated kernel/modules and those
 acceptance gates remain outstanding.
 Virtual results do not establish flash readiness.
+
+The optional Pico runtime in `output/pico-monado-runtime-20261012-v1/build-v1/`
+builds all 658 targets with the current SSC bundle and passes all 25 upstream
+CTest executables. Native `ldd -r` resolves its dependencies. The actual
+`monado-cli test` creates and assigns both Pico controller roles only with the
+explicit configuration and counter opt-in; absent opt-in or invalid configuration
+creates neither controller. Removing SSC from the library search path makes the
+loader refuse the executable. The test container first confirms that its kernel
+has no QRTR transport, and uses Monado's simulated HMD. These checks establish
+runtime registration and cleanup, not sensor delivery or physical headset input.
+
+A separate RAM-only root test extracts the preserved Pico image's loader, cache,
+usrmerge links and dependency files. All 485 ELFs in the dependency walk are
+accounted for, including private RUNPATH directories. Both service and CLI pass
+full symbol relocation, and both client libraries pass immediate loading. The
+7 GiB source image rehashes unchanged as
+`d659b3cef2bf1bc65b6bfbc88aa41fcf751ea3dfb92184fade952107123689ff`.
+This tests the image's actual libraries with the new bundle; it does not install
+that bundle into the retained image or constitute a boot test. The receipt is
+`output/pico-monado-runtime-20261012-v1/root-loader.json`.

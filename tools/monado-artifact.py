@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate a native Monado bundle before packaging or testing it."""
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -33,6 +34,9 @@ def validate(directory):
         raise ValueError('Monado patches changed since compilation')
     if identity['builder_sha256'] != digest(ROOT / 'tools/monado-build.py'):
         raise ValueError('Monado builder changed since compilation')
+    if identity.get('pico_sources') != {name: digest(ROOT / 'src' / name)
+                                       for name in identity['profile']['pico_driver_sources']}:
+        raise ValueError('Pico controller build sources changed')
     for name in ('monado-display-tests.py', 'monado-display-tests.c'):
         if identity['tests'][name] != digest(ROOT / 'tests' / name):
             raise ValueError('Monado regression tests changed since compilation')
@@ -67,6 +71,13 @@ def validate(directory):
     cache = (directory / 'CMakeCache.txt').read_text().splitlines()
     if any(name + ':BOOL=ON' not in cache for name in identity['profile']['required_features']):
         raise ValueError('Monado build omitted required runtime features')
+    pico_enabled = 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' in cache
+    if pico_enabled != ('ssc_dependency' in report):
+        raise ValueError('Monado SSC dependency record disagrees with build configuration')
+    if pico_enabled:
+        for name in ('monado-service', 'monado-cli'):
+            if b'PICO_SSC_CONFIG' not in (prefix / 'bin' / name).read_bytes():
+                raise ValueError('Installed Monado executable omits the Pico prober')
     tests = ET.parse(directory / 'ctest.xml').getroot()
     if (int(tests.get('tests', '0')) == 0 or int(tests.get('failures', '-1')) != 0 or
             int(tests.get('skipped', '0')) != 0 or any(t.find('failure') is not None for t in tests.findall('testcase'))):
@@ -74,9 +85,12 @@ def validate(directory):
     result = directory / 'display-tests/result.json'
     if digest(result) != report['display_tests_sha256'] or json.loads(result.read_text())['status'] != 'passed':
         raise ValueError('Monado display regression tests did not pass')
-    return {'build_sha256': digest(directory / 'build.json'), 'prefix': str(prefix),
-            'ctest_executables': int(tests.get('tests')), 'hardware_verified': False,
-            'default_runtime': False}
+    record = {'build_sha256': digest(directory / 'build.json'), 'prefix': str(prefix),
+              'ctest_executables': int(tests.get('tests')), 'hardware_verified': False,
+              'default_runtime': False}
+    if pico_enabled:
+        record['ssc_dependency'] = report['ssc_dependency']
+    return record
 
 
 def contents(prefix):
@@ -145,6 +159,11 @@ def install(directory, root, record):
     prefix, metadata = root_path(root, INSTALL_PREFIX), root_path(root, BUILD_RECORD)
     if prefix.exists() or metadata.exists():
         raise ValueError('Staging root already supplies the selected Monado bundle')
+    if 'ssc_dependency' in record:
+        spec = importlib.util.spec_from_file_location('monado_ssc', Path(__file__).with_name('ssc-artifact.py'))
+        ssc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ssc)
+        ssc.verify_install(root, record['ssc_dependency'])
     prefix.parent.mkdir(parents=True, exist_ok=True)
     metadata.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(directory / PREFIX, prefix, symlinks=True)
