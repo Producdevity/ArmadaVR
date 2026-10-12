@@ -13,6 +13,7 @@ struct state {
     GMainLoop *loop;
     SSCSensor *sensor;
     GObject *client;
+    GCancellable *cancel;
     guint64 high, low, last_ticks;
     struct ssc_clock clock;
     struct pico_controller_stream stream;
@@ -21,7 +22,7 @@ struct state {
     struct xrt_device *devices[2];
     int64_t last_ns;
     unsigned samples, rejected, hands;
-    gboolean opened, closing, closed, timed_out;
+    gboolean opened, closing, closed, timed_out, cancelled;
 };
 
 static void closed(GObject *object, GAsyncResult *result, gpointer data)
@@ -92,7 +93,15 @@ static void opened(GObject *object, GAsyncResult *result, gpointer data)
 {
     struct state *state = data;
     GError *error = NULL;
-    g_assert_true(ssc_sensor_open_finish(SSC_SENSOR(object), result, &error));
+    gboolean success = ssc_sensor_open_finish(SSC_SENSOR(object), result, &error);
+    if (!success && state->closing) {
+        g_assert_error(error, G_IO_ERROR, G_IO_ERROR_CANCELLED);
+        g_clear_error(&error);
+        state->cancelled = TRUE;
+        g_main_loop_quit(state->loop);
+        return;
+    }
+    g_assert_true(success);
     g_assert_no_error(error);
     state->opened = TRUE;
 }
@@ -123,7 +132,7 @@ static void discovered(GObject *object, GAsyncResult *result, gpointer data)
     g_assert_true(pico_monado_producer_begin(state->producer, state->generation, false,
                                             &fixture_calibration, &fixture_calibration));
     g_signal_connect(state->client, "report-timestamped", G_CALLBACK(report), state);
-    ssc_sensor_open(state->sensor, NULL, opened, state);
+    ssc_sensor_open(state->sensor, state->cancel, opened, state);
 }
 
 static gboolean deadline(gpointer data)
@@ -137,7 +146,7 @@ static gboolean deadline(gpointer data)
 int main(int argc, char **argv)
 {
     if ((argc != 3 && argc != 4) || (strcmp(argv[2], "0") && strcmp(argv[2], "1")) ||
-        (argc == 4 && strcmp(argv[3], "private")))
+        (argc == 4 && strcmp(argv[3], "private") && strcmp(argv[3], "cancel")))
         return 2;
     gchar *identity = NULL, *command = NULL;
     if (!g_file_get_contents("/proc/device-tree/compatible", &identity, NULL, NULL) ||
@@ -157,7 +166,8 @@ int main(int argc, char **argv)
         GMainContext *context = argc == 4 ? g_main_context_new() : NULL;
         if (context)
             g_main_context_push_thread_default(context);
-        struct state state = {.loop = g_main_loop_new(context, FALSE), .stream = previous};
+        struct state state = {.loop = g_main_loop_new(context, FALSE), .stream = previous,
+                              .cancel = g_cancellable_new()};
         int64_t anchor_ns = (int64_t)os_monotonic_get_ns() - 1000000000;
         g_assert_true(ssc_clock_init(&state.clock, UINT64_C(0x123456789abcdef),
                                      19200000, anchor_ns, anchor_ns, 0));
@@ -166,10 +176,25 @@ int main(int argc, char **argv)
         GSource *timer = g_timeout_source_new_seconds(4);
         g_source_set_callback(timer, deadline, &state, NULL);
         g_source_attach(timer, context);
-        ssc_sensor_new(argv[1], NULL, discovered, &state);
+        ssc_sensor_new(argv[1], state.cancel, discovered, &state);
         g_main_loop_run(state.loop);
         g_source_destroy(timer);
         g_source_unref(timer);
+        if (argc == 4 && !strcmp(argv[3], "cancel")) {
+            g_assert_true(state.timed_out && !state.opened);
+            state.closing = TRUE;
+            state.timed_out = FALSE;
+            timer = g_timeout_source_new_seconds(2);
+            g_source_set_callback(timer, deadline, &state, NULL);
+            g_source_attach(timer, context);
+            g_cancellable_cancel(state.cancel);
+            g_main_loop_run(state.loop);
+            g_source_destroy(timer);
+            g_source_unref(timer);
+            g_assert_true(state.cancelled && !state.timed_out);
+            state.timed_out = TRUE;
+            printf("SSC_SENSOR_CANCEL_PASS\n");
+        }
         g_assert_cmpuint(state.samples, >=, 4);
         g_assert_cmpuint(state.hands, ==, 6);
         g_assert_cmpuint(state.rejected, >, 0);
@@ -185,6 +210,7 @@ int main(int argc, char **argv)
         previous = state.stream;
         g_clear_object(&state.sensor);
         g_clear_object(&state.client);
+        g_clear_object(&state.cancel);
         pico_monado_producer_destroy(&state.producer);
         for (unsigned hand = 0; hand < 2; hand++) {
             g_assert_cmpint(xrt_device_update_inputs(state.devices[hand]), ==, XRT_SUCCESS);

@@ -34,6 +34,8 @@ def main():
     patches = [ROOT / name for name in profile["patches"]]
     with (output / "patch.log").open("w") as log:
         for patch in patches:
+            if patch.name == '0005-own-pending-sensor-operations.patch':
+                shutil.copytree(patched, output / 'operation-baseline')
             subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
                            cwd=patched, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=10)
     if digest(patched / "src/libssc-client.c") != profile["patched_report_source_sha256"]:
@@ -114,11 +116,42 @@ def main():
         contexts[name] = {"command": command, "returncode": result.returncode}
     if (output / "wire-original.pb").read_bytes() != (output / "wire-patched.pb").read_bytes():
         raise ValueError("The test inputs differ between source revisions")
+    operations = {}
+    for name, tree in (("baseline", output / 'operation-baseline'), ("patched", patched)):
+        test = output / ('operation-test-' + name)
+        command = [args.cc, '-std=gnu11', '-g', '-O1', '-Wall', '-Wextra', '-Werror',
+                   '-Wno-unused-parameter', '-fsanitize=address,undefined', '-DG_LOG_DOMAIN="libssc"',
+                   '-I' + str(tree / 'src'), '-I' + str(generated), str(ROOT / 'tests/ssc-operation.c'),
+                   str(tree / 'src/libssc-client.c'), str(tree / 'src/libssc-common.c'),
+                   str(generated / 'ssc-common.pb-c.c'), str(generated / 'ssc-sensor-suid.pb-c.c'),
+                   *flags, '-o', str(test)]
+        with (output / ('build-operation-' + name + '.log')).open('w') as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+        cases = ['send-error', 'report-before-ack', 'cancel', 'timeout']
+        if name == 'patched':
+            cases += ['busy'] + [stage + '-' + case for stage in ('registry', 'suid', 'attribute')
+                                for case in ('error', 'cancel', 'timeout')]
+        results = {}
+        for case in cases:
+            result = subprocess.run([str(test), case], env=env, capture_output=True, text=True, timeout=15)
+            log = result.stdout + result.stderr
+            (output / ('operation-' + name + '-' + case + '.log')).write_text(log)
+            if name == 'patched' or case == 'report-before-ack':
+                if result.returncode or 'SSC_OPERATION_PASS ' + case not in log:
+                    raise ValueError('SSC operation did not complete correctly: ' + name + '/' + case)
+            else:
+                marker = {'send-error': 'in report_received', 'cancel': '(completions == 1)',
+                          'timeout': "'priv->discovery_timeout' should not be NULL"}[case]
+                if not result.returncode or marker not in log:
+                    raise ValueError('SSC operation defect not reproduced: ' + case)
+            results[case] = result.returncode
+        operations[name] = {'command': command, 'cases': results}
     report = {"passed": True, "source_commit": profile["commit"],
               "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
               "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
               "lifetime_test_sha256": digest(ROOT / "tests/ssc-lifetime.c"), "lifetime": lifetime,
               "context_test_sha256": digest(ROOT / "tests/ssc-context.c"), "contexts": contexts,
+              "operation_test_sha256": digest(ROOT / "tests/ssc-operation.c"), "operations": operations,
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")

@@ -10,7 +10,8 @@
     "patches/libssc/0001-report-timestamps.patch",
     "patches/libssc/0002-ble-mcu-startup.patch",
     "patches/libssc/0003-release-partial-and-repeated-disposal.patch",
-    "patches/libssc/0004-own-sensor-main-context.patch"
+    "patches/libssc/0004-own-sensor-main-context.patch",
+    "patches/libssc/0005-own-pending-sensor-operations.patch"
   ],
   "hardware_verified": false,
   "test_source_sha256": {
@@ -23,7 +24,7 @@
     "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885",
     "data/ssc-sensor-suid.proto": "e7237d39dffa248ca84bf65bacf255cbae3176cf67f05c1068947cd77fe34e76"
   },
-  "patched_sensor_source_sha256": "c29967827c5f3948c970966913b099371bba876407341d435e8acb987991470f",
+  "patched_sensor_source_sha256": "0cb85786830f523233aa3aeafac83d36dd0d1e2f60423aa9c18b709396b8329c",
   "runtime_dependencies": {
     "libqmi": {
       "nevra": "libqmi-1.36.0-3.fc44.aarch64",

@@ -114,6 +114,25 @@ the default-context and protocol negative controls pass too. Evidence is under
 `output/pico-ssc-context-20261012-v1/`. This verifies context ownership, not all
 cancellation and DSP-loss paths or a production sensor worker.
 
+The [pending-operation patch](../patches/libssc/0005-own-pending-sensor-operations.patch)
+fixes a reproduced crash when an enable request fails and a late measurement
+uses the freed task. Discovery, attributes and enable now share explicit
+operation ownership: completion removes the report handler, deadline and
+cancellation source exactly once, while outstanding transport callbacks retain
+their own reference. A thirty-second deadline covers the complete discovery
+sequence and each enable. Cancellation is dispatched on the owning context;
+a concurrent enable is refused, and close cancels a pending enable.
+
+Fourteen native sanitizer cases cover transport errors, cancellation and timeout
+at each phase, a report arriving before its acknowledgement, and a second enable
+while one is pending. The previous revision's crash and missing cancellation and
+enable deadline are retained as negative controls. The packaged library passes
+five diskless Pico-kernel suites, including actual QRTR cancellation on a private
+context, both-hand device inputs and three reconnects on each context. All 397
+host tests pass. Evidence is under `output/pico-ssc-operation-20261012-v1/`.
+The DSP endpoint remains mocked; physical startup and transport loss still need
+device validation.
+
 [`ssc-clock`](../src/ssc-clock.h) maps the outer 19.2 MHz timestamp into an
 explicitly selected host-clock domain. Initialization takes a CPU QTimer read,
 its measured frequency and two host-clock readings bracketing that read. It

@@ -66,15 +66,12 @@ int main(void)
 #ifdef TEST_SENSOR
     SSCSensor *sensor = g_object_new(SSC_TYPE_SENSOR, SSC_SENSOR_DATA_TYPE, "ble_mcu", NULL);
     SSCSensorPrivate *priv = ssc_sensor_get_instance_private(sensor);
-    ReportReceivedContext *report = g_slice_new0(ReportReceivedContext);
     unsigned finished = 0;
-    report->sensor = sensor;
-    report->task = g_task_new(sensor, NULL, timeout_done, &finished);
-    priv->discovery_timeout = ssc_common_timeout_source(0, sensor_service_discovery_timeout, report);
-    g_test_expect_message("libssc", G_LOG_LEVEL_WARNING, "*registry*timed out*");
+    priv->client = g_object_new(SSC_TYPE_CLIENT, NULL);
+    operation_new(sensor, g_task_new(sensor, NULL, timeout_done, &finished));
+    g_source_set_ready_time(priv->discovery_timeout, 0);
     while (!finished)
         g_main_context_iteration(context, TRUE);
-    g_test_assert_expected_messages();
     g_assert_null(priv->discovery_timeout);
     g_assert_cmpuint(finished, ==, 1);
     priv->discovery_timeout = ssc_common_timeout_source(0, foreign_context, NULL);
