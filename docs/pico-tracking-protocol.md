@@ -207,3 +207,54 @@ native head-IMU transport, the controller's actual reporting rate or that
 field's clock origin. The separate head reader still uses Android's 104-byte
 direct-channel records described above. Do not apply its layout or clock
 calibration to the controller ring.
+
+## Native SSC IMU reports
+
+The retained b1977 `libssc.so` embeds `sns_accel.proto` and `sns_gyro.proto`,
+both referring to `sns_std_sensor_event`. That message uses repeated float
+field 1 and required accuracy field 2 (0–3); its message ID is `1025`.
+This establishes a standard wire format, not the identity or configuration of
+the headset's physical sensors.
+
+[`ssc-imu`](../src/ssc-imu.h) decodes exactly three finite floats and preserves
+the reported accuracy. It accepts packed, unpacked and mixed encoding, skips
+unknown scalar fields and rejects malformed lengths, groups and oversized
+payloads. It retains neither the input buffer nor Android-specific auxiliary
+fields. Accuracy zero remains visible and does not imply calibrated input.
+
+The receiver requires two distinct, explicitly discovered SUIDs and a current
+SSC clock calibration. It validates message type, subscription generation,
+freshness and timestamp order independently for acceleration and gyroscope.
+It retains the raw DSP timestamp alongside the mapped host timestamp and its
+uncertainty. It does not pair asynchronous samples, infer units or axes, apply
+calibration, or produce pose. Disconnect invalidates both streams; reconnect
+requires a new generation and clock calibration.
+
+The stock descriptor comparison is reproducible without loading the Android
+library or opening a device:
+
+```sh
+python3 -B tests/ssc-imu-stock.py \
+  --stock-library /path/to/private/b1977/libssc.so \
+  --test-binary /path/to/compiled/ssc-imu-test \
+  --output output/ssc-imu-comparison
+```
+
+Build the test from `tests/ssc-imu.c`, `src/ssc-imu.c` and `src/ssc-clock.c`.
+The comparison requires Python's protobuf package and verifies the exact stock
+library and descriptor hashes. Its corpus covers 8,227 cases; the native fixture
+also exercises 100,000 mutations and independent sensor ordering across 1,000
+connection generations. The VM-only `ssc-imu-transport.c` and `ssc-imu-mock.py`
+test actual libssc discovery, subscription, timestamped reports and close on a
+private GLib context. The DSP endpoint remains simulated. Physical sensor
+selection, measured timing, calibration and native headset tracking still need
+device validation.
+
+The exact physical-configuration Pico kernel passes three simultaneous
+accelerometer/gyroscope open/report/close cycles in diskless QEMU, with invalid
+payload, SUID and message-type rejection. The stock-descriptor corpus passes
+inside that guest too; kernel taint is unchanged and shutdown is normal.
+The fixture needs its established 2 GiB memory map: reducing it to 1 GiB puts
+Pico's fixed crash-log reservation at `0xb0000000` outside RAM and panics before
+userspace. Both that failed fixture and the corrected run are retained under
+`output/pico-ssc-imu-20261012-v1/`.
