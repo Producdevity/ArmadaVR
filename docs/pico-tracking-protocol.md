@@ -84,3 +84,56 @@ and verifies the integer clock mapping. The same replay and rejection tests
 pass AddressSanitizer and UndefinedBehaviorSanitizer on macOS and ARM64 Linux.
 This verifies decoding of observed stock data, not native sensor delivery under
 the Armada kernel.
+
+## Low-latency RPC messages
+
+The inspected stock `libsns_low_lat_stream_stub.so` has SHA-256
+`893aefcbcb74320fcce5660e2d4c2d88cf403839225638a6f1681636312f700f`.
+`src/sns-low-latency.c` marshals its four channel operations through a synchronous
+caller-supplied transport. It does not load the stock binary or open a DSP.
+
+| Operation | FastRPC scalar | Input bytes | Output bytes |
+| --- | --- | --- | --- |
+| Initialize | `0x00010100` | 12 | 4 |
+| Configure | `0x01010000` | 48 | 0 |
+| Stop | `0x02010000` | 4 | 0 |
+| Deinitialize | `0x03010000` | 4 | 0 |
+
+Initialization carries the descriptor, size and the zero third argument used by
+the stock caller. Configuration carries the channel at byte 0, signed timestamp
+offset at byte 8, SUID at bytes 16–31, period in microseconds at byte 32, vendor
+flags at byte 36 and sensor handle at byte 40. The source encoder zeroes padding
+bytes 4–7 and 44–47; the stock stub leaves those bytes uninitialized. Flags and
+SUID selection remain explicit; their appropriate values for native head
+tracking have not been established.
+
+The differential test executes the exact stock ARM64 wrapper instructions in
+Unicorn 2.1.4, mocking handle acquisition and the transport boundary. It compares
+768 calls against the source-built encoder, including signed offset extremes,
+positive and negative remote errors, two initial stack patterns and unchanged
+output on failed initialization. No Android dependency, DSP or device is opened.
+The separate native tests exercise malformed arguments and 1,000 failure cycles
+under address and undefined-behavior sanitizers.
+
+After building `tests/sns-low-latency.c` with `src/sns-low-latency.c`, the optional
+stock comparison is reproducible with:
+
+```sh
+python3 -B tests/sns-low-latency-stock.py \
+  --stub /path/to/private/libsns_low_lat_stream_stub.so \
+  --test-binary /path/to/sns-low-latency-test \
+  --output output/sns-low-latency-stock
+```
+
+Unicorn 2.1.4 must be available in that Python environment. Keep the stock binary
+private. On macOS the emulator needs permission to allocate executable memory.
+
+The current [Qualcomm FastRPC userspace source](https://github.com/qualcomm/fastrpc/tree/a56e9d4de3614a8d8f4b0e15ff561350c4b686e3)
+uses the mainline `/dev/fastrpc-sdsp` interface and DMA-heap allocation. Pico's
+published vendor kernel instead exposes `/dev/adsprpc-smd` and the vendor ioctl
+layout: for example, invocation is request 1 with a pointer to `remote_arg`,
+where the current mainline interface uses request 3 with different argument
+records. The current userspace library cannot be installed unchanged against
+that driver. A matching vendor backend, shared-buffer allocation, SUID discovery,
+DSP lifecycle and physical output validation remain necessary. RPC message
+compatibility alone does not resolve those requirements.
