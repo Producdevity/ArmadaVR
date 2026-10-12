@@ -61,6 +61,41 @@ proves access through Android's current HAL. Native SSC/FastRPC delivery,
 coordinate transforms, camera synchronization, optical calibration and physical
 tracking under the custom kernel still require separate verification.
 
+## Saved calibration inputs
+
+The preserved stock direct-channel capture identifies both head sensors as
+`icm4x6xx`. The unit's saved SSC registry contains factory bias and correction
+matrix records for that family, alongside separate `lsm6dst` records. Inspection
+must select the family explicitly; the presence of a registry entry does not
+identify the live native SUID.
+
+The offline inspector preserves coefficients, per-field versions and source
+hashes without applying them:
+
+```sh
+python3 -B tools/inspect-pico-calibration.py /path/to/saved/registry \
+  --sensor icm4x6xx_0 --output output/pico-calibration.json
+```
+
+It rejects duplicate JSON keys, mismatched group identities, incorrect types,
+non-finite values, singular correction matrices and invalid signed axis
+permutations. Inputs are bounded regular files; output is a new private file.
+The orientation strings and twelve placement fields remain uninterpreted.
+An all-zero placement is reported as such, with no identity-matrix fallback.
+
+On the preserved unit, all twelve placement fields are zero. The separate
+`calibration/Bosh/IMUParams.txt` contains identity matrices and zero offsets;
+the camera XML carries a `not_configured` device label. These files do not
+establish active headset calibration. Before using any registry correction,
+verify the native sensor association, units, transform direction, correction
+order and whether the DSP already applies factory or temperature compensation.
+Applying the same correction twice would corrupt otherwise valid samples.
+Camera extrinsics and camera/IMU timing remain separate requirements.
+
+Inspection of the six selected registry files and preservation checks for all
+337 extracted files are recorded under `output/pico-calibration-20261012-v1/`.
+Unit coefficients and backups remain outside version control.
+
 ## Native record processing
 
 `src/pico-imu.c` accepts stable copied direct-channel records with explicitly
