@@ -191,6 +191,15 @@ checks, with 26,873,856 bytes of partition headroom. These artifacts are under
 has been installed on the headset, and no automatic DSP startup service has
 been enabled by this packaging change.
 
+`tools/verify-pico-dsp-memory.py FIRMWARE_DIRECTORY MERGED_DTB --output REPORT`
+checks the selected board's PIL authentication IDs, enabled dependencies,
+unique non-overlapping reserved DMA pools, relocated entry points and every
+loadable segment. It accounts for the kernel's page and allocation rounding.
+The current Sharp-panel merged tree and DSP bundle pass: ADSP uses 40 MiB at
+`0x8a100000`, CDSP 20 MiB at `0x87800000`, and SLPI 21 MiB at `0x88c00000`.
+Each image exactly fills its reservation. This verifies the static layout;
+the bootloader's live memory map and actual DSP authentication remain separate.
+
 ## EDL identity and partition backups
 
 A serial- and USB-port-guarded software EDL entry and Sahara query succeeded on
