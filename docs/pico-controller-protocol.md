@@ -145,9 +145,39 @@ does not provide AF_QIPCRTR. A separate diskless VM runs the exact Pico kernel
 with a userspace QRTR name service: all 15 upstream cases in seven suites pass,
 including discovery and sensor samples against the upstream DSP mock. See
 [Qualcomm services](qcom-services.md) for the missing name-service dependency.
-The library is staged privately, not installed into the headset image; live
-stream lifetime, suspend/resume, physical clock calibration and controller input
-delivery remain open integration work.
+Live stream lifetime, suspend/resume, physical clock calibration and controller
+input delivery remain open integration work.
+
+[`ssc-build.py`](../tools/ssc-build.py) builds the pinned source archive on native
+ARM64 Linux, runs the source regression tests, and packages the installed library
+and CLI under `/opt/armada-vr/ssc`. Four pinned Fedora runtime dependencies are
+included with their licenses; the bundle uses the root's GLib and C library.
+RPM verification checks those dependency files before copying. The original SSC
+source archive, local patches and license accompany the runtime. The builder
+requires an immutable container image ID for its provenance record and performs
+no downloads:
+
+```sh
+python3 tools/ssc-build.py /path/to/libssc-source.tar.gz \
+  --output /path/to/new-bundle --image-id sha256:CONTAINER_IMAGE_ID
+```
+
+`build-headset-root.py --ssc /path/to/new-bundle` installs the validated bundle
+for a Pico root with QRTR services. It checks exact inventory, hashes, permissions
+and links, verifies native relocations using the root's loader, runs the CLI's
+version command, and reads the installed files back from ext4. This adds no
+automatic sensor subscription or DSP startup. Consumers must select the bundle's
+`lib64` directory explicitly.
+
+The offline root at `output/headset-root-pico-ssc-20261012-v1/` contains this
+bundle. Its parent image was preserved and rehashed unchanged. Native loader,
+missing-dependency refusal and ext4 readback evidence are retained under
+`output/pico-ssc-root-20261012-v1/`. Physical sensor operation and custom boot
+acceptance remain unverified.
+The exact packaged library and CLI also pass the ten-suite Pico kernel VM run
+in `controller-vm-v2/`, including 15 upstream tests and both-hand controller
+delivery. The earlier fixture omitted a parent directory; its failure is retained
+in `controller-vm-v1/`.
 
 Pico controller samples also expose an upstream subscription-startup mismatch:
 `ble_mcu` reports message `1024`, while libssc normally completes sensor opening

@@ -22,5 +22,31 @@
     "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885",
     "data/ssc-sensor-suid.proto": "e7237d39dffa248ca84bf65bacf255cbae3176cf67f05c1068947cd77fe34e76"
   },
-  "patched_sensor_source_sha256": "d6d1b32700f735a4f9bedf0b8ad083e8c65918e121e878757f4b4fd24b850831"
+  "patched_sensor_source_sha256": "d6d1b32700f735a4f9bedf0b8ad083e8c65918e121e878757f4b4fd24b850831",
+  "runtime_dependencies": {
+    "libqmi": {
+      "nevra": "libqmi-1.36.0-3.fc44.aarch64",
+      "library": "libqmi-glib.so.5",
+      "target": "libqmi-glib.so.5.11.0",
+      "license": "COPYING.LIB"
+    },
+    "libqrtr-glib": {
+      "nevra": "libqrtr-glib-1.2.2-9.fc44.aarch64",
+      "library": "libqrtr-glib.so.0",
+      "target": "libqrtr-glib.so.0.0.0",
+      "license": "LGPL-2.1-or-later.txt"
+    },
+    "libmbim": {
+      "nevra": "libmbim-1.32.0-3.fc44.aarch64",
+      "library": "libmbim-glib.so.4",
+      "target": "libmbim-glib.so.4.9.0",
+      "license": "LGPL-2.1-or-later.txt"
+    },
+    "protobuf-c": {
+      "nevra": "protobuf-c-1.5.2-2.fc44.aarch64",
+      "library": "libprotobuf-c.so.1",
+      "target": "libprotobuf-c.so.1.0.0",
+      "license": "LICENSE"
+    }
+  }
 }
