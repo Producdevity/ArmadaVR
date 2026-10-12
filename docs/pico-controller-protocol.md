@@ -300,6 +300,24 @@ counter calls are stubbed in this boundary test; transport is tested separately.
 macOS and Linux ARM64 sanitizer results are retained under
 `output/pico-monado-runtime-20261012-v1/`.
 
+The packaged runtime also passes a full OpenXR IPC test on the exact Pico
+Linux-userspace kernel. `tests/pico-monado-runtime-vm.py` runs Monado against
+the real QRTR stack and a synthetic SSC producer, with a simulated HMD and
+Lavapipe null compositor. The OpenXR client waits for session focus and action
+synchronization, then checks the native Pico interaction profile, independent
+left/right button and touch states, releases, and deactivation after malformed
+reports. Uncalibrated analog inputs and unimplemented poses remain inactive.
+Two service/client lifecycles pass with clean shutdown. Counter timestamps use
+the virtual CPU counter; this does not establish a physical CPU/DSP clock origin.
+
+Evidence is in `output/pico-monado-runtime-20261012-v1/runtime-vm-v4/`.
+The derived root `output/headset-root-pico-monado-20261012-v1/` passes exact
+Monado/SSC readback, permissions, filesystem checks and actual-root symbol
+resolution. Its parent remains unchanged. The unsigned boot container in
+`output/pico-boot-container-20261012-v13/` binds that root and passes assembly
+and unpacking checks. None of these tests establish physical boot, recovery,
+panel output, tracking, controller pairing or flash readiness.
+
 `tools/test-pico-ssc-session.py` builds against the pinned Monado source and a
 verified SSC bundle. On native ARM64, 100 alternating immediate-cancellation
 and unavailable-QRTR cycles pass AddressSanitizer/UndefinedBehaviorSanitizer.
