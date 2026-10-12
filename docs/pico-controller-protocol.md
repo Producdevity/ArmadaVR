@@ -21,7 +21,8 @@ from the same authenticated system image. Its `SLPIInit("ble_mcu", 480)` route
 uses `libssc.so` and `libsns_api.so`. For SSC message ID `0x400`, the library
 parses `sns_ble_mcu_data` and copies 25 uint32 words into the 100-byte station
 record at offset `0x1018` of a `0x1980`-byte event. This establishes the inner
-record boundary; the protobuf schema and live SSC connection still need validation.
+record boundary. The payload schema is now recovered as described below; the
+live SSC connection and outer event envelope still need validation.
 
 The outer event timestamp at offset `0x10` uses SSC ticks multiplied by
 `52.083333333333336`, plus an offset measured from Android elapsed real time and
@@ -29,6 +30,23 @@ the CPU counter. This is distinct from the timestamps inside the controller IMU
 payload. The callback receives a queue-owned pointer, while `pollEvents` copies
 an entire event before freeing its queue entry. A receiver must establish buffer
 ownership and shutdown ordering; retaining the callback pointer is unsafe.
+
+The same-build device's `libssc.so`, SHA-256
+`9adc9c3c6aee833e3566bf3574844c038098385abd7c94c81aeedfd07edc0fa8`,
+contains the serialized `sns_ble_mcu.proto` descriptor. Its 309-byte length
+also matches the descriptor registration call recovered with Ghidra. Field 1
+is repeated `fixed32` controller data; field 2 is a required sample-accuracy
+enum with values 0 through 3. It is not a byte-string field. The first 25 words
+are the station record consumed by the stock service.
+
+`pico_controller_decode_ssc` accepts this payload and calls the existing CRC and
+key decoder. It requires exactly 25 words and an accuracy value in range,
+supports packed, unpacked and mixed word encoding, skips unknown scalar fields,
+and refuses groups, malformed lengths and payloads over 4,096 bytes. Both output
+values remain unchanged on failure; no payload pointer escapes the call.
+The caller must still validate message ID, stream identity, the outer timestamp
+and connection lifetime. This receiver does not open a QMI connection or start
+the SLPI.
 
 The bounded receive-only implementation is
 [`pico_controller_decode`](../src/pico-controller.h) in
@@ -116,14 +134,22 @@ function rather than the new implementation.
 
 Sixteen fixed records and expected outputs are retained in
 [`tests/pico-controller.c`](../tests/pico-controller.c). The fixture passes
-**14,625** decoding and rejection checks on macOS ARM64 and Linux ARM64 with
+**51,946** decoding and rejection checks on macOS ARM64 and Linux ARM64 with
 AddressSanitizer and UndefinedBehaviorSanitizer. It tests unaligned buffers,
 every short length, overlong records, unsupported configuration, records without
-key data, and every single-bit corruption in each complete record. Rejection
-preserves the previous sample. `just check` compiles and runs this fixture.
+key data, every single-bit corruption in each complete record, and SSC framing,
+word counts, accuracy and unknown fields. Rejection preserves both outputs.
+`just check` compiles and runs this fixture.
+
+An independent Google protobuf parser loaded with the device's exact descriptors
+agrees on 4,096 payloads, including mixed encodings and reordered fields. A
+separate 200,000-case mutation run passes both sanitizers on macOS and ARM64
+Linux. The libraries, descriptors, bounded Ghidra analysis and comparison scripts
+are retained in `output/pico-ssc-transport-20261012-v1/`. No live sensor stream
+was started for these checks.
 
 The private firmware, analysis, comparison runner and results are retained in
 `output/pico-block-ota-20261011-v1/`. Physical button/axis captures, SSC transport
-startup and lifetime, station driver reconstruction, pairing, haptics and optical
+startup and lifetime, physical station-driver operation, pairing, haptics and optical
 controller tracking remain unverified. This decoder establishes offline parsing
 compatibility, not a working physical controller driver or flash readiness.

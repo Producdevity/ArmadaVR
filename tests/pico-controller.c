@@ -85,6 +85,89 @@ static void rejected(const void *data, size_t size, unsigned mcu, unsigned radio
     ++checks;
 }
 
+static void ssc_rejected(const void *data, size_t size, unsigned mcu, unsigned radio)
+{
+    struct pico_controller_sample before, result;
+    memset(&before, 0x5a, sizeof(before));
+    memcpy(&result, &before, sizeof(result));
+    unsigned accuracy = 99;
+    assert(!pico_controller_decode_ssc(data, size, mcu, radio, true, &result, &accuracy));
+    assert(memcmp(&before, &result, sizeof(result)) == 0 && accuracy == 99);
+    ++checks;
+}
+
+static size_t ssc_encode(const unsigned char *record, unsigned words, unsigned mode,
+                         unsigned accuracy, unsigned char *payload)
+{
+    size_t length = 0;
+    unsigned packed = mode == 0 ? 0 : mode == 1 ? words : 12;
+    if (packed) {
+        payload[length++] = 0x0a;
+        payload[length++] = (unsigned char)(4 * packed);
+        memcpy(payload + length, record, 4 * packed);
+        length += 4 * packed;
+    }
+    for (unsigned i = packed; i < words; ++i) {
+        payload[length++] = 0x0d;
+        memcpy(payload + length, record + 4 * i, 4);
+        length += 4;
+    }
+    payload[length++] = 0x10;
+    payload[length++] = (unsigned char)accuracy;
+    return length;
+}
+
+static void ssc_cases(unsigned vector, const unsigned char *record,
+                      const struct pico_controller_sample *expected)
+{
+    unsigned char payload[512], words[104] = {0};
+    memcpy(words, record, 100);
+    for (unsigned mode = 0; mode < 3; ++mode) {
+        for (unsigned status = 0; status < 4; ++status) {
+            size_t length = ssc_encode(words, 25, mode, status, payload);
+            struct pico_controller_sample sample;
+            unsigned accuracy = 99;
+            for (unsigned align = 0; align < 8; ++align) {
+                unsigned char *copy = malloc(length + align);
+                assert(copy);
+                memcpy(copy + align, payload, length);
+                assert(pico_controller_decode_ssc(copy + align, length, vectors[vector].mcu,
+                    vectors[vector].radio, vectors[vector].touch, &sample, &accuracy));
+                assert(!memcmp(&sample, expected, sizeof(sample)) && accuracy == status);
+                free(copy);
+                ++checks;
+            }
+            for (size_t short_length = 0; short_length < length; ++short_length)
+                ssc_rejected(payload, short_length, vectors[vector].mcu, vectors[vector].radio);
+            const unsigned char extra[] = {
+                0x18, 0x80, 0x01, 0x21, 0, 0, 0, 0, 0, 0, 0, 0,
+                0x2a, 3, 1, 2, 3, 0x35, 0, 0, 0, 0, 0x10, 3,
+            };
+            memcpy(payload + length, extra, sizeof(extra));
+            assert(pico_controller_decode_ssc(payload, length + sizeof(extra), vectors[vector].mcu,
+                vectors[vector].radio, vectors[vector].touch, &sample, &accuracy));
+            assert(!memcmp(&sample, expected, sizeof(sample)) && accuracy == 3);
+            ++checks;
+            payload[length] = 0;
+            ssc_rejected(payload, length + 1, vectors[vector].mcu, vectors[vector].radio);
+            payload[length - 1] = 4;
+            ssc_rejected(payload, length, vectors[vector].mcu, vectors[vector].radio);
+        }
+        for (unsigned count = 24; count <= 26; count += 2) {
+            size_t length = ssc_encode(words, count, mode, 0, payload);
+            ssc_rejected(payload, length, vectors[vector].mcu, vectors[vector].radio);
+        }
+    }
+    size_t length = ssc_encode(words, 25, 1, 0, payload);
+    for (unsigned bit = 0; bit < 800; ++bit) {
+        payload[2 + bit / 8] ^= 1u << (bit % 8);
+        ssc_rejected(payload, length, vectors[vector].mcu, vectors[vector].radio);
+        payload[2 + bit / 8] ^= 1u << (bit % 8);
+    }
+    ssc_rejected(payload, length, 0, 1);
+    ssc_rejected(payload, length, 1, 3);
+}
+
 int main(void)
 {
     _Static_assert(sizeof(struct pico_controller_sample) == 8, "Fixture output layout");
@@ -94,6 +177,7 @@ int main(void)
         struct pico_controller_sample expected, sample;
         unhex(vectors[i].record, data);
         unhex(vectors[i].expected, &expected);
+        ssc_cases(i, data, &expected);
         for (unsigned alignment = 0; alignment < 8; ++alignment) {
             unsigned char *allocation = malloc(100 + alignment);
             assert(allocation);
@@ -120,6 +204,20 @@ int main(void)
     }
     rejected(NULL, 100, 1, 1);
     assert(!pico_controller_decode(data, 100, 1, 1, true, NULL));
+    ssc_rejected(NULL, 100, 1, 1);
+    ssc_rejected(data, 4097, 1, 1);
+    const unsigned char malformed[][12] = {
+        {0x0a, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01, 0},
+        {0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0},
+        {0x80, 0x80, 0x80, 0x80, 0x10},
+        {0x0a, 3, 1, 2, 3, 0x10, 0}, {0x0e}, {0x0b}, {0x0c},
+    };
+    for (unsigned i = 0; i < sizeof(malformed) / sizeof(*malformed); ++i)
+        ssc_rejected(malformed[i], sizeof(malformed[i]), 1, 1);
+    unsigned accuracy = 99;
+    struct pico_controller_sample sample;
+    assert(!pico_controller_decode_ssc(data, 100, 1, 1, true, NULL, &accuracy));
+    assert(!pico_controller_decode_ssc(data, 100, 1, 1, true, &sample, NULL));
     printf("%u controller decoding and rejection checks passed\n", checks);
     return 0;
 }

@@ -44,4 +44,16 @@ bool pico_controller_decode(const void *record, size_t length, unsigned mcu_type
                             unsigned radio_type, bool touch_supported,
                             struct pico_controller_sample *sample);
 
+/* Decode the sns_ble_mcu_data payload of an SSC 0x400 event, not its QMI or
+ * sns_client_event_msg envelope. Accept packed/unpacked fixed32 words and
+ * accuracy 0..3; require exactly 25 words. Unknown scalar fields are skipped;
+ * groups and payloads above 4096 bytes are refused. Both outputs are unchanged
+ * on failure. Stream identity, timestamps and connection lifetime belong to
+ * the caller; no pointer into the payload is retained. */
+bool pico_controller_decode_ssc(const void *payload, size_t length,
+                                unsigned mcu_type, unsigned radio_type,
+                                bool touch_supported,
+                                struct pico_controller_sample *sample,
+                                unsigned *accuracy);
+
 #endif

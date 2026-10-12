@@ -13,7 +13,8 @@ class PicoControllerDecoderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             executable = Path(temp) / "pico-controller"
             subprocess.run([
-                compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I", str(root / "src"),
+                compiler, "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-I", str(root / "src"),
                 str(root / "tests/pico-controller.c"), str(root / "src/pico-controller.c"),
                 "-o", str(executable),
             ], check=True, capture_output=True, text=True, timeout=30)
