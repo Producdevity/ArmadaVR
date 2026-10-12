@@ -1,4 +1,4 @@
-# Qualcomm service mapper
+# Qualcomm services
 
 The Quest USB role/power path depends on ADSP services, including
 `msm/adsp/charger_pd`. The vendor 5.10 kernel has a QRTR nameserver and PDR
@@ -16,12 +16,38 @@ docker build --platform linux/arm64 \
 
 Existing archives are verified and preserved, including when their contents
 are rejected. `--verify-only` performs no downloads. The container rechecks
-both pinned archives before extraction. It extends the existing Fedora VM
+all pinned archives before extraction. It extends the existing Fedora VM
 build image; `--build-arg BASE_IMAGE=IMAGE` selects another compatible Fedora
 image. Package installation requires network access. Source compilation uses
 two jobs with time limits. The resulting image contains the binaries, source
 pin manifest, applied patches, licenses, package versions and sanitizer log.
 It does not enable the upstream system service or request ADSP boot.
+
+## Pico QRTR name service
+
+Pico's published 4.19 kernel provides QRTR sockets but lacks `net/qrtr/ns.c`.
+Unlike the Quest 5.10 kernel, it needs a userspace name service before SSC or
+PD mapper discovery can succeed. In the Pico kernel VM, sockets opened
+successfully while libqrtr-glib timed out on its initial lookup. Starting
+`qrtr-ns -f` restored enumeration of the kernel's registered services.
+
+The build includes `qrtr-ns` from upstream
+[v1.2](https://github.com/linux-msm/qrtr/releases/tag/v1.2), the last release
+containing that daemon. Only its name-service executable is built from the
+additional pinned archive; it links against our current, bounds-checked libqrtr.
+The source manifest and separate license are installed with the runtime.
+No daemon is enabled automatically. Pico boot ordering, service readiness and
+handoff still need integration; a successful socket alone is not sufficient.
+
+The packaged daemon and current libqrtr pass all 15 upstream libssc cases in
+seven suites on the exact physical-configuration Pico kernel in diskless QEMU.
+The test waits for actual service-400 registration before starting each client.
+It covers missing and unsupported sensors, attributes, samples, synchronous
+discovery and accelerometer mount matrices. QRTR and the name service are real;
+the DSP sensors are mocked. The VM shuts down normally. Full logs, the loaded
+kernel hash and the preserved failed attempts are under
+`output/pico-ssc-transport-20261012-v1/research/qrtr-vm-v8/`; `verification.json`
+uses decoded printk records rather than scanning binary memory as text.
 
 ## Local fixes
 

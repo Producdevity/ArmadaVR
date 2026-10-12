@@ -113,7 +113,10 @@ The encoded events also pass an independent Google protobuf parser loaded with
 the exact Pico `sns_client.proto` and `sns_ble_mcu.proto` descriptors.
 
 The dispatcher test does not open QRTR or start a DSP. Docker's current kernel
-does not provide AF_QIPCRTR, so upstream's QRTR mock tests cannot run there.
+does not provide AF_QIPCRTR. A separate diskless VM runs the exact Pico kernel
+with a userspace QRTR name service: all 15 upstream cases in seven suites pass,
+including discovery and sensor samples against the upstream DSP mock. See
+[Qualcomm services](qcom-services.md) for the missing name-service dependency.
 The library is staged privately, not installed into the headset image; live
 stream lifetime, suspend/resume, timestamp alignment and controller input
 delivery remain open integration work.

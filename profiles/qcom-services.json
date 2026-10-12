@@ -13,6 +13,13 @@
       "url": "https://codeload.github.com/linux-msm/qrtr/tar.gz/27d2c9dfb4e8653ac314ebe2b7980fed2f4bac2e",
       "bytes": 18245,
       "sha256": "315641ec00b010100b1e5d91eac1c76105e8978fb8a72c2428d779193e5c6290"
+    },
+    {
+      "name": "qrtr-ns",
+      "commit": "b51ffaf22707b6000ecfb894c5b750f3bb7843b2",
+      "url": "https://codeload.github.com/linux-msm/qrtr/tar.gz/b51ffaf22707b6000ecfb894c5b750f3bb7843b2",
+      "bytes": 26605,
+      "sha256": "9047872519321f6570d4b0c81e7edb10b0a8f42dacb3fd6d31219b602a12ea7c"
     }
   ]
 }
