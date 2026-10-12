@@ -4,12 +4,15 @@
 
 #include <libssc-sensor.h>
 #include "pico-controller.h"
+#include "ssc-clock.h"
 
 struct state {
     GMainLoop *loop;
     SSCSensor *sensor;
     GObject *client;
     guint64 high, low, last_ticks;
+    struct ssc_clock clock;
+    int64_t last_ns;
     unsigned samples, rejected, hands;
     gboolean opened, closing, closed, timed_out;
 };
@@ -39,6 +42,11 @@ static void report(GObject *client, guint id, guint64 high, guint64 low,
         state->rejected++;
         return;
     }
+    struct ssc_timestamp aligned;
+    g_assert_true(ssc_clock_map(&state->clock, timestamp, 2000000000, 2000000000, &aligned));
+    g_assert_cmpint(aligned.timestamp_ns, >, state->last_ns);
+    g_assert_cmpint(aligned.uncertainty_ns, ==, 2);
+    state->last_ns = aligned.timestamp_ns;
     g_assert_cmpuint(accuracy, ==, 3);
     g_assert_cmpuint(timestamp, >, state->last_ticks);
     g_assert_cmpuint(timestamp, >, UINT64_C(0x123456789abcdef));
@@ -105,6 +113,8 @@ int main(int argc, char **argv)
     g_free(command);
     gboolean expect_open = !strcmp(argv[2], "1");
     struct state state = {.loop = g_main_loop_new(NULL, FALSE)};
+    g_assert_true(ssc_clock_init(&state.clock, UINT64_C(0x123456789abcdef),
+                                 19200000, 1000000000, 1000000000, 0));
     guint timer = g_timeout_add_seconds(4, deadline, &state);
     ssc_sensor_new(argv[1], NULL, discovered, &state);
     g_main_loop_run(state.loop);

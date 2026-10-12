@@ -98,6 +98,24 @@ original signal remains available with its existing arguments. The new payload
 is copied independently, so a legacy callback cannot mutate retained data.
 Timestamps remain raw DSP ticks; clock alignment is still the receiver's job.
 
+[`ssc-clock`](../src/ssc-clock.h) maps the outer 19.2 MHz timestamp into an
+explicitly selected host-clock domain. Initialization takes a CPU QTimer read,
+its measured frequency and two host-clock readings bracketing that read. It
+rejects an excessively wide bracket and carries its uncertainty into each
+sample. Integer arithmetic preserves small deltas above double's precision
+and checks the entire timestamp interval for stale or future data. Rejected
+input preserves state and output. The caller must recalibrate and reset stream
+ordering after resume, reconnect or a DSP reset; no hardware clock origin is
+inferred. This does not align the separate timestamps inside controller IMU
+payloads.
+
+The mapper passes macOS and ARM64 Linux sanitizer fixtures, including the full
+64-bit range, mismatched CPU/DSP frequencies and calibration boundaries. An
+independent exact-rational comparison covers 30,000 timing intervals. The
+native SSC controller client also uses it on both-hand reports in the Pico
+kernel VM. Evidence is under `output/pico-ssc-clock-20261012-v1/`; its clock
+calibration and DSP reports are synthetic, so physical timing remains unverified.
+
 On a Linux host with the listed development dependencies, run:
 
 ```sh
@@ -118,7 +136,7 @@ with a userspace QRTR name service: all 15 upstream cases in seven suites pass,
 including discovery and sensor samples against the upstream DSP mock. See
 [Qualcomm services](qcom-services.md) for the missing name-service dependency.
 The library is staged privately, not installed into the headset image; live
-stream lifetime, suspend/resume, timestamp alignment and controller input
+stream lifetime, suspend/resume, physical clock calibration and controller input
 delivery remain open integration work.
 
 Pico controller samples also expose an upstream subscription-startup mismatch:
