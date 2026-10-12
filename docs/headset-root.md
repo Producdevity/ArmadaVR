@@ -1,15 +1,31 @@
 # Offline headset root filesystem
 
 `tools/build-headset-root.py` creates a regular ext4 filesystem image from an
-existing ARM64 Linux container and one matching kernel, Quest startup initramfs
+existing ARM64 Linux container and one matching headset kernel, startup initramfs
 and firmware bundle. It has no device installation operation. The result is an
-offline integration artifact, not a validated Quest installation image.
+offline integration artifact; physical boot and recovery require separate checks.
 
 ```sh
 python3 -B tools/build-headset-root.py KERNEL_BUILD STARTUP_INITRAMFS \
   --firmware QUEST_FIRMWARE --image RUNTIME_IMAGE \
   --output NEW_ROOT_DIRECTORY
 ```
+
+The default profile is `quest3`. For Pico, select `--profile pico-neo3`, pass the
+prepared [Adreno 650 firmware bundle](pico-firmware.md) as `--firmware`, and add
+`--systemd-runtime PREPARED_ROOT_RUNTIME`. The Pico kernel and initramfs must
+match, the initramfs must already contain its compatible systemd runtime, and
+Quest startup services are refused. Pico does not use the separate Quest
+`--gpu-firmware` argument.
+
+The root runtime must have `scope=root`. Its template files, command inventory
+and native loader/libc identities must match the assembled userspace after any
+RPM transaction. The builder installs it before formatting and verifies every
+runtime file, link, permission and native ABI hash after extraction from ext4.
+Systemd unit filenames containing literal backslashes are extracted with their
+parent directory so the debugfs command parser cannot reinterpret those names.
+This does not replace the distribution's unrelated services or enable a headset
+session. Prepared runtime and firmware binaries remain private build inputs.
 
 The builder resolves `RUNTIME_IMAGE` to its immutable Docker ID. It exports a
 new, never-started container, then constructs the filesystem in a separate,
@@ -55,7 +71,7 @@ not fetch packages, import new keys or disable signature/dependency checks.
 Installation logs and the package manifest are retained; the manifest is also
 included in the root image.
 
-The root includes the selected vendor module set, the verified 48-file ADSP
+The Quest root includes the selected vendor module set, the verified 48-file ADSP
 bundle, their build records, and the exact startup service used in the initramfs.
 The mapper and startup helper remain in the initramfs; the root does not replace
 that running storage service. Runtime libraries and VR software come from the
@@ -209,6 +225,25 @@ filesystem label and artifact hashes. It always records
 `hardware_flash_image=false` and `hardware_boot_verified=false`.
 
 ## Virtual acceptance
+
+For a Pico root built with the QEMU kernel and its matching initramfs, run:
+
+```sh
+python3 -B tools/test-pico-root.py PICO_QEMU_KERNEL PICO_QEMU_INITRAMFS PICO_QEMU_ROOT \
+  --output NEW_TEST_DIRECTORY
+```
+
+This boots the actual packaged image read-only under TCG. The fixture only adds
+an agent and probes in the RAM overlay; it does not replace modules or systemd.
+It verifies the installed kernel-module and GPU-firmware inventories, all
+prepared systemd files and command dependencies, user-session startup and
+service isolation. Acceptance requires a read-only backing device, a writable RAM
+overlay, no disk writes, no failed services and normal poweroff. The kernel,
+initramfs and complete root-image hashes must remain unchanged. Physical-kernel
+roots and mismatched inputs are refused. QEMU does not execute Pico panel, GPU,
+radio, sensor or controller hardware; this is userspace and boot-handoff evidence.
+The initial acceptance uses SELinux disabled; it does not establish enforcing
+policy compatibility with the complete userspace.
 
 Build the root with the QEMU kernel and its matching startup initramfs, then run:
 
@@ -387,3 +422,25 @@ pass; all 17 recorded output hashes were independently rechecked. The full image
 is preserved in a verified compact representation with local restoration
 instructions. This is offline assembly acceptance; the physical-configuration
 image has not booted on a headset.
+
+October 12: `output/headset-root-pico-20261012-v3` contains a complete 7 GiB
+Pico physical-configuration root with the kernel through patch `0030`, its
+38 modules, five authenticated-image Adreno 650 files, Turnip and Monado.
+The prepared systemd 257 runtime is installed into the filesystem. Signed RPM
+installation, native loaders, read-only filesystem checks and extracted runtime,
+firmware and module checks pass. Its SHA-256 is
+`31f4997766e257fc524e568c9509426ed22606ec3b3980ef4aa0ece909c1f2fe`.
+The first build's extraction failure and second attempt's storage refusal are
+preserved. The first filesystem is retained in a byte-verified compressed copy.
+
+`output/headset-root-pico-qemu-20261012-v1` is an APFS clone of that physical
+image with only the complete QEMU module set and kernel build record replaced.
+All 52 module/support files were extracted and checked; the physical image hash
+is unchanged. Its manifest records this derivation rather than a fresh userspace
+build. `output/pico-root-acceptance-20261012-v3` boots it with the matching QEMU
+kernel/initramfs, verifies all 541 systemd files, 128 command dependency closures,
+40 modules and five firmware files, starts the user session, and passes service
+isolation. Normal shutdown, zero disk writes and unchanged input hashes pass.
+No runtime or module replacement occurs during this boot test. The known virtual
+board warning/taint remains. Neither image establishes physical driver operation,
+bootloader acceptance, damaged-boot restoration or flash readiness.

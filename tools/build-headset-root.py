@@ -58,6 +58,7 @@ python3 - "$1" <<'PYROOT'
 import hashlib,importlib.util,json,shutil,sys
 from pathlib import Path
 root=Path('/tmp/root'); version=sys.argv[1]
+target=json.loads(Path('/output/root-profile.json').read_text())
 if not (root/'usr/lib/systemd/systemd').is_file() or (root/'etc/initrd-release').exists():
     raise SystemExit('Expected full systemd userspace, not an initramfs')
 removed=[]
@@ -85,14 +86,19 @@ gpu=json.loads(Path('/gpu-firmware/manifest.json').read_text()) if Path('/gpu-fi
 for item in manifest['files']+(gpu['files'] if gpu else []):
     path=fw/item['path']
     if path.is_symlink() or path.exists():
-        raise SystemExit('Base image already supplies selected Quest firmware: '+str(path))
+        raise SystemExit('Base image already supplies selected headset firmware: '+str(path))
     source='/gpu-firmware/files' if gpu and item in gpu['files'] else '/firmware/files'
     shutil.copy2(Path(source)/item['path'],path)
-unit='usr/lib/systemd/system/armada-quest-boot.service'
-shutil.copy2('/quest.service',root/unit)
+unit=None
+if target['profile']=='quest3':
+    unit='usr/lib/systemd/system/armada-quest-boot.service'
+    shutil.copy2('/quest.service',root/unit)
+else:
+    if any(root.glob('usr/lib/systemd/system/armada-quest*')) or any(root.glob('etc/systemd/system/**/armada-quest*')):
+        raise SystemExit('Pico root cannot inherit Quest startup units')
 metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
-shutil.copy2('/firmware/manifest.json',metadata/'quest-firmware.json')
+shutil.copy2('/firmware/manifest.json',metadata/target['firmware_metadata'])
 if Path('/output/runtime-rpms.json').exists():
     shutil.copy2('/output/runtime-rpms.json',metadata/'runtime-rpms.json')
 if gpu:shutil.copy2('/gpu-firmware/manifest.json',metadata/'quest-gpu-firmware.json')
@@ -120,9 +126,12 @@ if Path('/output/lepton.json').is_file():
     artifact.install('/lepton',root,lepton)
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
-    'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest(),'hostname':'armada-vr',
+    'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'armada-vr',
     'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'gpu_firmware':gpu},indent=2)+'\n')
 PYROOT
+if test -d /systemd-runtime; then
+    python3 /systemd-runtime.py /systemd-runtime --install /tmp/root
+fi
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
     chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/armada-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
@@ -152,9 +161,32 @@ PYSIZE
 mkfs.ext4 -q -F -L "$3" -O ^orphan_file -E lazy_itable_init=0,lazy_journal_init=0 -d /tmp/root /output/rootfs.ext4
 e2fsck -fn /output/rootfs.ext4 > /output/fsck.log 2>&1
 debugfs -R stats /output/rootfs.ext4 > /output/filesystem.txt 2>&1
-debugfs -R 'dump /usr/lib/systemd/system/armada-quest-boot.service /tmp/verify/quest.service' /output/rootfs.ext4
+if test -f /quest.service; then
+    debugfs -R 'dump /usr/lib/systemd/system/armada-quest-boot.service /tmp/verify/quest.service' /output/rootfs.ext4
+fi
 debugfs -R 'rdump /usr/lib/modules /tmp/verify/modules' /output/rootfs.ext4
 debugfs -R 'rdump /usr/lib/firmware /tmp/verify/firmware' /output/rootfs.ext4
+if test -d /systemd-runtime; then
+    python3 - <<'PYRUNTIME'
+import json,re,subprocess
+from pathlib import Path
+record=json.loads(Path('/systemd-runtime/manifest.json').read_text())
+names=[item['path'].removeprefix('files/') for item in record['files']]
+names+=list(record['native_abi_sha256'])+['usr/share/armada-vr/root-systemd.json']
+directories={str(Path(name).parent) for name in names if '\\' in name}
+names=sorted({name for name in names if not any(Path(name).is_relative_to(directory) for directory in directories)} | directories)
+commands=[]
+for name in names:
+    if not re.fullmatch(r'[A-Za-z0-9_./@+:-]+',name):
+        raise SystemExit('Unsupported debugfs runtime path: '+name)
+    parent=(Path('/tmp/verify/runtime')/name).parent
+    parent.mkdir(parents=True,exist_ok=True)
+    commands.append(f'rdump /{name} {parent}\n')
+Path('/tmp/runtime-debugfs.txt').write_text(''.join(commands))
+subprocess.run(['debugfs','-f','/tmp/runtime-debugfs.txt','/output/rootfs.ext4'],check=True)
+PYRUNTIME
+    python3 /systemd-runtime.py /systemd-runtime --verify /tmp/verify/runtime
+fi
 if test -f /output/turnip.json; then
     mkdir /tmp/verify/turnip
     debugfs -R 'rdump /opt/armada-vr/turnip /tmp/verify/turnip' /output/rootfs.ext4
@@ -206,7 +238,7 @@ for item in firmware+gpu:
     p=Path('/tmp/verify/firmware/firmware')/item['path']
     if not p.is_file() or hashlib.sha256(p.read_bytes()).hexdigest()!=item['sha256']:
         raise SystemExit('Root image firmware mismatch: '+item['path'])
-if Path('/tmp/verify/quest.service').read_bytes()!=Path('/quest.service').read_bytes():
+if Path('/quest.service').exists() and Path('/tmp/verify/quest.service').read_bytes()!=Path('/quest.service').read_bytes():
     raise SystemExit('Root image service mismatch')
 turnip=None
 if Path('/output/turnip.json').is_file():
@@ -231,7 +263,8 @@ if Path('/output/lepton.json').is_file():
     artifact.verify_install('/tmp/verify/lepton-root',lepton)
     artifact.verify_runtime('/tmp/verify/lepton-root',json.loads(Path('/output/lepton-runtime.json').read_text()),'/tmp/verify/lepton-capabilities')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,
-    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest(),'turnip':turnip,'monado':monado,'lepton':lepton},indent=2)+'\n')
+    'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest() if Path('/quest.service').exists() else None,
+    'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'monado':monado,'lepton':lepton},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -334,6 +367,35 @@ def storage_required(size_gib, userspace_bytes, new_export, rpm_bytes=0):
             "headroom_bytes": 1024**3}
 
 
+def target_inputs(profile, kernel, firmware, initramfs, runtime_dir, gpu_dir):
+    quest = profile == "quest3"
+    if profile not in ("quest3", "pico-neo3"):
+        raise ValueError("Unsupported headset profile")
+    if not quest and gpu_dir:
+        raise ValueError("Pico GPU firmware belongs in --firmware, without --gpu-firmware")
+    build, hashes, version, _ = builder.inputs(kernel)
+    _, fw, validator = builder.firmware_input(build, firmware if quest else None,
+                                              None if quest else firmware, quest)
+    initrd = json.loads((initramfs / "build.json").read_text())
+    if (initrd.get("status") != "built" or initrd.get("quest_services") is not quest or
+            initrd.get("firmware") != fw or
+            initrd.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
+            initrd.get("qemu_transports") is not build["qemu_transports"]):
+        raise ValueError("Requires matching headset kernel, startup initramfs and firmware")
+    expected = next(a["sha256"] for a in initrd["artifacts"] if a["path"] == "initramfs.img")
+    if builder.digest(initramfs / "initramfs.img") != expected:
+        raise ValueError("Initramfs checksum mismatch")
+    runtime = builder.systemd_runtime.validate(runtime_dir) if runtime_dir else None
+    if runtime and runtime["scope"] != "root":
+        raise ValueError("The root image requires a root-scope systemd runtime")
+    if not quest and (runtime is None or not initrd.get("systemd_runtime_sha256")):
+        raise ValueError("Pico requires compatible systemd runtimes in both root and initramfs")
+    inputs = {n: builder.digest(ROOT / n) for n in builder.QUEST_INPUTS} if quest else {}
+    if quest and initrd.get("quest_inputs_sha256") != inputs:
+        raise ValueError("Quest startup sources changed since the initramfs build")
+    return build, hashes, version, fw, validator, expected, runtime, inputs
+
+
 def run(args):
     kernel, initramfs, firmware, output = (p.absolute() for p in (args.kernel, args.initramfs, args.firmware, args.output))
     if output.exists() or output.is_symlink() or any(c in str(p) for p in (kernel, initramfs, firmware, output, ROOT) for c in (",", ":")):
@@ -354,34 +416,30 @@ def run(args):
         raise ValueError("Choose a Lepton path without commas or colons")
     lepton = lepton_artifact.validate(lepton_dir, lepton_host_dir) if lepton_dir else None
     gpu_dir = args.gpu_firmware.absolute() if args.gpu_firmware else None
+    runtime_dir = args.systemd_runtime.absolute() if args.systemd_runtime else None
     if args.reuse_export and args.userspace_export:
         raise ValueError("Choose one export source")
     export_dir = (args.reuse_export or args.userspace_export)
     export_dir = export_dir.absolute() if export_dir else None
     rpm_dir = args.runtime_rpms.absolute() if args.runtime_rpms else None
-    if any(c in str(p) for p in (gpu_dir, export_dir, rpm_dir) if p for c in (",", ":")):
-        raise ValueError("Choose firmware, export and RPM paths without commas or colons")
+    if any(c in str(p) for p in (gpu_dir, runtime_dir, export_dir, rpm_dir) if p for c in (",", ":")):
+        raise ValueError("Choose firmware, runtime, export and RPM paths without commas or colons")
     rpms = read_rpms(rpm_dir) if rpm_dir else None
     gpu = builder.firmware.validate(gpu_dir, "gpu") if gpu_dir else None
     assembly.root_arguments(args.root_label)
     if not 6 <= args.size_gib <= 32:
         raise ValueError("Root size must be 6–32 GiB")
-    build, hashes, version, _ = builder.inputs(kernel)
-    fw = builder.firmware.validate(firmware)
+    build, hashes, version, fw, validator, expected, runtime, inputs = target_inputs(
+        args.profile, kernel, firmware, initramfs, runtime_dir, gpu_dir)
+    runtime_sha = builder.digest(runtime_dir / "manifest.json") if runtime_dir else None
     if gpu and (gpu["reference_build"] != fw["reference_build"] or gpu["source_image_sha256"] != fw["source_image_sha256"]):
         raise ValueError("GPU and ADSP firmware must come from the same declared reference image")
-    initrd = json.loads((initramfs / "build.json").read_text())
-    if (initrd.get("status") != "built" or initrd.get("quest_services") is not True or initrd.get("firmware") != fw or
-            initrd.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
-            initrd.get("qemu_transports") is not build["qemu_transports"]):
-        raise ValueError("Requires matching kernel, Quest startup initramfs and firmware")
-    expected = next(a["sha256"] for a in initrd["artifacts"] if a["path"] == "initramfs.img")
-    if builder.digest(initramfs / "initramfs.img") != expected:
-        raise ValueError("Initramfs checksum mismatch")
-    inputs = {n: builder.digest(ROOT / n) for n in builder.QUEST_INPUTS}
-    if initrd.get("quest_inputs_sha256") != inputs:
-        raise ValueError("Quest startup sources changed since the initramfs build")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
+    inputs["tools/build-headset-initramfs.py"] = builder.digest(Path(builder.__file__))
+    inputs["profiles/kernel/" + args.profile + ".json"] = builder.digest(ROOT / "profiles/kernel" / (args.profile + ".json"))
+    inputs["tools/" + Path(validator.__file__).name] = builder.digest(Path(validator.__file__))
+    if runtime:
+        inputs["tools/systemd-runtime.py"] = builder.digest(Path(builder.systemd_runtime.__file__))
     inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")
     if lepton:
         inputs["tools/lepton-artifact.py"] = builder.digest(ROOT / "tools/lepton-artifact.py")
@@ -396,6 +454,8 @@ def run(args):
     if export_dir:
         export_source = read_export(export_dir, image["Id"] if args.reuse_export else None)
     output.mkdir(parents=True)
+    target = {"profile": args.profile, "firmware_metadata": "quest-firmware.json" if args.profile == "quest3" else "pico-firmware.json"}
+    (output / "root-profile.json").write_text(json.dumps(target, indent=2) + "\n")
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
     if monado:
@@ -404,7 +464,8 @@ def run(args):
         (output / "lepton.json").write_text(json.dumps(lepton, indent=2) + "\n")
     if rpms:
         (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
-    report = {"status": "started", "turnip": turnip, "monado": monado, "lepton": lepton, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
+    report = {"status": "started", "profile": args.profile, "systemd_runtime_sha256": runtime_sha,
+              "turnip": turnip, "monado": monado, "lepton": lepton, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw,
@@ -437,6 +498,8 @@ print('Monado runtime image preflight: passed')
         if lepton:
             storage["scratch_bytes"] += 2 * lepton["inventory"]["expanded_bytes"]
             storage["scratch_bytes"] += 2 * sum(i["bytes"] for i in lepton["host"]["files"])
+        if runtime:
+            storage["scratch_bytes"] += 2 * sum((runtime_dir / i["path"]).stat().st_size for i in runtime["files"] if "sha256" in i)
         required = sum(storage.values())
         available = shutil.disk_usage(output).free
         report["storage_preflight"] = {"available_bytes": available, "required_working_bytes": required,
@@ -458,7 +521,9 @@ print('Monado runtime image preflight: passed')
             report["export_sha256"] = builder.digest(archive)
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                    "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{archive}:/rootfs.tar:ro", "-v", f"{kernel}:/kernel:ro",
-                   "-v", f"{firmware}:/firmware:ro", "-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro",
+                   "-v", f"{firmware}:/firmware:ro",
+                   *(["-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro"] if args.profile == "quest3" else []),
+                   *(["-v", f"{runtime_dir}:/systemd-runtime:ro", "-v", f"{ROOT / 'tools/systemd-runtime.py'}:/systemd-runtime.py:ro"] if runtime_dir else []),
                    *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
                    *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
@@ -469,8 +534,11 @@ print('Monado runtime image preflight: passed')
         report["commands"].append(command)
         with (output / "build.log").open("wb") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=920, check=True)
-        if builder.inputs(kernel)[1] != hashes or builder.firmware.validate(firmware) != fw:
+        if builder.inputs(kernel)[1] != hashes or validator.validate(firmware) != fw:
             raise ValueError("Kernel or firmware changed during root construction")
+        if runtime_dir and (builder.systemd_runtime.validate(runtime_dir) != runtime or
+                            builder.digest(runtime_dir / "manifest.json") != runtime_sha):
+            raise ValueError("Systemd runtime changed during root construction")
         if builder.digest(archive) != (export_source["archive_sha256"] if export_source else report["export_sha256"]):
             raise ValueError("Userspace export changed during construction")
         if export_source and builder.digest(export_dir / "manifest.json") != export_source["manifest_sha256"]:
@@ -487,7 +555,7 @@ print('Monado runtime image preflight: passed')
             raise ValueError("Runtime RPMs changed during root construction")
         if any(builder.digest(ROOT / n) != sha for n, sha in inputs.items()):
             raise ValueError("Root build sources changed during construction")
-        names = ["rootfs.ext4", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
+        names = ["rootfs.ext4", "root-profile.json", "contents.json", "root-settings.json", "filesystem.txt", "fsck.log", "tool-versions.txt"]
         if turnip:
             names += ["turnip.json", "turnip-dependencies.txt", "turnip-loader.txt"]
         if monado:
@@ -502,6 +570,7 @@ print('Monado runtime image preflight: passed')
                                for n in names]
         contents = json.loads((output / "contents.json").read_text())
         report["quest_startup_unit_sha256"] = contents["quest_startup_unit_sha256"]
+        report["systemd_runtime_verified"] = contents["systemd_runtime_verified"]
         report.update(status="built", sha256={a["path"]: a["sha256"] for a in report["artifacts"]})
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         report.update(status="failed", error=str(error)); raise
@@ -517,9 +586,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernel", type=Path)
     parser.add_argument("initramfs", type=Path)
+    parser.add_argument("--profile", choices=("quest3", "pico-neo3"), default="quest3")
     parser.add_argument("--firmware", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--image", default="localhost/armada-vr:runtime")
+    parser.add_argument("--systemd-runtime", type=Path, help="Prepared root-scope systemd runtime; required for Pico")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
     parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
     parser.add_argument("--lepton", type=Path, help="Prepared Lepton execution bundle with source-built init")

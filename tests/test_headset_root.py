@@ -6,11 +6,91 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 spec = importlib.util.spec_from_file_location("headset_root", Path(__file__).parents[1] / "tools/build-headset-root.py")
 root = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(root)
+
+
+class RootTargetTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.directory = Path(self.temp.name)
+        self.kernel = self.directory / "kernel"
+        self.kernel.mkdir()
+        (self.kernel / "build.json").write_text("{}")
+        self.initramfs = self.directory / "initramfs"
+        self.initramfs.mkdir()
+        (self.initramfs / "initramfs.img").write_bytes(b"initramfs")
+        self.fw = {"component": "pico-neo3-gpu"}
+        self.initrd = {"status": "built", "quest_services": False, "firmware": self.fw,
+                       "kernel_build_sha256": root.builder.digest(self.kernel / "build.json"),
+                       "qemu_transports": False, "systemd_runtime_sha256": "a" * 64,
+                       "artifacts": [{"path": "initramfs.img", "sha256": root.builder.digest(self.initramfs / "initramfs.img")}]}
+        self.save()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def save(self):
+        (self.initramfs / "build.json").write_text(json.dumps(self.initrd))
+
+    def select(self, runtime=True, scope="root", gpu=None, profile="pico-neo3"):
+        with patch.object(root.builder, "inputs", return_value=({"qemu_transports": False}, {}, "4.19", [])), \
+                patch.object(root.builder, "firmware_input", return_value=(self.directory, self.fw, root.builder.pico_firmware)) as firmware, \
+                patch.object(root.builder.systemd_runtime, "validate", return_value={"scope": scope}):
+            result = root.target_inputs(profile, self.kernel, self.directory, self.initramfs,
+                                        self.directory if runtime else None, gpu)
+            return result, firmware.call_args.args
+
+    def test_pico_uses_its_firmware_without_quest_startup(self):
+        result, call = self.select()
+        self.assertEqual(call[1:], (None, self.directory, False))
+        self.assertEqual(result[6], {"scope": "root"})
+        self.assertEqual(result[7], {})
+
+    def test_inconsistent_kernel_initramfs_and_firmware_are_refused(self):
+        for name, value in (("quest_services", True), ("firmware", {}), ("kernel_build_sha256", "b" * 64),
+                            ("qemu_transports", True), ("status", "failed")):
+            with self.subTest(name=name):
+                old = self.initrd[name]
+                self.initrd[name] = value
+                self.save()
+                with self.assertRaisesRegex(ValueError, "matching headset"):
+                    self.select()
+                self.initrd[name] = old
+        self.save()
+        (self.initramfs / "initramfs.img").write_bytes(b"modified")
+        with self.assertRaisesRegex(ValueError, "Initramfs checksum"):
+            self.select()
+
+    def test_pico_requires_both_compatible_runtime_stages(self):
+        with self.assertRaisesRegex(ValueError, "both root and initramfs"):
+            self.select(runtime=False)
+        with self.assertRaisesRegex(ValueError, "root-scope"):
+            self.select(scope="initramfs")
+        self.initrd.pop("systemd_runtime_sha256")
+        self.save()
+        with self.assertRaisesRegex(ValueError, "both root and initramfs"):
+            self.select()
+
+    def test_separate_quest_gpu_bundle_is_refused_for_pico(self):
+        with self.assertRaisesRegex(ValueError, "without --gpu-firmware"):
+            self.select(gpu=self.directory)
+
+    def test_quest_contract_remains_required(self):
+        self.initrd["quest_services"] = True
+        self.initrd["quest_inputs_sha256"] = {n: root.builder.digest(root.ROOT / n) for n in root.builder.QUEST_INPUTS}
+        self.save()
+        result, call = self.select(profile="quest3", runtime=False)
+        self.assertEqual(call[1:], (self.directory, None, True))
+        self.assertEqual(result[7], self.initrd["quest_inputs_sha256"])
+        self.initrd["quest_inputs_sha256"].clear()
+        self.save()
+        with self.assertRaisesRegex(ValueError, "Quest startup sources changed"):
+            self.select(profile="quest3", runtime=False)
 
 
 class RootExportTests(unittest.TestCase):
