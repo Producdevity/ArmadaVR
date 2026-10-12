@@ -71,6 +71,21 @@ static void discovered(GObject *object, GAsyncResult *result, gpointer data)
     s->sensors[sensor] = ssc_sensor_new_finish(result, &error);
     g_assert_no_error(error);
     g_assert_nonnull(s->sensors[sensor]);
+    const char *names[] = {SSC_SENSOR_STREAM_TYPE, SSC_SENSOR_AVAILABLE, SSC_SENSOR_SAMPLE_RATE};
+    const GType types[] = {G_TYPE_UINT, G_TYPE_BOOLEAN, G_TYPE_FLOAT};
+    for (unsigned i = 0; i < G_N_ELEMENTS(names); i++) {
+        GParamSpec *spec = g_object_class_find_property(G_OBJECT_GET_CLASS(s->sensors[sensor]), names[i]);
+        g_assert_nonnull(spec);
+        g_assert_cmpuint(G_PARAM_SPEC_VALUE_TYPE(spec), ==, types[i]);
+    }
+    guint stream_type = 99;
+    gboolean available = FALSE;
+    gfloat sample_rate = 0;
+    g_object_get(s->sensors[sensor], SSC_SENSOR_STREAM_TYPE, &stream_type,
+                 SSC_SENSOR_AVAILABLE, &available, SSC_SENSOR_SAMPLE_RATE, &sample_rate, NULL);
+    g_assert_cmpuint(stream_type, ==, 0);
+    g_assert_true(available);
+    g_assert_cmpfloat(sample_rate, ==, 1000.0f);
     g_object_get(s->sensors[sensor], SSC_SENSOR_CLIENT, &s->clients[sensor],
                  SSC_SENSOR_UID_HIGH, &s->config.suid_high[sensor],
                  SSC_SENSOR_UID_LOW, &s->config.suid_low[sensor], NULL);
@@ -107,6 +122,7 @@ int main(void)
         return 2;
     }
     g_free(identity); g_free(command);
+    g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
     struct ssc_imu_stream previous = {0};
     for (unsigned cycle = 0; cycle < 3; cycle++) {
         GMainContext *context = g_main_context_new();

@@ -258,3 +258,16 @@ The fixture needs its established 2 GiB memory map: reducing it to 1 GiB puts
 Pico's fixed crash-log reservation at `0xb0000000` outside RAM and panics before
 userspace. Both that failed fixture and the corrected run are retained under
 `output/pico-ssc-imu-20261012-v1/`.
+
+The [sensor-property patch](../patches/libssc/0007-correct-sensor-property-types.patch)
+fixes libssc's metadata property declarations. Stream type, availability and
+sample rate were registered as strings while their getters used unsigned
+integer, boolean and float values. All three reads produced GLib critical
+errors. The corrected properties are read-only and match their getters; they
+do not configure a rate or mark a sensor as available.
+
+The source regression reproduces all three original failures and verifies
+1,024 typed reads under ARM64 ASan/UBSan. The IMU transport fixture reads the
+metadata returned by actual QRTR discovery before opening either sensor.
+Applications must still validate the selected SUIDs, stream type and supported
+rate before starting physical streams.

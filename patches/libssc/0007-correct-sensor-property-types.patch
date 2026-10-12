@@ -1,0 +1,39 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -878,26 +878,30 @@
+ 	g_object_class_install_property (object_class, PROP_DATA_TYPE, properties[PROP_DATA_TYPE]);
+ 
+ 	properties[PROP_STREAM_TYPE] =
+-		g_param_spec_string (SSC_SENSOR_STREAM_TYPE,
++		g_param_spec_uint (SSC_SENSOR_STREAM_TYPE,
+ 				     "Stream type",
+ 				     "The stream type supported by the sensor.",
+-				     NULL,
++				     0,
++				     G_MAXUINT,
++				     0,
+ 				     G_PARAM_READABLE);
+ 	g_object_class_install_property (object_class, PROP_STREAM_TYPE, properties[PROP_STREAM_TYPE]);
+ 
+ 	properties[PROP_AVAILABLE] =
+-		g_param_spec_string (SSC_SENSOR_AVAILABLE,
++		g_param_spec_boolean (SSC_SENSOR_AVAILABLE,
+ 				     "Availability",
+ 				     "If the sensor is available for measurements.",
+-				     NULL,
++				     FALSE,
+ 				     G_PARAM_READABLE);
+ 	g_object_class_install_property (object_class, PROP_AVAILABLE, properties[PROP_AVAILABLE]);
+ 
+ 	properties[PROP_SAMPLE_RATE] =
+-		g_param_spec_string (SSC_SENSOR_SAMPLE_RATE,
++		g_param_spec_float (SSC_SENSOR_SAMPLE_RATE,
+ 				     "Sample rate",
+ 				     "The sample rate in Hz supported by the sensor.",
+-				     NULL,
++				     0.0f,
++				     G_MAXFLOAT,
++				     0.0f,
+ 				     G_PARAM_READABLE);
+ 	g_object_class_install_property (object_class, PROP_SAMPLE_RATE, properties[PROP_SAMPLE_RATE]);
+ 
