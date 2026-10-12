@@ -161,6 +161,22 @@ native SSC controller client also uses it on both-hand reports in the Pico
 kernel VM. Evidence is under `output/pico-ssc-clock-20261012-v1/`; its clock
 calibration and DSP reports are synthetic, so physical timing remains unverified.
 
+[`ssc-clock-linux`](../src/ssc-clock-linux.h) provides explicit Linux ARM64
+counter acquisition for a session's calibration callback. It brackets
+`CNTVCT_EL0` with `CLOCK_MONOTONIC`, checks `CNTFRQ_EL0` on both sides, and keeps
+the narrowest acceptable bracket from a bounded number of attempts. Counter
+resolution is added to the uncertainty. Invalid clock results, reversed time,
+frequency changes or an excessive bracket fail without changing the output.
+The target kernel must permit userspace counter access; this is not an automatic
+probe or proof that the CPU and DSP share an origin.
+
+Injected clock failures and 64 real captures pass native ARM64 sanitizers. The
+same capture fixture passes on the exact Pico kernel in diskless QEMU, along
+with the eight SSC session scenarios. The native lab reports a 24 MHz counter
+and QEMU reports 62.5 MHz, exercising conversion to the SSC 19.2 MHz domain.
+Evidence is under `output/pico-ssc-counter-20261012-v1/`. These are host and
+virtual counter measurements; physical Pico sensor timing remains unverified.
+
 [`pico-controller-stream`](../src/pico-controller-stream.h) combines the payload
 decoder and clock mapper with subscription identity. Each new subscription has
 a generation number; callbacks must retain their original number. Reports from
