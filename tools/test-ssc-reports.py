@@ -48,7 +48,7 @@ def main():
                    check=True, timeout=10)
     flags = shlex.split(subprocess.check_output(
         ["pkg-config", "--cflags", "--libs", "gio-2.0", "qmi-glib", "qrtr-glib", "libprotobuf-c"], text=True))
-    commands, lifetime = {}, {}
+    commands, lifetime, contexts = {}, {}, {}
     for name, tree in (("original", source), ("patched", patched)):
         binary = output / ("test-" + name)
         command = [args.cc, "-std=gnu11", "-g", "-O1", "-Wall", "-Wextra", "-Werror",
@@ -90,12 +90,35 @@ def main():
             elif result.returncode != 0 or "SSC_LIFETIME_PASS" not in log:
                 raise ValueError("Patched lifetime check failed: " + kind)
             lifetime[name + "-" + kind] = {"command": command, "returncode": result.returncode}
+        test = output / ("context-" + name)
+        command = [args.cc, "-std=gnu11", "-g", "-O1", "-Wall", "-Wextra", "-Werror",
+                   "-Wno-unused-parameter", "-fsanitize=address,undefined", '-DG_LOG_DOMAIN="libssc"',
+                   "-I" + str(tree / "src"), "-I" + str(generated), str(ROOT / "tests/ssc-context.c"),
+                   str(tree / "src/libssc-common.c")]
+        if name == "original":
+            command.append("-DEXPECT_OLD")
+        else:
+            command += ["-DTEST_SENSOR", str(tree / "src/libssc-client.c"),
+                        str(generated / "ssc-common.pb-c.c"), str(generated / "ssc-sensor-suid.pb-c.c")]
+        command += [*flags, "-o", str(test)]
+        with (output / ("build-context-" + name + ".log")).open("w") as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+        result = subprocess.run([str(test)], env=env, capture_output=True, text=True, timeout=15)
+        log = result.stdout + result.stderr
+        (output / ("context-" + name + ".log")).write_text(log)
+        if name == "original":
+            if result.returncode == 0 or "SSC_CONTEXT_WRONG_DEFAULT_DISPATCH" not in log:
+                raise ValueError("Original main-context defect was not reproduced")
+        elif result.returncode != 0 or "SSC_CONTEXT_PASS" not in log:
+            raise ValueError("Patched private-context test failed")
+        contexts[name] = {"command": command, "returncode": result.returncode}
     if (output / "wire-original.pb").read_bytes() != (output / "wire-patched.pb").read_bytes():
         raise ValueError("The test inputs differ between source revisions")
     report = {"passed": True, "source_commit": profile["commit"],
               "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
               "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
               "lifetime_test_sha256": digest(ROOT / "tests/ssc-lifetime.c"), "lifetime": lifetime,
+              "context_test_sha256": digest(ROOT / "tests/ssc-context.c"), "contexts": contexts,
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}
     (output / "result.json").write_text(json.dumps(report, indent=2) + "\n")

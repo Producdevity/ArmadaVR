@@ -1,0 +1,189 @@
+--- a/src/libssc-common-private.h
++++ b/src/libssc-common-private.h
+@@ -74,6 +74,7 @@
+ 
+ typedef struct {
+ 	GMutex mutex;
++	GMainContext *main_context;
+ 	GCond condition;
+ 	GAsyncResult *result;
+ 	gboolean finished;
+@@ -95,4 +96,10 @@
+ void
+ ssc_common_callback_sync_context (GObject *source, GAsyncResult *result, gpointer user_data);
+ 
++GSource *
++ssc_common_timeout_source (guint seconds, GSourceFunc callback, gpointer data);
++
++void
++ssc_common_clear_source (GSource *source);
++
+ #endif /* _LIBSSC_COMMON_H_ */
+--- a/src/libssc-common.c
++++ b/src/libssc-common.c
+@@ -43,6 +43,7 @@
+ void
+ ssc_common_init_sync_context (SyncContext *ctx) {
+ 	g_mutex_init (&ctx->mutex);
++	ctx->main_context = g_main_context_ref_thread_default ();
+ 	g_cond_init (&ctx->condition);
+ 	ctx->finished = FALSE;
+ 	ctx->result = NULL;
+@@ -53,7 +54,7 @@
+ 	g_mutex_lock (&ctx->mutex);
+ 	while (!ctx->finished) {
+ 		g_mutex_unlock (&ctx->mutex);
+-		g_main_context_iteration (g_main_context_default (), FALSE);
++		g_main_context_iteration (ctx->main_context, TRUE);
+ 		g_mutex_lock (&ctx->mutex);
+ 	}
+ 	g_mutex_unlock (&ctx->mutex);
+@@ -68,6 +69,7 @@
+ 	ctx->result = g_object_ref (result);
+ 	ctx->finished = TRUE;
+ 	g_cond_signal (&ctx->condition);
++	g_main_context_wakeup (ctx->main_context);
+ 	g_mutex_unlock (&ctx->mutex);
+ }
+ 
+@@ -76,4 +78,21 @@
+ 	g_mutex_clear (&ctx->mutex);
+ 	g_cond_clear (&ctx->condition);
+ 	g_object_unref (ctx->result);
++	g_main_context_unref (ctx->main_context);
+ }
++
++GSource *
++ssc_common_timeout_source (guint seconds, GSourceFunc callback, gpointer data)
++{
++	GSource *source = g_timeout_source_new_seconds (seconds);
++	g_source_set_callback (source, callback, data, NULL);
++	g_source_attach (source, g_main_context_get_thread_default ());
++	return source;
++}
++
++void
++ssc_common_clear_source (GSource *source)
++{
++	g_source_destroy (source);
++	g_source_unref (source);
++}
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -62,7 +62,7 @@
+ 	gboolean attr_populated;
+ 	gboolean service_available;
+ 	guint service_retries;
+-	guint discovery_timeout_id;
++	GSource *discovery_timeout;
+ } SSCSensorPrivate;
+ 
+ static void async_initable_iface_init (GAsyncInitableIface *iface);
+@@ -77,7 +77,7 @@
+ static void
+ discover (SSCSensor *self, GTask *task);
+ 
+-static void
++static gboolean
+ sensor_service_discovery_timeout (gpointer user_data);
+ 
+ static void
+@@ -305,7 +305,7 @@
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
+ 			g_debug ("'registry' sensor available, discovering sensor now");
+ 
+-			g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++			g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 
+ 			discover(ctx->sensor, ctx->task);
+ 			return;
+@@ -318,7 +318,7 @@
+ 			/* Fail to discover when service is not available after 100s */
+ 			if (priv->service_retries >= MAX_RETRIES) {
+ 				g_clear_signal_handler (&priv->report_id, self);
+-				g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++				g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 
+ 				g_set_error (&error, ssc_sensor_error_quark(), SSC_SENSOR_ERROR_NO_SERVICE,
+ 					     "Sensor service unavailable");
+@@ -359,7 +359,7 @@
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
+ 
+ 			g_clear_signal_handler (&priv->report_id, self);
+-			g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++			g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 
+ 			g_task_return_boolean (ctx->task, FALSE);
+ 			g_clear_object (&ctx->task);
+@@ -448,7 +448,7 @@
+ 		/* Sensor initialized, complete task and stop listening */
+ 		if (ctx->task) {
+ 			g_clear_signal_handler (&priv->report_id, self);
+-			g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++			g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 			g_task_return_boolean (ctx->task, attributes_populated);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -476,7 +476,7 @@
+ 		/* Configuration updated, complete task and stop listening */
+ 		if (ctx->task) {
+ 			g_clear_signal_handler (&priv->report_id, self);
+-			g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++			g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 			g_task_return_boolean (ctx->task, TRUE);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -496,7 +496,7 @@
+ 
+ 		if (ctx->task) {
+ 			g_clear_signal_handler (&priv->report_id, self);
+-			g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++			g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 			g_task_return_boolean (ctx->task, TRUE);
+ 			g_clear_object (&ctx->task);
+ 			g_slice_free (ReportReceivedContext, ctx);
+@@ -603,15 +603,15 @@
+ 
+ /*****************************************************************************/
+ 
+-static void
++static gboolean
+ sensor_service_discovery_timeout (gpointer user_data)
+ {
+ 	ReportReceivedContext *ctx = user_data;
+ 	SSCSensorPrivate *priv = ssc_sensor_get_instance_private (ctx->sensor);
+ 	GError *error = NULL;
+ 
+-	g_return_if_fail (priv->discovery_timeout_id);
+-	priv->discovery_timeout_id = 0;
++	g_return_val_if_fail (priv->discovery_timeout, G_SOURCE_REMOVE);
++	g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 
+ 	g_clear_signal_handler (&priv->report_id, priv->client);
+ 
+@@ -622,6 +622,7 @@
+ 	g_task_return_error (ctx->task, error);
+ 	g_clear_object (&ctx->task);
+ 	g_slice_free (ReportReceivedContext, ctx);
++	return G_SOURCE_REMOVE;
+ }
+ 
+ /*****************************************************************************/
+@@ -714,7 +715,7 @@
+ 	/* Wait for sensor service before discovering sensor */
+ 	priv->service_available = FALSE;
+ 	priv->service_retries = 0;
+-	priv->discovery_timeout_id = g_timeout_add_seconds_once (SENSOR_SERVICE_TIMEOUT_S,
++	priv->discovery_timeout = ssc_common_timeout_source (SENSOR_SERVICE_TIMEOUT_S,
+ 								 sensor_service_discovery_timeout,
+ 								 ctx);
+ 	wait_for_sensor_service (self, task);
+@@ -820,7 +821,7 @@
+ 	SSCSensor *self = SSC_SENSOR (object);
+ 	SSCSensorPrivate *priv = ssc_sensor_get_instance_private (self);
+ 
+-	g_clear_handle_id (&priv->discovery_timeout_id, g_source_remove);
++	g_clear_pointer (&priv->discovery_timeout, ssc_common_clear_source);
+ 
+ 	g_clear_pointer (&priv->name, g_free);
+ 

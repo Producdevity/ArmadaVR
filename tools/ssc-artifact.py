@@ -52,7 +52,8 @@ def package(directory):
     if report.get('profile') != profile:
         raise ValueError('SSC source profile changed')
     names = [*profile['patches'], 'tools/ssc-build.py', 'tools/test-ssc-reports.py',
-             'tests/ssc-reports.c', 'tests/ssc-lifetime.c', 'src/pico-controller.c', 'src/pico-controller.h']
+             'tests/ssc-reports.c', 'tests/ssc-lifetime.c', 'tests/ssc-context.c',
+             'src/pico-controller.c', 'src/pico-controller.h']
     if report.get('inputs_sha256') != {name: digest(ROOT / name) for name in names}:
         raise ValueError('SSC build inputs changed')
     test = directory / 'tests/result.json'

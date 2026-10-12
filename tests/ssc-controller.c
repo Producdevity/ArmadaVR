@@ -136,7 +136,8 @@ static gboolean deadline(gpointer data)
 
 int main(int argc, char **argv)
 {
-    if (argc != 3 || (strcmp(argv[2], "0") && strcmp(argv[2], "1")))
+    if ((argc != 3 && argc != 4) || (strcmp(argv[2], "0") && strcmp(argv[2], "1")) ||
+        (argc == 4 && strcmp(argv[3], "private")))
         return 2;
     gchar *identity = NULL, *command = NULL;
     if (!g_file_get_contents("/proc/device-tree/compatible", &identity, NULL, NULL) ||
@@ -153,17 +154,22 @@ int main(int argc, char **argv)
     struct pico_controller_stream previous = {0};
     unsigned cycles = expect_open ? 3 : 1;
     for (unsigned cycle = 0; cycle < cycles; cycle++) {
-        struct state state = {.loop = g_main_loop_new(NULL, FALSE), .stream = previous};
+        GMainContext *context = argc == 4 ? g_main_context_new() : NULL;
+        if (context)
+            g_main_context_push_thread_default(context);
+        struct state state = {.loop = g_main_loop_new(context, FALSE), .stream = previous};
         int64_t anchor_ns = (int64_t)os_monotonic_get_ns() - 1000000000;
         g_assert_true(ssc_clock_init(&state.clock, UINT64_C(0x123456789abcdef),
                                      19200000, anchor_ns, anchor_ns, 0));
         g_assert_true(pico_monado_devices_create(10000000000, &state.producer,
                                                  &state.devices[0], &state.devices[1]));
-        guint timer = g_timeout_add_seconds(4, deadline, &state);
+        GSource *timer = g_timeout_source_new_seconds(4);
+        g_source_set_callback(timer, deadline, &state, NULL);
+        g_source_attach(timer, context);
         ssc_sensor_new(argv[1], NULL, discovered, &state);
         g_main_loop_run(state.loop);
-        if (!state.timed_out)
-            g_source_remove(timer);
+        g_source_destroy(timer);
+        g_source_unref(timer);
         g_assert_cmpuint(state.samples, >=, 4);
         g_assert_cmpuint(state.hands, ==, 6);
         g_assert_cmpuint(state.rejected, >, 0);
@@ -187,10 +193,16 @@ int main(int argc, char **argv)
             xrt_device_destroy(&state.devices[hand]);
         }
         g_main_loop_unref(state.loop);
+        if (context) {
+            g_main_context_pop_thread_default(context);
+            g_main_context_unref(context);
+        }
     }
     if (expect_open)
         printf("SSC_CONTROLLER_RECONNECT_PASS cycles=%u\n", cycles);
     printf("SSC_MONADO_INPUT_PASS cycles=%u\n", cycles);
     printf("SSC_MONADO_DEVICE_PASS cycles=%u\n", cycles);
+    if (argc == 4)
+        printf("SSC_PRIVATE_CONTEXT_PASS cycles=%u\n", cycles);
     return 0;
 }

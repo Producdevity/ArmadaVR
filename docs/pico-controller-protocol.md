@@ -98,6 +98,22 @@ original signal remains available with its existing arguments. The new payload
 is copied independently, so a legacy callback cannot mutate retained data.
 Timestamps remain raw DSP ticks; clock alignment is still the receiver's job.
 
+The [main-context patch](../patches/libssc/0004-own-sensor-main-context.patch)
+keeps synchronous client cleanup and the registry-discovery deadline on the
+calling thread's GLib context. Upstream cleanup iterates the global context
+instead, which can run unrelated callbacks and leave its own completion waiting
+on another context. Its registry timer also uses the global context. The patch
+retains the selected context, waits for its completion without busy polling,
+and owns the timer as a source that can be destroyed on its actual context.
+
+The original wrong-context dispatch is reproduced under native ARM64 sanitizers.
+The patched source passes 128 private-context completions, registry timeout and
+timer disposal checks. The packaged library also completes three real QRTR
+discovery/open/report/close cycles on a private context in the Pico-kernel VM;
+the default-context and protocol negative controls pass too. Evidence is under
+`output/pico-ssc-context-20261012-v1/`. This verifies context ownership, not all
+cancellation and DSP-loss paths or a production sensor worker.
+
 [`ssc-clock`](../src/ssc-clock.h) maps the outer 19.2 MHz timestamp into an
 explicitly selected host-clock domain. Initialization takes a CPU QTimer read,
 its measured frequency and two host-clock readings bracketing that read. It
