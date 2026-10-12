@@ -155,3 +155,19 @@ calls in diskless QEMU using `tests/pico-fastrpc-ioctl.c`: both device nodes,
 attributes. Kernel taint is unchanged. The previous kernel fails the same
 test with `ECONNREFUSED` before selecting a domain. No DSP is attached by
 this test, and no headset is accessed.
+
+The stock low-latency wrapper allocates through `rpcmem_alloc(-1, 1, size)`.
+Its allocator uses the ION v2 allocation ioctl and registers the resulting
+DMA-BUF with FastRPC. It tries ADSP heap 22 when no SMMU is reported, then
+system heap 25; heap selection and DSP mapping cannot be inferred from a
+successful CPU mapping.
+
+`src/ion-buffer.c` provides the ION v2 allocation, CPU synchronization and
+release lifecycle for the Pico's 4 KiB pages. The caller supplies the ION
+file descriptor and a verified heap ID. Allocation preserves output on
+failure and requires a CLOEXEC descriptor. CPU access is bracketed explicitly;
+release requires prior DSP detachment and never retries `close` after `EINTR`.
+Fault tests cover allocation/mapping failures, ownership preservation and
+all CPU access modes. The real kernel test uses a virtual system heap and
+checks both ABIs, cached/uncached memory, zeroed allocation, alias mappings
+and cleanup. Physical cache coherency and sensor-DSP mapping remain unverified.
