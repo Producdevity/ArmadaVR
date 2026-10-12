@@ -1,0 +1,55 @@
+#!/bin/bash
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+nameserver=
+
+fail() {
+    echo "Armada Pico QRTR startup failed: $*" >&2
+    exit 1
+}
+
+cleanup() {
+    if [[ -n $nameserver && $(jobs -p) == "$nameserver" ]]; then
+        kill "$nameserver" 2>/dev/null || :
+        local until=$((SECONDS + 2))
+        while [[ $(jobs -p) == "$nameserver" ]] && ((SECONDS < until)); do
+            sleep 0.1
+        done
+        if [[ $(jobs -p) == "$nameserver" ]]; then
+            kill -KILL "$nameserver" 2>/dev/null || :
+        fi
+        wait "$nameserver" 2>/dev/null || :
+    fi
+}
+trap cleanup EXIT
+trap 'exit 0' TERM INT HUP
+
+[[ $EUID == 0 ]] || fail 'requires root'
+case " $(< /proc/cmdline) " in
+    *' armada.pico=qrtr '*) ;;
+    *) fail 'Pico QRTR startup was not requested' ;;
+esac
+platform=
+while IFS= read -r -d '' item; do
+    [[ $item != qcom,kona ]] || platform=yes
+done < /sys/firmware/devicetree/base/compatible
+[[ $platform == yes ]] || fail 'requires Kona device tree'
+
+if qrtr-lookup >/dev/null 2>&1; then
+    fail 'a QRTR name service is already active'
+fi
+/usr/bin/qrtr-ns -f &
+nameserver=$!
+deadline=$((SECONDS + 8))
+until qrtr-lookup >/dev/null 2>&1; do
+    [[ $(jobs -p) == "$nameserver" ]] || fail 'name service exited'
+    ((SECONDS < deadline)) || fail 'discovery timed out'
+    sleep 0.1
+done
+[[ $(jobs -p) == "$nameserver" ]] || fail 'name service exited'
+systemd-notify --ready --status='Pico QRTR discovery available'
+echo 'Armada Pico QRTR discovery ready'
+result=0
+wait "$nameserver" || result=$?
+nameserver=
+fail "name service stopped (status $result)"

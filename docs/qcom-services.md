@@ -36,8 +36,17 @@ The build includes `qrtr-ns` from upstream
 containing that daemon. Only its name-service executable is built from the
 additional pinned archive; it links against our current, bounds-checked libqrtr.
 The source manifest and separate license are installed with the runtime.
-No daemon is enabled automatically. Pico boot ordering, service readiness and
-handoff still need integration; a successful socket alone is not sufficient.
+The Pico initramfs builder includes the service only with `--pico-services`.
+This requires the pinned Pico kernel, a verified Pico firmware bundle and a
+matching private systemd runtime. The installed service additionally requires
+the exact kernel command-line token `armada.pico=qrtr` and a Kona device tree.
+It refuses an existing name service, waits for successful discovery before
+notifying systemd, and stops its own daemon on exit. Startup failure requests
+power-off. It does not start a DSP or load sensor firmware.
+
+The initramfs service stops before `initrd-switch-root.target`. Restarting QRTR
+in the real root and reconnecting its clients still need integration. Enabling
+the initramfs service alone does not provide continuous sensor transport.
 
 The packaged daemon and current libqrtr pass all 15 upstream libssc cases in
 seven suites on the exact physical-configuration Pico kernel in diskless QEMU.
@@ -48,6 +57,18 @@ the DSP sensors are mocked. The VM shuts down normally. Full logs, the loaded
 kernel hash and the preserved failed attempts are under
 `output/pico-ssc-transport-20261012-v1/research/qrtr-vm-v8/`; `verification.json`
 uses decoded printk records rather than scanning binary memory as text.
+
+The boot helper passes seven lifecycle cases on the same diskless Pico kernel:
+wrong platform, inexact command-line token, existing broker, normal readiness
+and shutdown, daemon exit, stopped-daemon timeout and cleanup, and restart.
+The actual systemd manager also accepts its readiness notification, stops and
+restarts it, and stops it before a modeled switch-root target. Evidence is under
+`output/pico-qrtr-startup-20261012-v1/`. The virtual board identity is modeled;
+these checks do not perform a real root pivot or execute physical DSP firmware.
+With a deliberately stopped daemon, the real manager records the discovery
+timeout, fails the unit and powers off the VM. The full run takes about 16
+seconds. The earlier failed log assertions remain alongside the final
+`manager-failure-v3` result.
 
 ## Local fixes
 

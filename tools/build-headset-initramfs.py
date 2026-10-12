@@ -13,6 +13,9 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 VOLATILE_ROOT = ROOT / "system/systemd/volatile-root.conf"
+PICO_INPUTS = ["system/pico/armada-pico-qrtr", "system/pico/armada-pico-qrtr.service",
+               "system/pico/module-setup.sh", "profiles/qcom-services.json",
+               "patches/qrtr/0001-check-qmi-packet-bounds.patch"]
 QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
                 "system/quest/module-setup.sh", "profiles/qcom-services.json",
                 "patches/qrtr/0001-check-qmi-packet-bounds.patch",
@@ -63,7 +66,9 @@ def inputs(kernel):
     return report, hashes, version, names
 
 
-def firmware_input(kernel, quest_directory, pico_directory, quest_services):
+def firmware_input(kernel, quest_directory, pico_directory, quest_services, pico_services=False):
+    if pico_services and (quest_services or not pico_directory):
+        raise ValueError("Pico QRTR services require Pico firmware without Quest services")
     if quest_directory and pico_directory:
         raise ValueError("Choose one target's firmware bundle")
     if pico_directory:
@@ -93,9 +98,15 @@ cp -a "/tmp/modules/lib/modules/$1" "/lib/modules/$1"
 if [ "$3" = yes ]; then
     set -- "$@" --include /firmware/files /usr/lib/firmware
 fi
-if [ "$4" = yes ]; then
+if [ "$4" = yes ] || [ "$5" = yes ]; then
     cmp /qcom-profile.json /usr/share/armada-qcom-services/sources.json
     cmp /qmi-bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
+fi
+if [ "$5" = yes ]; then
+    cp -a /pico /usr/lib/dracut/modules.d/95armada-pico
+    set -- "$@" --add armada-pico
+fi
+if [ "$4" = yes ]; then
     cmp /firmware-path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
     cp -a /quest /usr/lib/dracut/modules.d/95armada-quest
     python3 - <<'PYFW'
@@ -113,7 +124,7 @@ dracut --kver "$1" --kmoddir "/lib/modules/$1" \
     --conf /dev/null --confdir /tmp/dracut-conf \
     --include /volatile-root.conf /etc/systemd/system/systemd-volatile-root.service.d/root.conf \
     --modules 'systemd systemd-initrd systemd-udevd systemd-modules-load kernel-modules rootfs-block fs-lib base shutdown dracut-systemd initqueue' \
-    --add-drivers "$2" "${@:5}" /output/initramfs.img
+    --add-drivers "$2" "${@:6}" /output/initramfs.img
 cd /tmp/unpacked
 lsinitrd --unpack /output/initramfs.img
 if test -d /systemd-runtime; then
@@ -124,7 +135,7 @@ if test -d /systemd-runtime; then
     lsinitrd --unpack /output/initramfs.img
     python3 /systemd-runtime.py /systemd-runtime --verify /tmp/verified
 fi
-python3 - /kernel/modules.json /output/contents.json "$3" "$4" <<'PY'
+python3 - /kernel/modules.json /output/contents.json "$3" "$4" "$5" <<'PY'
 import hashlib,json,sys
 from pathlib import Path
 expected=json.loads(Path(sys.argv[1]).read_text())
@@ -170,13 +181,28 @@ if sys.argv[4]=='yes':
         quest_files.append({'path':name,'sha256':sha})
     required += [item['path'] for item in quest_files]
     required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/armada-quest-boot.service']
+pico_files=[]
+if sys.argv[5]=='yes':
+    pairs=[('/pico/armada-pico-qrtr','usr/libexec/armada-pico-qrtr'),
+           ('/pico/armada-pico-qrtr.service','usr/lib/systemd/system/armada-pico-qrtr.service'),
+           ('/usr/bin/qrtr-ns','usr/bin/qrtr-ns'),('/usr/bin/qrtr-lookup','usr/bin/qrtr-lookup')]
+    for source,name in pairs:
+        path=Path(name)
+        sha=hashlib.sha256(Path(source).read_bytes()).hexdigest()
+        if not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=sha:
+            raise SystemExit('Missing or changed Pico startup file: '+name)
+        if name != 'usr/lib/systemd/system/armada-pico-qrtr.service' and not path.stat().st_mode & 0o111:
+            raise SystemExit('Pico startup executable has no execute permission: '+name)
+        pico_files.append({'path':name,'sha256':sha})
+    required += [item['path'] for item in pico_files]
+    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/armada-pico-qrtr.service']
 for name in required:
     path=Path(name)
     if path.is_symlink() and path.readlink().is_absolute():
         path=Path(str(path.readlink()).lstrip('/'))
     if not path.is_file() or not path.resolve().is_relative_to(Path.cwd()):
         raise SystemExit('Missing initramfs component: '+name)
-Path(sys.argv[2]).write_text(json.dumps({'module_count':len(records),'modules':records,'required_files':required,'firmware':firmware_files,'quest_services':quest_files},indent=2)+'\n')
+Path(sys.argv[2]).write_text(json.dumps({'module_count':len(records),'modules':records,'required_files':required,'firmware':firmware_files,'quest_services':quest_files,'pico_services':pico_files},indent=2)+'\n')
 PY
 lsinitrd -m /output/initramfs.img > /output/dracut-modules.txt
 rpm -q dracut systemd kmod > /output/tool-versions.txt
@@ -194,7 +220,10 @@ def run(args):
         raise ValueError("Systemd runtime path must not contain commas or colons")
     firmware_dir, firmware_manifest, validator = firmware_input(
         report, args.firmware.absolute() if args.firmware else None,
-        args.pico_firmware.absolute() if args.pico_firmware else None, args.quest_services)
+        args.pico_firmware.absolute() if args.pico_firmware else None, args.quest_services, args.pico_services)
+    if args.pico_services and not runtime_dir:
+        raise ValueError("Pico QRTR services require the compatible initramfs systemd runtime")
+    pico_hashes = {name: digest(ROOT / name) for name in PICO_INPUTS} if args.pico_services else {}
     quest_hashes = {name: digest(ROOT / name) for name in QUEST_INPUTS} if args.quest_services else {}
     if firmware_dir and any(c in str(firmware_dir) for c in (",", ":")):
         raise ValueError("Firmware path must not contain commas or colons")
@@ -209,6 +238,7 @@ def run(args):
               "container_image": image, "builder_sha256": digest(Path(__file__)),
               "volatile_root_dependency_sha256": digest(VOLATILE_ROOT),
               "firmware": firmware_manifest, "quest_services": args.quest_services, "quest_inputs_sha256": quest_hashes,
+              "pico_services": args.pico_services, "pico_inputs_sha256": pico_hashes,
               "firmware_validator_sha256": digest(Path(validator.__file__)),
               "qcom_firmware_helper_sha256": digest(Path(firmware.__file__)),
               "pico_dsp_helper_sha256": digest(Path(pico_firmware.dsp.__file__)) if args.pico_firmware else None,
@@ -225,13 +255,17 @@ def run(args):
                         "-v", f"{Path(systemd_runtime.__file__)}:/systemd-runtime.py:ro"])
     if firmware_dir:
         command.extend(["-v", f"{firmware_dir}:/firmware:ro"])
+    if args.pico_services:
+        for source, target in [("system/pico", "/pico"), ("profiles/qcom-services.json", "/qcom-profile.json"),
+                               ("patches/qrtr/0001-check-qmi-packet-bounds.patch", "/qmi-bounds.patch")]:
+            command.extend(["-v", f"{ROOT / source}:{target}:ro"])
     if args.quest_services:
         for source, target in [("system/quest", "/quest"), ("profiles/qcom-services.json", "/qcom-profile.json"),
                                ("patches/qrtr/0001-check-qmi-packet-bounds.patch", "/qmi-bounds.patch"),
                                ("patches/pd-mapper/0001-report-actual-firmware-path.patch", "/firmware-path.patch")]:
             command.extend(["-v", f"{ROOT / source}:{target}:ro"])
     command.extend(["--entrypoint", "timeout", image, "--kill-after=5", "240", "bash", "-c", SCRIPT,
-                    "build-initramfs", version, " ".join(names), "yes" if firmware_dir else "no", "yes" if args.quest_services else "no"])
+                    "build-initramfs", version, " ".join(names), "yes" if firmware_dir else "no", "yes" if args.quest_services else "no", "yes" if args.pico_services else "no"])
     result["command"] = command
     started = time.monotonic()
     try:
@@ -249,6 +283,8 @@ def run(args):
             raise ValueError("Firmware validators changed during initramfs construction")
         if args.pico_firmware and digest(Path(pico_firmware.dsp.__file__)) != result["pico_dsp_helper_sha256"]:
             raise ValueError("Pico DSP validator changed during initramfs construction")
+        if any(digest(ROOT / name) != sha for name, sha in pico_hashes.items()):
+            raise ValueError("Pico startup inputs changed during construction")
         if any(digest(ROOT / name) != sha for name, sha in quest_hashes.items()):
             raise ValueError("Quest startup inputs changed during construction")
         if digest(VOLATILE_ROOT) != result["volatile_root_dependency_sha256"]:
@@ -278,6 +314,7 @@ if __name__ == "__main__":
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--firmware", type=Path, help="optional prepared Quest ADSP firmware directory")
     group.add_argument("--pico-firmware", type=Path, help="prepared Neo3 GPU or GPU/DSP firmware; requires the Pico kernel")
+    parser.add_argument("--pico-services", action="store_true", help="include bounded Pico QRTR startup; requires Pico firmware, compatible systemd and the QCOM service image")
     parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
     parser.add_argument("--image", default="localhost/armada-vr:vm")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))

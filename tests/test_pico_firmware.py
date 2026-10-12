@@ -96,6 +96,12 @@ class PicoFirmwareTests(unittest.TestCase):
         pico = json.loads((ROOT / "profiles/kernel/pico-neo3.json").read_text())
         quest = json.loads((ROOT / "profiles/kernel/quest3.json").read_text())
         self.assertEqual(initramfs.firmware_input(pico, None, self.root, False)[1], self.manifest)
+        self.assertEqual(initramfs.firmware_input(pico, None, self.root, False, True)[1], self.manifest)
+        for kernel, quest_dir, pico_dir, quest_services in (
+                (pico, None, None, False), (pico, None, self.root, True),
+                (quest, self.root, None, False), (quest, None, self.root, False)):
+            with self.subTest(pico_services=True, kernel=kernel["repository"]), self.assertRaises(ValueError):
+                initramfs.firmware_input(kernel, quest_dir, pico_dir, quest_services, True)
         for kernel, quest_dir, pico_dir, services in (
                 (quest, None, self.root, False), (pico, None, self.root, True),
                 (pico, self.root, None, False), (pico, self.root, self.root, False),
