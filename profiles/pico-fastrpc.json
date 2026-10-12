@@ -14,7 +14,11 @@
     "pico-fastrpc.h",
     "ion-buffer.c",
     "ion-buffer.h",
-    "pico-rpcmem.c"
+    "pico-rpcmem.c",
+    "pico-sensor-rpc.c",
+    "pico-sensor-rpc.h",
+    "sns-low-latency.c",
+    "sns-low-latency.h"
   ],
   "runtime_dependencies": {
     "libbsd0:arm64": {

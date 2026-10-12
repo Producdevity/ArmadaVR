@@ -81,6 +81,7 @@ def build(archive, output, image):
         "profiles/pico-fastrpc.json", "tools/fastrpc-build.py", "tools/build-fastrpc.sh",
         "Containerfile.fastrpc",
         "tests/pico-rpcmem.c", "tests/pico-fastrpc-upstream.c", "tests/pico-fastrpc-runtime.c",
+        "tests/pico-sensor-rpc.c",
         *profile["patches"], *("src/" + name for name in profile["sources"]),
     ]
     report = {
@@ -116,13 +117,15 @@ def build(archive, output, image):
             ).hexdigest()
             environment = dict(os.environ, ASAN_OPTIONS="detect_leaks=1",
                                UBSAN_OPTIONS="halt_on_error=1")
-            for test in ("pico-rpcmem", "pico-fastrpc-upstream"):
+            for test in ("pico-rpcmem", "pico-fastrpc-upstream", "pico-sensor-rpc"):
                 binary = output / test
+                extra = ([str(source / "src/pico-sensor-rpc.c"), str(source / "src/sns-low-latency.c")]
+                         if test == "pico-sensor-rpc" else [])
                 run(["gcc", "-std=c11", "-O1", "-g", "-UNDEBUG", "-Wall", "-Wextra",
                      "-Werror", "-Wno-unused-parameter", "-fsanitize=address,undefined",
                      "-fno-sanitize-recover=all", "-I", str(source / "inc"),
                      "-I", str(source / "src"), str(ROOT / "tests" / (test + ".c")),
-                     "-o", str(binary)], test + "-build.log")
+                     *extra, "-o", str(binary)], test + "-build.log")
                 run([str(binary)], test + ".log", env=environment, timeout=30)
                 if (test.upper().replace("-", "_") + "_PASS") not in (output / (test + ".log")).read_text():
                     raise ValueError("Missing test completion marker: " + test)
@@ -144,6 +147,15 @@ def build(archive, output, image):
             copy(source / "src/.libs/libsdsprpc.so.1.0.0", "lib64/libsdsprpc.so.1.0.0", 0o755)
             for name in ("libsdsprpc.so.1", "libsdsprpc.so"):
                 (prefix / "lib64" / name).symlink_to("libsdsprpc.so.1.0.0")
+            run(["gcc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-fPIC", "-shared",
+                 "-I", str(source / "inc"), "-I", str(source / "src"),
+                 str(source / "src/pico-sensor-rpc.c"), str(source / "src/sns-low-latency.c"),
+                 "-L", str(prefix / "lib64"), "-lsdsprpc", "-Wl,-rpath,$ORIGIN", "-Wl,-z,defs",
+                 "-Wl,-soname,libpico-sensors.so.1", "-o", str(prefix / "lib64/libpico-sensors.so.1")],
+                "sensor-library-build.log")
+            (prefix / "lib64/libpico-sensors.so").symlink_to("libpico-sensors.so.1")
+            for name in ("pico-sensor-rpc.h", "sns-low-latency.h"):
+                copy(source / "src" / name, "include/" + name)
             copy(source / "LICENSE.txt", "share/licenses/fastrpc/LICENSE.txt")
             copy(archive, "share/fastrpc/source.tar.gz")
             for name in names:
@@ -167,15 +179,19 @@ def build(archive, output, image):
                      "share/licenses/" + package.split(":")[0] + "/copyright")
                 report["dependencies"][package] = {"version": dependency["version"], "files": verified}
             library_env = dict(os.environ, LD_LIBRARY_PATH=str(prefix / "lib64"))
-            run(["ldd", "-r", str(prefix / "lib64/libsdsprpc.so.1.0.0")],
+            run(["ldd", "-r", str(prefix / "lib64/libsdsprpc.so.1.0.0"),
+                 str(prefix / "lib64/libpico-sensors.so.1")],
                 "dependencies.log", env=library_env)
             dependency_log = (output / "dependencies.log").read_text()
             if "not found" in dependency_log or "undefined symbol" in dependency_log:
                 raise ValueError("Unresolved FastRPC dependency")
             run([sys.executable, "-c", "import ctypes,sys; ctypes.CDLL(sys.argv[1])",
                  str(prefix / "lib64/libsdsprpc.so.1.0.0")], "dlopen.log", env=library_env)
+            run([sys.executable, "-c", "import ctypes,sys; ctypes.CDLL(sys.argv[1])",
+                 str(prefix / "lib64/libpico-sensors.so.1")], "sensor-dlopen.log", env=library_env)
             run(["gcc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-I",
-                 str(source / "inc"), str(ROOT / "tests/pico-fastrpc-runtime.c"), "-ldl",
+                 str(source / "inc"), "-I", str(source / "src"),
+                 str(ROOT / "tests/pico-fastrpc-runtime.c"), "-ldl",
                  "-o", str(output / "runtime-test")], "runtime-test-build.log")
             run([str(output / "runtime-test")], "runtime-refusal.log", expected=2)
             if "PICO_RPCMEM_RUNTIME_REFUSED" not in (output / "runtime-refusal.log").read_text():

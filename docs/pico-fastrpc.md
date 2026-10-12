@@ -47,3 +47,17 @@ cache synchronization, release and failed startup with no DSP attached.
 Live sensor attachment, reverse RPC from the physical DSP, stream layout,
 SUID selection, calibration and tracking remain separate acceptance steps.
 These tests do not establish boot/recovery or flash readiness.
+
+`libpico-sensors.so.1` connects the low-latency stream encoder to FastRPC's
+domain-aware handles, explicitly selecting SDSP and the sensor process. The
+`pico-sensor-rpc.h` interface borrows a registered ION buffer; it does not choose
+a heap, allocate memory, select a SUID, start a service or interpret samples.
+Keep each client on one thread and keep its buffer and runtime library alive
+until close succeeds. Configuration can add multiple sensors to one channel.
+
+Close stops configured streams, deinitializes the channel and releases the RPC
+handle in that order. A failed operation leaves the last confirmed state and
+does not retry. A failed or malformed initialization has an uncertain channel
+state, so close refuses to discard it. Its buffer must remain owned until an
+independently confirmed DSP teardown; this recovery path is not yet verified.
+The client never equates a failed RPC with proof that the DSP released memory.

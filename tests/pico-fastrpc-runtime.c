@@ -9,6 +9,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include "remote.h"
+#include "pico-sensor-rpc.h"
 
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
@@ -17,8 +18,7 @@
             return 1;                                                                              \
         }                                                                                          \
     } while (0)
-static int read_text(const char *path, char *buffer, size_t size)
-{
+static int read_text(const char *path, char *buffer, size_t size) {
     int fd = open(path, O_RDONLY | O_CLOEXEC);
     if (fd < 0)
         return -1;
@@ -29,8 +29,7 @@ static int read_text(const char *path, char *buffer, size_t size)
     buffer[count] = 0;
     return 0;
 }
-int main(void)
-{
+int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     char board[128], command[2048];
     if (read_text("/proc/device-tree/compatible", board, sizeof(board)) ||
@@ -89,7 +88,22 @@ int main(void)
         CHECK(result != 0);
         printf("PICO_RPCMEM_RUNTIME_NO_DSP attempt=%u status=%d\n", attempt, result);
     }
-    CHECK(dlclose(library) == 0);
+    void *sensors = dlopen("/runtime/libpico-sensors.so.1", RTLD_NOW | RTLD_LOCAL);
+    if (!sensors)
+        fprintf(stderr, "dlopen sensors: %s\n", dlerror());
+    CHECK(sensors);
+    int (*sensor_open)(struct pico_sensor_rpc *) = dlsym(sensors, "pico_sensor_rpc_open");
+    int (*sensor_close)(struct pico_sensor_rpc *) = dlsym(sensors, "pico_sensor_rpc_close");
+    CHECK(sensor_open && sensor_close);
+    for (unsigned attempt = 0; attempt < 3; attempt++) {
+        struct pico_sensor_rpc client = {0};
+        int result = sensor_open(&client);
+        CHECK(result != 0 && client.state == PICO_SENSOR_RPC_CLOSED && !client.handle);
+        CHECK(sensor_close(&client) == 0);
+        printf("PICO_SENSOR_RPC_RUNTIME_NO_DSP attempt=%u status=%d\n", attempt, result);
+    }
+    CHECK(dlclose(sensors) == 0 && dlclose(library) == 0);
+    puts("PICO_SENSOR_RPC_RUNTIME_PASS");
     printf("PICO_RPCMEM_RUNTIME_PASS cases=%u\n", cases);
     return 0;
 }
