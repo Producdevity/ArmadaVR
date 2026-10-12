@@ -73,6 +73,15 @@ The physical board identity is modeled only inside this isolated fixture.
 Evidence, including failed fixture attempts, is under
 `output/pico-pd-startup-20261012-v1/`.
 
+A separate diskless test performs an actual systemd switch-root into a new RAM
+filesystem. Both initramfs services stop first; the root-stage units start new
+processes, and the old processes are gone. The mapper answers 128 QMI requests
+on each side of the transition. The stalled-mapper manager test also verifies
+timeout, failure and controlled power-off within 16 seconds. The root-switch
+evidence is under `output/pico-pd-root-20261012-v1/pivot-vm-v2/`. Its RAM root
+uses the compatible initramfs runtime, so this does not validate the full
+physical storage, dracut or desktop boot sequence.
+
 The corresponding offline root installs 17 service/runtime files and three
 links. Exact ext4 readback, filesystem checks and relocations using that root's
 own native loader and libc pass. The source root remains unchanged. These
