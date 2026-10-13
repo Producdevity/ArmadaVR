@@ -326,6 +326,29 @@ review because its comment records a sleep-to-active shutdown regression.
 Changing those paths requires checking the charge regulator and suspend
 sequence together.
 
+Patch `0034-panel-enable-load-rollback.patch` fixes one confirmed failure in
+that lower helper. When `regulator_enable` fails, the rollback previously
+skipped restoring the failing regulator's load request. It now enters the
+existing load-reset step before voltage rollback. The original error and the
+shutdown sequence for previously enabled rails are preserved. Successful
+startup and shutdown are unchanged.
+
+The exact-source regression covers 432 failed-enable/retry sequences across
+one to eight rails, every failing rail position, three errors, voltage
+capability and configured delays. The original leaves a stale load in all
+432 cases; the patch leaves none. macOS and ARM64 Linux address/undefined
+sanitizer checks pass. This does not establish successful physical rollback
+when the regulator's cleanup operations themselves fail.
+
+The complete kernel through `0034` builds with all 38 signed modules and
+2,715 matching imported symbol versions. Signature corruption is rejected.
+The Image SHA-256 is
+`0c9d1c19e7ae046e6a18fc72376d39d5f0c0db487a580868352be0766f7b5c7a`.
+Its physical configuration passes the diskless USB diagnostic and the real
+FastRPC/ION ioctl tests, with normal shutdown. The virtual board has no Pico
+panel or DSP. Build, source correspondence, module and VM evidence are retained
+under `output/pico-panel-load-20261013-v1/`; physical acceptance remains open.
+
 The complete kernel through `0030` passes all 18 artifact hashes, 38 module
 signatures, 2,715 imported symbol versions, dependency closure and modified
 signature rejection. Its exact physical configuration passes the diskless ABI

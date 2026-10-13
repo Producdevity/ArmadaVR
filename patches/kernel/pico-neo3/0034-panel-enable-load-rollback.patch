@@ -1,0 +1,25 @@
+Subject: drm/msm: restore panel regulator load after failed enable
+
+An enable error must restore the load selected earlier in the same attempt.
+Keep the existing voltage rollback, previous-rail shutdown and original error.
+
+---
+--- a/techpack/display/msm/dsi/dsi_pwr.c
++++ b/techpack/display/msm/dsi/dsi_pwr.c
+@@ -162,7 +162,7 @@
+ 			if (rc) {
+ 				DSI_ERR("enable failed for %s, rc=%d\n",
+ 				       vreg->vreg_name, rc);
+-				goto error_disable_voltage;
++				goto error_disable_opt_mode;
+ 			}
+ 
+ 			if (vreg->post_on_sleep)
+@@ -199,7 +199,6 @@
+ 	(void)regulator_set_load(regs->vregs[i].vreg,
+ 				 regs->vregs[i].disable_load);
+ 
+-error_disable_voltage:
+ 	if (num_of_v > 0)
+ 		(void)regulator_set_voltage(regs->vregs[i].vreg,
+ 					    0, regs->vregs[i].max_voltage);
