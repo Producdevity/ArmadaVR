@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Serve two timestamped IMU streams in the isolated Pico SSC VM."""
 import multiprocessing
+import os
 from pathlib import Path
 import runpy
 import struct
@@ -16,7 +17,7 @@ ssc, common = namespace['SSC'], namespace['SscCommon']
 fault = sys.argv[2] if len(sys.argv) == 3 else None
 assert fault in (None, 'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'calibration',
                  'bias-normal', 'bias-single', 'bias-wrong-body', 'bias-missing-body',
-                 'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
+                 'bias-malformed', 'bias-gyro-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
                  'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid',
                  'rates', 'bias-rates', 'rate-missing', 'rate-malformed', 'bias-rate-malformed')
 calibration = fault == 'calibration'
@@ -115,7 +116,8 @@ def measurement(high, low, index):
     message.uid.high, message.uid.low = high, low
     event = message.response.add()
     event.msg_id = 1022 if is_calibration else 1025
-    event.timestamp = 0x123456789ABCDEF + (index + 1) * 1000
+    step = 1920000 if os.environ.get('SSC_TEST_HEAD_TIMING') == '1' else 1000
+    event.timestamp = 0x123456789ABCDEF + (index + 1) * step
     accuracy = b'\x20\x03' if is_calibration else b'\x10\x03'
     values = (0.25, 0.5, -0.75) if sensor >= 2 else (-0.125 if sensor else 9.75, 2, -3.5)
     event.msg = b'\x0a\x0c' + struct.pack('<3f', *values) + accuracy
@@ -138,7 +140,7 @@ def measurement(high, low, index):
     if sensor == 1:
         if fault == 'gyro-stall':
             event.msg_id = 1234
-        elif fault == 'gyro-malformed' or (fault == 'gyro-silent' and index >= 6):
+        elif fault in ('gyro-malformed', 'bias-gyro-malformed') or (fault == 'gyro-silent' and index >= 6):
             event.msg = b'\x10\x03'
             event.msg_id = 1025
     return message.SerializeToString()

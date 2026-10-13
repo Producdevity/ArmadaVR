@@ -548,3 +548,45 @@ The eleven-patch SSC library is installed in the separately verified October 13
 its OpenXR regression against that library. The raw/calibrated IMU session
 remains separately tested source, pending physical identities, clock origin,
 coordinate transforms and integration with the HMD and camera tracking path.
+
+
+## Calibrated head orientation
+
+`pico-head-session` connects the four-subscription SSC session to Monado's
+`m_imu_3dof` orientation filter through `pico-head-tracking`. The caller must
+supply verified raw and calibration SUIDs, display rigid-body identities,
+advertised rates, a CLOCK_MONOTONIC clock calibration, a proper sensor-to-head
+rotation and positive unit scales. Acceleration is converted to m/s² and angular
+velocity to rad/s. No device configuration or axis convention is inferred.
+
+The provider pairs equal capture ticks and timestamps in bounded queues. It
+rejects unreliable, nonfinite, future, stale, reordered or foreign-generation
+samples. A gap beyond the configured limit invalidates the stream until a new
+generation starts. Reconnection clears Monado's FIFO history as well as its
+orientation state. Reads and sample updates are serialized; stopping the session
+immediately clears exposed pose validity while its worker disables subscriptions.
+
+The output contains orientation and its capture timestamp only. It does not
+claim position, velocity, prediction, a calibrated yaw origin or camera tracking.
+Exact timestamp pairing is deliberately strict: physical sensor delivery must
+establish whether the two streams are synchronized before this policy can be
+used on the headset. The provider is not registered as a physical Monado HMD;
+panel/optical calibration and the device factory remain pending.
+
+Run the native test with the pinned Monado archive and an optional verified SSC
+bundle on a Linux host with Eigen, GLib and sanitizer-capable C/C++ compilers:
+
+```sh
+python3 -B tools/test-pico-head-tracking.py PINNED_MONADO_ARCHIVE \
+  --output NEW_TEST_DIRECTORY --ssc-bundle VERIFIED_SSC_DIRECTORY
+```
+
+The test compiles the actual pinned Monado fusion sources. It verifies known
+rotations on all three axes, explicit axis/unit conversion, batching, timestamp
+and generation refusal, reconnection and concurrent reads. The session test
+also covers 100 cancellation cycles without QRTR under ASan/UBSan and leak
+detection. Seven isolated Pico-kernel QRTR scenarios exercise calibrated
+orientation and refusal paths with a synthetic DSP, including a single initial
+bias update and malformed gyro traffic. The fixture sends at 10 Hz and advances
+its synthetic counter accordingly; a requested 1,000 Hz rate is not a measured
+physical rate. These checks do not establish native headset tracking or boot.
