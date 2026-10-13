@@ -20,9 +20,11 @@ bring-up follow that milestone. This is not yet an installation procedure.
    treated as a read-only test under the current no-flash constraint. No
    deliberate bootloader corruption is required. A plan and readable backups
    alone are not evidence of successful restoration.
-4. Establish acceptance of the minimum authorization change, then boot the
-   exact stock image through the newly available boot path and verify return.
-   Only then attempt the bounded Linux diagnostic image.
+4. After a verified restoration path and the minimum bootloader transition,
+   test command authorization and signed stock RAM boot before unlocking.
+   Inspect any refusal instead of running the complete community script.
+   Unlocking is a separate, data-erasing transition. Verify stock return before
+   attempting the bounded Linux diagnostic image.
 
 The current b1977 ABL has no RAM-boot handler. The authenticated older ABL has
 one, but must first be installed; its matching signing root does not prove
@@ -58,6 +60,41 @@ alone is not a proven way to restore usable data after key changes. There is
 no full userdata backup. A Pico4 owner's failed userdata restoration is a
 relevant limitation, not proof of identical Pro Eye behavior.
 [Owner report](https://github.com/chaixshot/more-picohaxx-tool/issues/4).
+
+## Confirmed unlock effects
+
+Static analysis of the authenticated 4.6.3 ABL and this unit's saved XBL narrows
+the transition requirements:
+
+| Operation | Confirmed implementation | Recovery implication |
+| --- | --- | --- |
+| Command authorization | Adds the restricted fastboot handlers in memory | Handler registration does not itself unlock or establish unsigned-image acceptance |
+| Ordinary or critical unlock | Writes the corresponding flag through the Verified Boot protocol | Either command can change persistent state; do not assume critical unlock is needed for a RAM-boot test |
+| Device-state storage | XBL uses Keymaster/RPMB when its security checks and secure reads succeed; other branches use `devinfo` | A raw `devinfo` backup is not a complete backup of the possible state stores |
+| State reset | Calls Keymaster with request `0x10e` before scheduling recovery | Treat this as destructive key-state reset, independently of filesystem erasure |
+| Recovery request | Writes a 1,088-byte message containing `--wipe_data` to `misc` | Acquire the missing `misc` original before an unlock; on this unit the helper read-modifies-writes one 4,096-byte sector |
+
+The protocol header identifies the reset operation as a delete command to
+Keymaster. Both unlock paths in the exact older ABL reach it; its build-time
+guards enable the call. Reset or subsequent `misc` failure does not guarantee
+unchanged state. Restoring ABL, devinfo or userdata bytes is not proven to
+restore deleted secure keys.
+[Qualcomm protocol definition](https://gitlab.com/Codeaurora/abl_tianocore_edk2/-/blob/797918c3bf59e2d65b4acb2acdfd6883a0605ee1/QcomModulePkg/Include/Protocol/EFIVerifiedBoot.h).
+
+The preserved raw `devinfo` already has both flag bytes set, despite the
+observed locked, green stock boot. This is consistent with a separate state
+source but does not identify the live secure-storage branch. Replacing that
+partition is therefore not an established prerequisite or sufficient unlock.
+The older ABL's initialization also writes defaults if the state magic is
+invalid. The raw backup has valid magic; the live secure record remains
+unverified. Merely starting a different ABL must not be described as read-only.
+
+These findings cover the traced authorization, initialization and unlock paths,
+not every bootloader side effect or the secure application's implementation.
+No direct write to `frp`, `metadata`, `uefivarstore` or `secdata` was established
+by this trace. Do not erase or replace them speculatively. Private module
+extractions, function exports, GPT correspondence and hashes are retained in
+`output/pico-flash-path-20261013-v1/{abl-state,xbl-state}/`.
 
 ## Initial Linux acceptance
 
@@ -112,6 +149,13 @@ kernel, initramfs and unmodified stock DTB hashes. Its initramfs is about 1.4 Mi
 instead of the full runtime's 35 MiB. Private build, assembly and VM receipts
 are in `output/pico-diagnostic-20261013-v1/`. No diagnostic has been booted on
 the headset.
+
+The exact older ABL's default ARM64 placement also passes an offline size
+check: the kernel's `0x80000` text offset matches, and its declared runtime size
+leaves 41,734,144 bytes before the diagnostic's calculated DTB boundary in the
+default 86 MiB allocation. Actual UEFI `KernelBaseAddr`/`KernelSize`, live RAM
+reservations and bootloader DTB selection still require physical verification.
+Container header addresses alone do not describe this dynamic placement.
 
 The current full-root container is assembled and roundtrip-verified offline,
 but its external root transport and physical device-tree compatibility are
