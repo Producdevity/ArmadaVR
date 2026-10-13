@@ -115,6 +115,20 @@ The builder verifies the current SSC bundle, extracts checksum-pinned source,
 applies the maintained patches and compiles a separate collector using the same
 QMI/QRTR dependencies. It does not change the SSC runtime or boot image.
 
+Package a verified build for the offline root with:
+
+```sh
+python3 -B tools/ssc-inventory-artifact.py NEW_INVENTORY_BUILD \
+  --ssc-bundle VERIFIED_SSC_BUNDLE --output NEW_INVENTORY_PACKAGE
+```
+
+Pass that package to `build-headset-root.py --ssc-inventory`, together with
+its exact `--ssc` dependency. Installation checks the collector, source and
+build record, verifies the installed SSC dependency, and checks the root's
+loader and image readback. It adds no service or automatic sensor query.
+The installed command is `/opt/armada-vr/ssc-inventory/bin/ssc-inventory`;
+its launcher supplies the packaged dependency search path explicitly.
+
 After a separately authorized and recoverable native Linux boot, with the Pico
 QRTR services explicitly enabled, `ssc-inventory-release --collect accel` emits
 one JSON document. The existing SSC dependency directory must be in the loader
