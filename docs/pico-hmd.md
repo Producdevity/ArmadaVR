@@ -187,3 +187,20 @@ asymmetric FOV matrices. All 102,816 RGB UV components agree within `1.9e-7`
 normalized error. This checks the projection arithmetic, not which texture
 matrix Android selects on a physical headset. Evidence is retained under
 `output/pico-optical-mapping-20261014-v1/`.
+
+
+`--render-size WIDTH HEIGHT --max-error-pixels LIMIT` adds an interpolation
+audit. It compares the grid's bilinear interpolation with the analytic mapping
+at nine interior points per cell, separately for each color. A point is included
+if either the exact or interpolated coordinate lands inside the render texture.
+The report records the worst per-axis pixel error and its location; an empty
+visible sample set cannot pass. This is sampled evidence, not a continuous
+error bound or a physical accuracy measurement.
+
+For the saved A7H10 profiles with explicitly synthetic 3664×1920 geometry,
+17×17, 33×33 and 65×65 grids all exceed a 0.5-pixel limit at 1832×1920 render
+resolution. The largest grid reaches approximately four pixels of error, and
+some corner coordinates exceed the current grid driver's limit. These grids
+must not be treated as accepted calibration or repaired by silently clamping
+coordinates. An analytic distortion path and compositor sampling checks are
+needed before using this lens model.

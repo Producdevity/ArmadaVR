@@ -228,15 +228,58 @@ class PicoScreenTests(unittest.TestCase):
                        '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
                        '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
             extra = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '5']
-            for args in [extra[:2], extra[2:4], extra[4:], extra[:3]+['0'*64]+extra[4:]]:
+            for args in [extra[:2], extra[2:4], extra[4:], extra[:3]+['0'*64]+extra[4:],
+                         ['--render-size', '256', '256'], extra+['--max-error-pixels', '1']]:
                 self.assertNotEqual(subprocess.run(command+args, capture_output=True, timeout=5).returncode, 0)
                 self.assertFalse(output.exists())
+            extra += ['--render-size', '256', '256', '--max-error-pixels', '1']
             subprocess.run(command+extra, capture_output=True, timeout=5, check=True)
             result = json.loads(output.read_text())
             self.assertEqual(result['files']['screen_model']['sha256'], digest(screen))
+            self.assertEqual(result['grid_audit']['render_size'], [256, 256])
+            self.assertFalse(result['grid_audit']['continuous_error_bound_verified'])
             self.assertEqual(len(result['screen_grid']['views'][0]['distortion']), 15)
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             before = output.read_bytes()
             self.assertNotEqual(subprocess.run(command+extra, capture_output=True, timeout=5).returncode, 0)
             self.assertEqual(output.read_bytes(), before)
+
+
+class PicoGridAuditTests(unittest.TestCase):
+    setUp = PicoScreenTests.setUp
+
+    def test_affine_mapping_is_exact_at_interior_samples(self):
+        grid = OPT.screen_grid(self.lens, self.screen, 3, 4)
+        audit = OPT.audit_grid(self.lens, self.screen, grid, [1832, 1920], .01)
+        self.assertTrue(audit['sampled_error_within_limit'])
+        self.assertFalse(audit['continuous_error_bound_verified'])
+        self.assertFalse(audit['physical_accuracy_verified'])
+        for view in audit['views']:
+            self.assertEqual(view['tested_channel_samples'], 6 * 9 * 3)
+            self.assertEqual(view['visible_channel_samples'], view['tested_channel_samples'])
+            self.assertLess(view['maximum_sampled_error_pixels'], 1e-10)
+
+    def test_refinement_reduces_error_and_each_color_is_checked(self):
+        self.lens['distortion_coefficients'][18] = .12
+        errors = []
+        for size in (3, 9, 33):
+            grid = OPT.screen_grid(self.lens, self.screen, size, size)
+            audit = OPT.audit_grid(self.lens, self.screen, grid, [1024, 768], .5)
+            errors.append(audit['views'][0]['maximum_sampled_error_pixels'])
+            self.assertEqual(audit['views'][0]['worst_sample']['channel'], 'red')
+            self.assertEqual(audit['sampled_error_within_limit'], size == 33)
+        self.assertGreater(errors[0], errors[1])
+        self.assertGreater(errors[1], errors[2])
+
+    def test_no_visible_samples_cannot_pass_and_limits_are_checked(self):
+        self.screen['horizontal_offset_m'] = .1
+        self.screen['fov'] = [[-.01, .01, .01, -.01]]*2
+        grid = OPT.screen_grid(self.lens, self.screen, 3, 3)
+        audit = OPT.audit_grid(self.lens, self.screen, grid, [128, 128], 1)
+        self.assertFalse(audit['sampled_error_within_limit'])
+        self.assertEqual(audit['views'][0]['visible_channel_samples'], 0)
+        for size, threshold in [([0, 128], 1), ([128], 1), ([True, 128], 1), ([128, 128], 0),
+                                 ([128, 128], float('nan')), ([128, 128], 17)]:
+            with self.assertRaises(ValueError):
+                OPT.audit_grid(self.lens, self.screen, grid, size, threshold)

@@ -216,6 +216,52 @@ def screen_grid(lens, screen, width, height):
                           'Verify grid interpolation error across the visible field']}
 
 
+def audit_grid(lens, screen, grid, render_size, max_error_pixels):
+    if (len(render_size) != 2 or any(type(n) is not int or not 1 <= n <= 16384 for n in render_size) or
+            type(max_error_pixels) not in (int, float) or not math.isfinite(max_error_pixels) or
+            not 0 < max_error_pixels <= 16):
+        raise ValueError('Expected bounded render dimensions and a positive pixel-error limit')
+    views = []
+    for eye, view in enumerate(grid['views']):
+        width, height = view['grid_width'], view['grid_height']
+        tested = visible = 0
+        largest = 0.0
+        worst = None
+        for row in range(height - 1):
+            for col in range(width - 1):
+                a = view['distortion'][row * width + col]
+                b = view['distortion'][row * width + col + 1]
+                c = view['distortion'][(row + 1) * width + col]
+                d = view['distortion'][(row + 1) * width + col + 1]
+                for fy in (.25, .5, .75):
+                    for fx in (.25, .5, .75):
+                        u, v = (col + fx) / (width - 1), (row + fy) / (height - 1)
+                        exact = project_tangents(screen_tangents(lens, screen, eye, u, v), screen['fov'][eye])
+                        interpolated = []
+                        for p, q, r, s in zip(a, b, c, d):
+                            top, bottom = p + fx * (q - p), r + fx * (s - r)
+                            interpolated.append(top + fy * (bottom - top))
+                        for channel, name in enumerate(('red', 'green', 'blue')):
+                            approximation = interpolated[channel * 2:channel * 2 + 2]
+                            tested += 1
+                            if not (all(0 <= n <= 1 for n in exact[name]) or
+                                    all(0 <= n <= 1 for n in approximation)):
+                                continue
+                            visible += 1
+                            error = max(abs(a - b) * pixels for a, b, pixels in zip(exact[name], approximation, render_size))
+                            if error > largest:
+                                largest = error
+                                worst = {'screen_uv': [u, v], 'channel': name,
+                                         'exact_uv': exact[name], 'interpolated_uv': approximation}
+        views.append({'eye': eye, 'tested_channel_samples': tested, 'visible_channel_samples': visible,
+                      'maximum_sampled_error_pixels': largest, 'worst_sample': worst,
+                      'sampled_error_within_limit': visible > 0 and largest <= max_error_pixels})
+    return {'render_size': list(render_size), 'max_error_pixels': max_error_pixels,
+            'cell_sample_offsets': [.25, .5, .75], 'views': views,
+            'sampled_error_within_limit': all(v['sampled_error_within_limit'] for v in views),
+            'continuous_error_bound_verified': False, 'physical_accuracy_verified': False}
+
+
 def axis_offsets(data, model, ipd_state):
     if model not in ('neo3-pro', 'neo3-pro-eye') or ipd_state not in (1, 2, 3):
         raise ValueError('Explicit Neo3 model and IPD state required')
@@ -276,6 +322,9 @@ def main():
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
     parser.add_argument('--screen-sha256', help='Independently retained screen-model SHA-256')
     parser.add_argument('--grid-size', type=int, nargs=2, metavar=('WIDTH', 'HEIGHT'))
+    parser.add_argument('--render-size', type=int, nargs=2, metavar=('WIDTH', 'HEIGHT'),
+                        help='Render texture dimensions for a sampled grid interpolation audit')
+    parser.add_argument('--max-error-pixels', type=float, help='Maximum sampled per-axis interpolation error')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -290,6 +339,11 @@ def main():
             screen = screen_parameters(read_file(args.screen_model, args.screen_sha256, 16384))
             result['screen_grid'] = screen_grid(result['stock_lens'], screen, *args.grid_size)
             result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
+        if args.render_size is not None or args.max_error_pixels is not None:
+            if args.render_size is None or args.max_error_pixels is None or 'screen_grid' not in result:
+                raise ValueError('Grid, render size and pixel-error limit are required for the audit')
+            result['grid_audit'] = audit_grid(result['stock_lens'], screen, result['screen_grid'],
+                                              args.render_size, args.max_error_pixels)
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump(result, stream, indent=2)
