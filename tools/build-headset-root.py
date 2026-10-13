@@ -133,31 +133,31 @@ if Path('/output/turnip.json').is_file():
 ssc=None
 if Path('/output/ssc.json').is_file():
     ssc=json.loads(Path('/output/ssc.json').read_text())
-    spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
+    spec=importlib.util.spec_from_file_location('ssc','/repo/tools/ssc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/ssc',root,ssc)
 inventory=None
 if Path('/output/ssc-inventory.json').is_file():
     inventory=json.loads(Path('/output/ssc-inventory.json').read_text())
-    spec=importlib.util.spec_from_file_location('inventory','/ssc-inventory-artifact.py')
+    spec=importlib.util.spec_from_file_location('inventory','/repo/tools/ssc-inventory-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/ssc-inventory',root,inventory)
 fastrpc=None
 if Path('/output/fastrpc.json').is_file():
     fastrpc=json.loads(Path('/output/fastrpc.json').read_text())
-    spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+    spec=importlib.util.spec_from_file_location('fastrpc','/repo/tools/fastrpc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/fastrpc',root,fastrpc)
 monado=None
 if Path('/output/monado.json').is_file():
     monado=json.loads(Path('/output/monado.json').read_text())
-    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
+    spec=importlib.util.spec_from_file_location('monado','/repo/tools/monado-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/monado',root,monado)
 lepton=None
 if Path('/output/lepton.json').is_file():
     lepton=json.loads(Path('/output/lepton.json').read_text())
-    spec=importlib.util.spec_from_file_location('lepton','/lepton-artifact.py')
+    spec=importlib.util.spec_from_file_location('lepton','/repo/tools/lepton-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/lepton',root,lepton)
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
@@ -172,7 +172,7 @@ if test -f /output/ssc.json; then
     python3 - <<'PYSSC'
 import importlib.util,json
 from pathlib import Path
-spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
+spec=importlib.util.spec_from_file_location('ssc','/repo/tools/ssc-artifact.py')
 artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
 Path('/output/ssc-loader.json').write_text(json.dumps(artifact.check_loader('/tmp/root'),indent=2)+'\n')
 PYSSC
@@ -181,7 +181,7 @@ if test -f /output/ssc-inventory.json; then
     python3 - <<'PYINVENTORY'
 import importlib.util,json
 from pathlib import Path
-spec=importlib.util.spec_from_file_location('inventory','/ssc-inventory-artifact.py')
+spec=importlib.util.spec_from_file_location('inventory','/repo/tools/ssc-inventory-artifact.py')
 artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
 Path('/output/ssc-inventory-loader.json').write_text(json.dumps(artifact.check_loader('/tmp/root'),indent=2)+'\n')
 PYINVENTORY
@@ -190,7 +190,7 @@ if test -f /output/fastrpc.json; then
     python3 - <<'PYFASTRPC'
 import importlib.util,json
 from pathlib import Path
-spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+spec=importlib.util.spec_from_file_location('fastrpc','/repo/tools/fastrpc-artifact.py')
 artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
 Path('/output/fastrpc-loader.json').write_text(json.dumps(artifact.check_loader('/tmp/root'),indent=2)+'\n')
 PYFASTRPC
@@ -329,13 +329,13 @@ if Path('/output/turnip.json').is_file():
 monado=None
 if Path('/output/monado.json').is_file():
     monado=json.loads(Path('/output/monado.json').read_text())
-    spec=importlib.util.spec_from_file_location('monado','/monado-artifact.py')
+    spec=importlib.util.spec_from_file_location('monado','/repo/tools/monado-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_install('/tmp/verify/monado-root',monado)
 lepton=None
 if Path('/output/lepton.json').is_file():
     lepton=json.loads(Path('/output/lepton.json').read_text())
-    spec=importlib.util.spec_from_file_location('lepton','/lepton-artifact.py')
+    spec=importlib.util.spec_from_file_location('lepton','/repo/tools/lepton-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_install('/tmp/verify/lepton-root',lepton)
     artifact.verify_runtime('/tmp/verify/lepton-root',json.loads(Path('/output/lepton-runtime.json').read_text()),'/tmp/verify/lepton-capabilities')
@@ -348,19 +348,19 @@ if Path('/output/pico-services.json').is_file():
 ssc=None
 if Path('/output/ssc.json').is_file():
     ssc=json.loads(Path('/output/ssc.json').read_text())
-    spec=importlib.util.spec_from_file_location('ssc','/ssc-artifact.py')
+    spec=importlib.util.spec_from_file_location('ssc','/repo/tools/ssc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_image('/output/rootfs.ext4',ssc,'/tmp/verify/ssc-root')
 inventory=None
 if Path('/output/ssc-inventory.json').is_file():
     inventory=json.loads(Path('/output/ssc-inventory.json').read_text())
-    spec=importlib.util.spec_from_file_location('inventory','/ssc-inventory-artifact.py')
+    spec=importlib.util.spec_from_file_location('inventory','/repo/tools/ssc-inventory-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_image('/output/rootfs.ext4',inventory,'/tmp/verify/inventory-root')
 fastrpc=None
 if Path('/output/fastrpc.json').is_file():
     fastrpc=json.loads(Path('/output/fastrpc.json').read_text())
-    spec=importlib.util.spec_from_file_location('fastrpc','/fastrpc-artifact.py')
+    spec=importlib.util.spec_from_file_location('fastrpc','/repo/tools/fastrpc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.verify_image('/output/rootfs.ext4',fastrpc,'/tmp/verify/fastrpc-root')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,'pico_services':pico_services,
@@ -612,7 +612,7 @@ def run(args):
         (output / "fastrpc.json").write_text(json.dumps(fastrpc, indent=2) + "\n")
     if rpms:
         (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
-    report = {"status": "started", "profile": args.profile, "systemd_runtime_sha256": runtime_sha,
+    report = {"status": "started", "profile": args.profile, "pico_services": pico_services, "systemd_runtime_sha256": runtime_sha,
               "turnip": turnip, "monado": monado, "lepton": lepton, "ssc": ssc, "ssc_inventory": inventory, "fastrpc": fastrpc, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
@@ -680,11 +680,11 @@ print('Monado runtime image preflight: passed')
                    *(["-v", f"{gpu_dir}:/gpu-firmware:ro"] if gpu_dir else []),
                    *(["-v", f"{rpm_dir}:/runtime-rpms:ro"] if rpm_dir else []),
                    *(["-v", f"{turnip_dir}:/turnip:ro"] if turnip_dir else []),
-                   *(["-v", f"{ssc_dir}:/ssc:ro", "-v", f"{ROOT / 'tools/ssc-artifact.py'}:/ssc-artifact.py:ro"] if ssc_dir else []),
-                   *(["-v", f"{inventory_dir}:/ssc-inventory:ro", "-v", f"{ROOT / 'tools/ssc-inventory-artifact.py'}:/ssc-inventory-artifact.py:ro"] if inventory_dir else []),
-                   *(["-v", f"{fastrpc_dir}:/fastrpc:ro", "-v", f"{ROOT / 'tools/fastrpc-artifact.py'}:/fastrpc-artifact.py:ro"] if fastrpc_dir else []),
-                   *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/monado-artifact.py:ro"] if monado_dir else []),
-                   *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/lepton-artifact.py:ro"] if lepton_dir else []),
+                   *(["-v", f"{ssc_dir}:/ssc:ro", "-v", f"{ROOT / 'tools/ssc-artifact.py'}:/repo/tools/ssc-artifact.py:ro"] if ssc_dir else []),
+                   *(["-v", f"{inventory_dir}:/ssc-inventory:ro", "-v", f"{ROOT / 'tools/ssc-inventory-artifact.py'}:/repo/tools/ssc-inventory-artifact.py:ro"] if inventory_dir else []),
+                   *(["-v", f"{fastrpc_dir}:/fastrpc:ro", "-v", f"{ROOT / 'tools/fastrpc-artifact.py'}:/repo/tools/fastrpc-artifact.py:ro"] if fastrpc_dir else []),
+                   *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/repo/tools/monado-artifact.py:ro"] if monado_dir else []),
+                   *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/repo/tools/lepton-artifact.py:ro"] if lepton_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "900", "bash", "-c", SCRIPT,
                    "build-root", version, str(args.size_gib), args.root_label]
         report["commands"].append(command)
