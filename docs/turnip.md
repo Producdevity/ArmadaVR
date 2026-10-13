@@ -227,3 +227,11 @@ build commands and results are in `output/headset-linux-gpu-20261010-v1`.
 These results establish real GPU execution for both userspace ABIs under stock
 kernels. Custom boot, DRM synchronization, display ownership and physical VR
 remain separate gates.
+
+
+The October 13 Reframed build in `output/pico-turnip-20261013-v1/` recompiles
+Turnip with the current install prefix and unchanged KGSL/display patches. All
+five Freedreno tests and the fence, wait, submission and display helper suites
+pass. The resulting ARM64 library passes immediate loading alongside the rebuilt
+Monado and SSC bundles through [the combined userspace check](monado.md#offline-graphics-bundle-compatibility).
+This verifies the native dependency set, not execution or scanout on the Pico GPU.

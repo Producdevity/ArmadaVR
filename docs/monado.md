@@ -157,3 +157,33 @@ full symbol relocation, and both client libraries pass immediate loading. The
 This tests the image's actual libraries with the new bundle; it does not install
 that bundle into the retained image or constitute a boot test. The receipt is
 `output/pico-monado-runtime-20261012-v1/root-loader.json`.
+
+
+## Offline graphics bundle compatibility
+
+`tools/test-pico-userspace.py` verifies a matched Monado, SSC and Turnip set in
+an isolated ARM64 Linux container. It requires the exact SSC dependency recorded
+by Monado, validates all three artifact inventories before and after testing,
+checks executable relocations and immediately loads both Monado client libraries,
+Turnip and SSC. It also exercises actual controller registration with and without
+the required opt-in and checks refusal when SSC is absent.
+
+```sh
+python3 -B tools/test-pico-userspace.py \
+  --monado VERIFIED_MONADO_DIRECTORY --turnip VERIFIED_TURNIP_DIRECTORY \
+  --ssc VERIFIED_SSC_DIRECTORY --output NEW_TEST_DIRECTORY
+```
+
+Run without network or passed-through devices. The verifier refuses kernels with
+QRTR transport and environments exposing GPU or USB device nodes. Its controller
+configuration is synthetic; there is no sensor stream or rendered frame. The
+report records commands, environment, bundle identities, log hashes and failures.
+It does not select a default runtime, enable a service or modify a root image.
+
+The October 13 Reframed builds in `output/pico-compositor-20261013-v1/` and
+`output/pico-turnip-20261013-v1/` pass this combined check against
+`output/pico-head-tracking-20261013-v1/ssc-bundle/`. The compositor passes all 25
+upstream tests plus the two display-selection sanitizer suites. These packages
+use the current `/opt/reframed-vr` paths; the preserved pre-rename complete root
+images still need a coordinated rebuild. Real panel scanout and GPU execution
+under the custom Pico kernel remain unverified.
