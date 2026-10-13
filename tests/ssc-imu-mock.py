@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Serve two timestamped IMU streams in the isolated Pico SSC VM."""
+import ctypes
 import multiprocessing
 import os
 from pathlib import Path
@@ -20,6 +21,11 @@ assert fault in (None, 'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unav
                  'bias-malformed', 'bias-gyro-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
                  'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid',
                  'rates', 'bias-rates', 'rate-missing', 'rate-malformed', 'bias-rate-malformed')
+hmd_runtime = os.environ.get('SSC_TEST_HMD_RUNTIME') == '1'
+if hmd_runtime:
+    assert fault == 'bias-normal'
+    clock = ctypes.CDLL('/ssc-test-clock.so')
+    clock.ssc_test_ticks.restype = ctypes.c_uint64
 calibration = fault == 'calibration'
 paired = fault is not None and fault.startswith('bias-')
 data = [item for item in ssc._read_data() if item['sensor']['data_type'] not in ('accel', 'gyro')]
@@ -51,7 +57,7 @@ original_client_request = ssc.parse_protobuf_client_request
 
 def client_request(message):
     result = original_client_request(message)
-    if result[0] == 513:
+    if result[0] == 513 and (result[1], result[2]) in uids:
         envelope = common.SscClientRequest()
         envelope.ParseFromString(message)
         config = common.SscEnableConfigRequest()
@@ -143,9 +149,17 @@ def measurement(high, low, index):
         elif fault in ('gyro-malformed', 'bias-gyro-malformed') or (fault == 'gyro-silent' and index >= 6):
             event.msg = b'\x10\x03'
             event.msg_id = 1025
+    if hmd_runtime:
+        message.uid.high, message.uid.low = high, low
+        event.timestamp = clock.ssc_test_ticks() // 1920000 * 1920000
+        values = (0.25, 0.5, -0.75) if is_calibration else ((0.25, 10.31, -0.75) if sensor == 0 else (0.25, 0.85, -0.75))
+        event.msg_id = (1022 if is_calibration else 1025) if Path('/hmd-phase').read_text() == 'running' else 1234
+        event.msg = b'\x0a\x0c' + struct.pack('<3f', *values) + accuracy
     return message.SerializeToString()
 
 
 ssc.generate_protobuf_sensor_measurement = staticmethod(measurement)
+if hmd_runtime:
+    runpy.run_path('/controller-mock.py', run_name='pico_controller_mock')['install'](ssc, common, clock.ssc_test_ticks)
 multiprocessing.set_start_method('fork')
 namespace['SSCMockingServer']().start()

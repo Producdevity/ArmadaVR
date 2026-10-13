@@ -65,3 +65,12 @@ RGB sampling, invalid inputs, loss of orientation validity, copied calibration
 ownership and repeated session teardown. Separate parser and prober tests cover
 required calibration fields and explicit activation. These checks do not prove
 physical optical correctness, tracking accuracy, scanout or recoverable boot.
+
+The diskless Pico-kernel integration test runs the installed Monado service,
+OpenXR loader and application over actual QRTR sockets with a synthetic SSC
+server. It selects the Pico HMD and both controllers together, checks each
+hand's button and touch transitions, both eye poses and FOVs, changing fused
+orientation and invalid orientation after reports stop. Controller input remains
+available after head tracking is lost. Two fresh service starts must exit
+cleanly. The test uses the null compositor and synthetic calibration; it does
+not validate display output, optics, controller poses or positional tracking.

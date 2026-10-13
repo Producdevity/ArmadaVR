@@ -34,8 +34,10 @@ static void phase(const char *name)
     assert(fclose(file) == 0);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    assert(argc == 1 || (argc == 2 && !strcmp(argv[1], "--retain-stream")));
+    unsigned phase_count = argc == 2 ? 3 : 4;
     char board[64] = {0}, cmdline[4096] = {0};
     FILE *file = fopen("/proc/device-tree/compatible", "r");
     assert(file && fgets(board, sizeof(board), file));
@@ -112,7 +114,7 @@ int main(void)
     }
     assert(running && focused);
     const char *phases[] = {"left", "right", "release", "malformed"};
-    for (unsigned step = 0; step < 4; step++) {
+    for (unsigned step = 0; step < phase_count; step++) {
         phase(phases[step]);
         unsigned matches = 0;
         deadline = now() + 15;
@@ -155,6 +157,6 @@ int main(void)
     XR(xrDestroySession(session));
     XR(xrDestroyActionSet(set));
     XR(xrDestroyInstance(instance));
-    puts("PICO_OPENXR_INPUT_PASS both_hands=2 phases=4 analog_inactive=1 pose_inactive=1");
+    printf("PICO_OPENXR_INPUT_PASS both_hands=2 phases=%u analog_inactive=1 pose_inactive=1\n", phase_count);
     return 0;
 }
