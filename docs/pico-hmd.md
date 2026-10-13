@@ -123,10 +123,67 @@ The scalar radial implementation was compared with 26,637 executions of the
 saved stock ARM64 routine: both A7H10 profiles and each polynomial term in
 isolation. Maximum error, divided by `max(1, abs(stock_result))`, was below
 `2.8e-7`. The stock logger was stubbed in an isolated mapped copy; no Android
-service or device was started. RGB formulas follow the mesh-generator code and
-have separate analytical tests; they have not been compared with physical optics.
+service or device was started. The RGB mesh and texture projection have additional offline comparisons below;
+none of these tests establishes physical optical alignment.
 
-The active configuration, screen geometry, IPD/property overrides, view
-rotations, texture mapping and physical alignment still need verification before
-generating the driver's physical RGB grids. Camera calibration XML describes a
+The active configuration, screen geometry, IPD/property overrides, panel/view
+rotation and physical alignment still need verification before installing
+physical RGB grids. Camera calibration XML describes a
 separate camera system; its coefficients are not display-lens calibration.
+
+
+## Screen-to-texture inspection
+
+The inspector also accepts `--screen-model FILE --screen-sha256 SHA256
+--grid-size WIDTH HEIGHT`. These options must be supplied together. The bounded,
+hash-bound JSON requires explicit resolved values; it does not derive them from
+panel resolution, raw axis offsets or a fallback lens file.
+
+| Screen model field | Meaning |
+| --- | --- |
+| `schema_version`, `layout` | `1`, `side-by-side` |
+| `width_pixels`, `height_pixels` | Combined logical stereo screen dimensions, before panel rotation; width must be even |
+| `width_m` | Combined active screen width in metres |
+| `lens_separation_m` | Resolved stock lens separation after IPD/screen-gap adjustments |
+| `meters_per_tan_angle` | Resolved optical scale in metres per unit tangent |
+| `horizontal_offset_m` | Stock horizontal screen offset in metres |
+| `optical_offsets_mm` | Four already adjusted offsets: left X/Y, right X/Y, in millimetres |
+| `hwc_reverse` | Effective stock HWC reversal, `0` or `180` degrees |
+| `separate_distortion` | Must be `false`; separate-eye coefficient overrides are not supported |
+| `fov` | Two explicit `[left, right, up, down]` render FOVs in radians |
+
+For screen width `W`, optical scale `M`, lens separation `L`, and per-eye
+pixel aspect ratio `A`, the stock pre-distortion tangents are
+`x = (dx + (2*u-1)*W/4)/M` and `y = (dy + (2*v-1)*W/(4*A))/M`.
+Here the stock mesh's `v` increases upward. The horizontal shift is
+`L/2-W/4` for the left eye and its negative for the right eye, plus the common
+horizontal offset and that eye's adjusted X offset. The vertical shift is the
+negative adjusted Y offset. Stock HWC reversal negates both offsets and reverses
+mesh placement; applying only one of these transformations is incorrect.
+
+The exported grid uses top-left origins for both screen and texture coordinates,
+as consumed by Monado's Vulkan compositor. After RGB distortion, texture
+coordinates are `(x-tan(left))/(tan(right)-tan(left))` and
+`(tan(up)-y)/(tan(up)-tan(down))`. This includes the vertical conversion from the
+stock OpenGL mesh. Physical panel rotation remains a separate view transform;
+HWC reversal does not establish a panel rotation or viewport arrangement.
+
+The output contains two row-major RGB grids, in-texture vertex counts, and a
+check against the current driver's coordinate limit. Out-of-texture values are
+preserved rather than clamped. The inspector does not perform stock triangle
+clipping or certify interpolation accuracy. Output remains explicitly
+`runtime_usable: false` and is not a complete HMD configuration.
+
+Verification against saved stock 5.8.4.0 code covers 17,136 pre-clipping mesh
+vertices: both A7H10 lens profiles, both eyes, three screen aspect ratios,
+two lens-separation selections and HWC reversal. Maximum RGB tangent error,
+normalized by `max(1, abs(stock))`, is below `1.8e-6`. The original mesh routine
+runs in an isolated ARM64 process; allocation capture ends the call before
+triangle clipping or GPU upload. Its input geometry is synthetic.
+
+The saved stock vertex shader and fragment projection helper also run through
+GLES transform feedback on llvmpipe, using those vertices and explicitly supplied
+asymmetric FOV matrices. All 102,816 RGB UV components agree within `1.9e-7`
+normalized error. This checks the projection arithmetic, not which texture
+matrix Android selects on a physical headset. Evidence is retained under
+`output/pico-optical-mapping-20261014-v1/`.

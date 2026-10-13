@@ -109,6 +109,113 @@ def sample_tangents(lens, x, y):
     return result
 
 
+def screen_parameters(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate screen parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 16384 or b'\0' in data:
+        raise ValueError('Invalid screen model size or NUL')
+    try:
+        screen = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed screen model') from error
+    expected = {'schema_version', 'layout', 'width_pixels', 'height_pixels', 'width_m',
+                'lens_separation_m', 'horizontal_offset_m', 'meters_per_tan_angle',
+                'optical_offsets_mm', 'hwc_reverse', 'separate_distortion', 'fov'}
+    if not isinstance(screen, dict) or set(screen) != expected:
+        raise ValueError('Missing or unexpected screen parameter')
+    if type(screen['schema_version']) is not int or screen['schema_version'] != 1:
+        raise ValueError('Unsupported screen schema')
+    if screen['layout'] != 'side-by-side' or screen['separate_distortion'] is not False:
+        raise ValueError('Only the shared-coefficient side-by-side lens model is supported')
+    for key in ('width_pixels', 'height_pixels'):
+        if type(screen[key]) is not int or not 2 <= screen[key] <= 16384:
+            raise ValueError('Invalid screen dimensions')
+    if screen['width_pixels'] % 2:
+        raise ValueError('Side-by-side screen width must be even')
+    if type(screen['hwc_reverse']) is not int or screen['hwc_reverse'] not in (0, 180):
+        raise ValueError('Expected effective HWC reversal of 0 or 180 degrees')
+    for key, low, high in [('width_m', .001, 1), ('lens_separation_m', .001, .2),
+                           ('meters_per_tan_angle', .001, 1), ('horizontal_offset_m', -.1, .1)]:
+        value = screen[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
+            raise ValueError('Invalid physical screen parameter')
+    offsets = screen['optical_offsets_mm']
+    if (not isinstance(offsets, list) or len(offsets) != 4 or
+            any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1 for v in offsets)):
+        raise ValueError('Expected four finite, adjusted optical offsets in millimetres')
+    fovs = screen['fov']
+    if not isinstance(fovs, list) or len(fovs) != 2:
+        raise ValueError('Expected explicit left and right render FOVs')
+    for fov in fovs:
+        if (not isinstance(fov, list) or len(fov) != 4 or
+                any(type(v) not in (int, float) or not math.isfinite(v) for v in fov) or
+                not (-1.57 < fov[0] < 0 < fov[1] < 1.57 and -1.57 < fov[3] < 0 < fov[2] < 1.57)):
+            raise ValueError('Expected finite left, right, up, down FOV angles in radians')
+    return screen
+
+
+def screen_tangents(lens, screen, eye, u, v):
+    if type(eye) is not int or eye not in (0, 1):
+        raise ValueError('Expected left or right eye index')
+    if not all(math.isfinite(c) and 0 <= c <= 1 for c in (u, v)):
+        raise ValueError('Expected normalized per-eye screen coordinates')
+    v = 1 - v
+    quarter_width = screen['width_m'] * .25
+    shift = screen['lens_separation_m'] * .5 - quarter_width
+    offsets = screen['optical_offsets_mm']
+    dx = (shift if eye == 0 else -shift) + screen['horizontal_offset_m'] + offsets[eye * 2] * .001
+    dy = -offsets[eye * 2 + 1] * .001
+    # Stock HWC reversal changes both mesh placement and optical offsets.
+    if screen['hwc_reverse'] == 180:
+        u, v, dx, dy = 1 - u, 1 - v, -dx, -dy
+    aspect = screen['width_pixels'] * .5 / screen['height_pixels']
+    x = (dx + (2 * u - 1) * quarter_width) / screen['meters_per_tan_angle']
+    y = (dy + (2 * v - 1) * quarter_width / aspect) / screen['meters_per_tan_angle']
+    return sample_tangents(lens, x, y)
+
+
+def project_tangents(tangents, fov):
+    left, right, up, down = map(math.tan, fov)
+    result = {color: [(tangents[color][0] - left) / (right - left),
+                      (up - tangents[color][1]) / (up - down)]
+              for color in ('red', 'green', 'blue')}
+    if not all(math.isfinite(value) for pair in result.values() for value in pair):
+        raise ValueError('Texture projection overflow')
+    return result
+
+
+def screen_grid(lens, screen, width, height):
+    if any(type(n) is not int or not 2 <= n <= 65 for n in (width, height)):
+        raise ValueError('Grid dimensions must be integers from 2 to 65')
+    views = []
+    for eye in (0, 1):
+        grid = []
+        inside = {color: 0 for color in ('red', 'green', 'blue')}
+        for row in range(height):
+            for col in range(width):
+                sample = screen_tangents(lens, screen, eye, col / (width - 1), row / (height - 1))
+                uv = project_tangents(sample, screen['fov'][eye])
+                grid.append([value for color in ('red', 'green', 'blue') for value in uv[color]])
+                for color in inside:
+                    inside[color] += all(0 <= value <= 1 for value in uv[color])
+        views.append({'eye': eye, 'grid_width': width, 'grid_height': height,
+                      'distortion': grid, 'in_texture_vertices': inside,
+                      'within_driver_coordinate_limit': all(abs(v) <= 4 for point in grid for v in point)})
+    return {'screen_model': screen, 'views': views,
+            'coordinates': 'per-eye screen and texture UVs, top-left origin, before panel rotation',
+            'runtime_usable': False, 'calibration_applied': False,
+            'mesh_clipping_applied': False,
+            'remaining': ['Verify exact-unit active geometry, FOV, coefficients and offsets',
+                          'Verify panel/view rotation and physical optical alignment',
+                          'Verify grid interpolation error across the visible field']}
+
+
 def axis_offsets(data, model, ipd_state):
     if model not in ('neo3-pro', 'neo3-pro-eye') or ipd_state not in (1, 2, 3):
         raise ValueError('Explicit Neo3 model and IPD state required')
@@ -166,6 +273,9 @@ def main():
     parser.add_argument('--ipd-state', type=int, choices=(1, 2, 3), required=True)
     parser.add_argument('--sample-tangent', type=float, nargs=2, action='append', default=[],
                         metavar=('X', 'Y'), help='Inspect an equation sample; does not apply screen/IPD transforms')
+    parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
+    parser.add_argument('--screen-sha256', help='Independently retained screen-model SHA-256')
+    parser.add_argument('--grid-size', type=int, nargs=2, metavar=('WIDTH', 'HEIGHT'))
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -174,6 +284,12 @@ def main():
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
         result['tangent_samples'] = [sample_tangents(result['stock_lens'], x, y) for x, y in args.sample_tangent]
+        if any(value is not None for value in (args.screen_model, args.screen_sha256, args.grid_size)):
+            if any(value is None for value in (args.screen_model, args.screen_sha256, args.grid_size)):
+                raise ValueError('Screen model, SHA-256 and grid size are required together')
+            screen = screen_parameters(read_file(args.screen_model, args.screen_sha256, 16384))
+            result['screen_grid'] = screen_grid(result['stock_lens'], screen, *args.grid_size)
+            result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump(result, stream, indent=2)
