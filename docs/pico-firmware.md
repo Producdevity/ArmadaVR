@@ -250,6 +250,24 @@ Independent cold EDL entry and restoration still need validation on this unit.
 macOS also requires approval when the Pico first changes to its Qualcomm USB
 identity; a pending accessory decision prevents libusb enumeration.
 
+The October 13 offline audit rehashed all 21 originals (403,316,736 bytes) and
+reparsed both GPT copies on all six LUNs. The saved partition names, GUIDs,
+extents and sizes match all acquired files. `tools/verify-pico-backup.py` makes
+this check repeatable with the independently retained acquisition-manifest hash:
+
+```sh
+python3 -B tools/verify-pico-backup.py PRIVATE_BACKUP_DIRECTORY \
+  --manifest-sha256 RETAINED_MANIFEST_SHA256 \
+  --require abl --require ablbak --require devinfo --require boot
+```
+
+Exit status 2 means a requested partition exists but its backup is missing;
+malformed or changed evidence returns 1. Success verifies saved bytes and
+coverage only. It never contacts USB, generates flash commands, or reports
+physical restoration as verified. Private unit data and generated reports stay
+outside Git. See [the first-boot sequence](pico-first-boot.md) for the remaining
+physical prerequisites.
+
 The backed-up b1977 recovery is a user build with `ro.debuggable=0`; its init
 configuration disables ADB by default and comments out fastbootd. Rebooting into
 recovery does not establish an unattended USB return path. PICO's documented
