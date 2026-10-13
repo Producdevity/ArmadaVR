@@ -415,6 +415,18 @@ two-display startup. The original functions fail 24,120 checked invariants.
 These checks do not establish physical splash handoff, complete hardware
 rollback, panel timing or suspend behavior.
 
+Kernel patch `0040-splash-native-mux.patch` also checks the optional native mux
+under the panel mutex before continuous splash enables clocks or panel supplies.
+An unavailable, externally routed or unknown mux returns its error after
+balancing the display power-domain reference. It performs no GPIO writes.
+The existing optional-binding behavior remains: a panel without the explicit
+native-mux property has no route check. Selecting and validating that binding
+for the physical unit is still required.
+
+The actual splash function passes 90 injected route-refusal cases and retains
+the 7,680 startup/cleanup checks above on macOS and ARM64 Linux. These tests
+exercise error propagation; the separate mux tests cover GPIO state inspection.
+
 ## Verification and remaining work
 
 The transport and chip-ID probe pass **12,581** sanitizer checks on macOS and ARM64 Linux,

@@ -16,7 +16,14 @@ struct drm_crtc { struct base base; struct crtc_state *state; struct drm_display
 struct drm_encoder { const char *name; struct base base; struct drm_crtc *crtc; };
 struct bridge { struct { struct drm_encoder *encoder; } base; };
 struct power_info { int unused; };
-struct panel { const char *name; struct power_info power_info; };
+struct panel {
+    const char *name;
+    struct power_info power_info;
+#ifdef TEST_SPLASH_MUX
+    void *native_mux;
+    int panel_lock;
+#endif
+};
 struct msm_drm_private { struct drm_crtc *crtcs[2]; };
 struct drm_device {
     struct device *dev;
@@ -93,6 +100,16 @@ static int dsi_display_clk_ctrl(void *unused, int clks, int on)
 static int dsi_pwr_enable_regulator(struct power_info *unused, bool on) { (void)unused; assert(on); regulator_calls++; return panel_error; }
 static void dsi_config_host_engine_state_for_cont_splash(struct dsi_display *unused) { (void)unused; handoffs++; }
 static void dsi_panel_bl_handoff(struct panel *unused) { (void)unused; assert(!lock_count); brightness++; }
+#ifdef TEST_SPLASH_MUX
+static int mux_error, mux_calls;
+static inline __attribute__((unused)) int pico_panel_mux_prepare(void *mux)
+{
+    (void)mux;
+    assert(lock_count == 2);
+    mux_calls++;
+    return mux_error;
+}
+#endif
 #include "display.inc"
 
 static int dsi_display_get_info(void *unused, struct msm_display_info *info, void *display)

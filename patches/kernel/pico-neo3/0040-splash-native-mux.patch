@@ -1,0 +1,36 @@
+Subject: drm/msm: validate the native mux before splash handoff
+
+Use the same owned mux check as normal panel power-on before taking clock
+and panel regulator votes for continuous splash. Preserve an unavailable or
+external route error without switching GPIOs.
+
+---
+--- a/techpack/display/msm/dsi/dsi_display.c
++++ b/techpack/display/msm/dsi/dsi_display.c
+@@ -4908,6 +4908,15 @@
+ 
+ 	mutex_lock(&display->display_lock);
+ 
++	mutex_lock(&display->panel->panel_lock);
++	rc = pico_panel_mux_prepare(display->panel->native_mux);
++	mutex_unlock(&display->panel->panel_lock);
++	if (rc) {
++		DSI_ERR("[%s] invalid native panel route, rc=%d\n",
++			display->name, rc);
++		goto put_runtime;
++	}
++
+ 	display->is_cont_splash_enabled = true;
+ 
+ 	/* Update splash status for clock manager */
+@@ -4956,8 +4965,9 @@
+ 	/* Update splash status for clock manager */
+ 	dsi_display_clk_mngr_update_splash_status(display->clk_mngr,
+ 				false);
++	display->is_cont_splash_enabled = false;
++put_runtime:
+ 	pm_runtime_put_sync(display->drm_dev->dev);
+-	display->is_cont_splash_enabled = false;
+ 	mutex_unlock(&display->display_lock);
+ 	return rc;
+ }
