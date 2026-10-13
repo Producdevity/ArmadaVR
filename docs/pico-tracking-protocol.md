@@ -384,3 +384,20 @@ mutations and 1,000 generations of timestamp selection, expiry, eviction and
 invalidation under ASan/UBSan. These tests do not establish physical calibration
 or a tracked pose. Private HAL exports and test receipts are retained under
 `output/pico-native-sensors-20261013-v1/`.
+
+The [calibration-startup patch](../patches/libssc/0008-complete-calibration-sensor-startup.patch)
+lets matching message 1022 complete an `accel_cal` or `gyro_cal` subscription.
+Previously these opens stayed pending even after the transport acknowledged
+configuration and calibration reports arrived. A source regression reproduces
+256 pending opens and verifies 384 corrected startup/cancellation cases,
+including reports before acknowledgement, late transport failure, wrong SUIDs
+and unrelated datatypes. Report payload validation remains the receiver's job.
+
+The rebuilt library passes ten QRTR VM suites on the unchanged physical Pico
+kernel, including existing controller failures, simultaneous raw IMU streams
+and three two-sensor calibration open/report/close cycles. The latter exercise
+the source decoder and explicit bias subtraction with UBSan, malformed-report
+rejection and fresh generations. The 8,475-case calibration corpus also passes
+inside the guest; kernel taint is unchanged and shutdown is normal. The DSP and
+IMU sample inputs are synthetic. This bundle has not replaced the previously
+verified offline root or established physical sensor delivery.

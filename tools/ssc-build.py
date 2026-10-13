@@ -29,7 +29,7 @@ def build(archive, output, image):
         raise ValueError('SSC source archive differs from the pinned revision')
     output.mkdir(parents=True, exist_ok=False)
     names = [*profile['patches'], 'tools/ssc-build.py', 'tools/test-ssc-reports.py',
-             'tests/ssc-reports.c', 'tests/ssc-lifetime.c', 'tests/ssc-context.c', 'tests/ssc-operation.c', 'tests/ssc-close.c', 'tests/ssc-properties.c',
+             'tests/ssc-reports.c', 'tests/ssc-lifetime.c', 'tests/ssc-context.c', 'tests/ssc-operation.c', 'tests/ssc-close.c', 'tests/ssc-properties.c', 'tests/ssc-calibration-open.c',
              'src/pico-controller.c', 'src/pico-controller.h']
     report = {'status': 'started', 'hardware_verified': False, 'image': image, 'profile': profile,
               'inputs_sha256': {name: artifact.digest(ROOT / name) for name in names}, 'commands': []}

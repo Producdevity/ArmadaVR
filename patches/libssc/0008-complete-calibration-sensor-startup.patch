@@ -1,0 +1,13 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -546,7 +546,9 @@
+ 	 * Either a configuration update or measurement will complete the task and disconnect the listener.
+ 	 */
+ 	} else if (uid_high == priv->uid_high && uid_low == priv->uid_low && (msg_id == SSC_MSG_REPORT_MEASUREMENT || msg_id == SSC_MSG_REPORT_MEASUREMENT_PROXIMITY ||
+-		   (msg_id == 1024 && g_strcmp0 (priv->data_type, "ble_mcu") == 0))) {
++		   (msg_id == 1024 && g_strcmp0 (priv->data_type, "ble_mcu") == 0) ||
++		   (msg_id == 1022 && (g_strcmp0 (priv->data_type, "accel_cal") == 0 ||
++		                       g_strcmp0 (priv->data_type, "gyro_cal") == 0)))) {
+ 		g_debug ("Measurement received for '%s' sensor (%" G_GUINT64_FORMAT " %" G_GUINT64_FORMAT "), assuming enabled", priv->data_type, priv->uid_high, priv->uid_low);
+ 
+ 		if (ctx->task) {
