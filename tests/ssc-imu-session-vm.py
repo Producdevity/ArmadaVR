@@ -19,7 +19,8 @@ cases = ['normal', 'immediate', 'no-service', 'clock-failure', 'wrong-uid', 'wro
          'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'server-loss', 'callback-stop',
          'bias-normal', 'bias-single', 'bias-wrong-uid', 'bias-wrong-body', 'bias-missing-body',
          'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall', 'bias-server-loss',
-         'bias-callback-stop', 'bias-immediate', 'bias-clock-failure', 'bias-no-service']
+         'bias-callback-stop', 'bias-immediate', 'bias-clock-failure', 'bias-no-service',
+         'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid']
 taint = Path('/proc/sys/kernel/tainted').read_text()
 os.environ['LD_LIBRARY_PATH'] = '/opt/armada-vr/ssc/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
 assert subprocess.check_output(['/opt/armada-vr/ssc/bin/ssccli', '--version'], text=True).strip() == 'libssc version 0.4.4'
@@ -34,12 +35,14 @@ try:
         with tempfile.TemporaryFile() as mocklog, tempfile.TemporaryFile() as clientlog:
             try:
                 if name not in ('no-service', 'bias-no-service'):
-                    command = ['/usr/bin/python3', '/imu-mock.py', '/output/build']
-                    if name in ('gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable'):
+                    command = ['/usr/bin/python3', '-u', '/imu-mock.py', '/output/build']
+                    if name in ('gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable',
+                                'multi', 'duplicate-uid', 'empty-uid'):
                         command.append(name)
                     if name.startswith('bias-'):
                         faults = ('bias-single', 'bias-wrong-body', 'bias-missing-body',
-                                  'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall')
+                                  'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
+                                  'bias-multi', 'bias-duplicate-uid', 'bias-empty-uid')
                         command.append(name if name in faults else 'bias-normal')
                     server = subprocess.Popen(command, stdout=mocklog, stderr=subprocess.STDOUT, start_new_session=True)
                     deadline = time.monotonic() + 15
@@ -82,11 +85,13 @@ try:
                 encoded = base64.b64encode(zlib.compress(report)).decode()
                 for offset in range(0, len(encoded), 512):
                     print('SSC_DATA', name, offset // 512, encoded[offset:offset + 512], flush=True)
+                if name in ('wrong-uid', 'bias-wrong-uid') or name.endswith(('duplicate-uid', 'empty-uid')):
+                    assert 'Enabling sensor' not in json.loads(report)['mock']
             print('SSC_CASE', name, 'exit', code, flush=True)
             assert code == 0
     assert Path('/proc/sys/kernel/tainted').read_text() == taint
     print('SSC_IMU_SESSION_TAINT_UNCHANGED', taint.strip(), flush=True)
-    print('SSC_VM_TESTS_PASS suites=26', flush=True)
+    print('SSC_VM_TESTS_PASS suites=32', flush=True)
 finally:
     nameserver.terminate()
     nameserver.wait(timeout=3)

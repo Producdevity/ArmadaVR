@@ -16,7 +16,8 @@ ssc, common = namespace['SSC'], namespace['SscCommon']
 fault = sys.argv[2] if len(sys.argv) == 3 else None
 assert fault in (None, 'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'calibration',
                  'bias-normal', 'bias-single', 'bias-wrong-body', 'bias-missing-body',
-                 'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall')
+                 'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
+                 'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid')
 calibration = fault == 'calibration'
 paired = fault is not None and fault.startswith('bias-')
 data = [item for item in ssc._read_data() if item['sensor']['data_type'] not in ('accel', 'gyro')]
@@ -35,6 +36,51 @@ for index, name in enumerate(names):
     if index == 3 and fault == 'bias-missing-body':
         del data[-1]['attributes']['rigid_body']
 ssc._read_data = staticmethod(lambda: data)
+
+selection_faults = ('multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid')
+if fault in selection_faults:
+    from ssc_server import ssc_sensor_suid_pb2 as suid
+
+    original_parse = ssc.parse_protobuf_discovery_request
+    original_discovery = ssc.generate_protobuf_discovery_response
+
+    def discovery_request(message):
+        datatype = original_parse(message)
+        if datatype in names:
+            envelope = common.SscClientRequest()
+            envelope.ParseFromString(message)
+            request = suid.SscSuidRequest()
+            request.ParseFromString(envelope.request.msg)
+            assert request.HasField('only_default_values') and not request.only_default_values
+        return datatype
+
+    def discovery_response(datatype):
+        message = original_discovery(datatype)
+        if datatype not in names:
+            return message
+        envelope = common.SscClientResponse()
+        envelope.ParseFromString(message)
+        response = suid.SscSuidResponse()
+        response.ParseFromString(envelope.response[0].msg)
+        assert len(response.uid) == 1
+        target = common.SscUid()
+        target.CopyFrom(response.uid[0])
+        del response.uid[:]
+        decoy = response.uid.add()
+        decoy.high, decoy.low = 0xBAD00001, 0xBAD00002
+        response.uid.add().CopyFrom(target)
+        decoy = response.uid.add()
+        decoy.high, decoy.low = 0xBAD00003, 0xBAD00004
+        if datatype == ('gyro_cal' if paired else 'gyro'):
+            if fault.endswith('duplicate-uid'):
+                response.uid.add().CopyFrom(target)
+            if fault.endswith('empty-uid'):
+                del response.uid[:]
+        envelope.response[0].msg = response.SerializeToString()
+        return envelope.SerializeToString()
+
+    ssc.parse_protobuf_discovery_request = staticmethod(discovery_request)
+    ssc.generate_protobuf_discovery_response = staticmethod(discovery_response)
 
 
 def measurement(high, low, index):

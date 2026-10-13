@@ -1,0 +1,113 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -38,6 +38,8 @@
+ 	PROP_FILE = 10,
+ 	PROP_MOUNT_MATRIX = 11,
+ 	PROP_RIGID_BODY = 12,
++	PROP_REQUESTED_UID_HIGH = 13,
++	PROP_REQUESTED_UID_LOW = 14,
+ 	N_PROPERTIES
+ };
+ static GParamSpec *properties[N_PROPERTIES];
+@@ -53,6 +55,8 @@
+ typedef struct _SSCSensorPrivate {
+ 	guint64 uid_low;
+ 	guint64 uid_high;
++	guint64 requested_uid_high;
++	guint64 requested_uid_low;
+ 	gchar *name;
+ 	gchar *vendor;
+ 	gchar *data_type;
+@@ -408,6 +412,29 @@
+ 		/* Ignore if data type does not match due to concurrency */
+ 		if (g_strcmp0 (suid_msg->data_type, priv->data_type) != 0) {
+ 			ssc_suid_response__free_unpacked (suid_msg, NULL);
++			return;
++		}
++
++		if (priv->requested_uid_high || priv->requested_uid_low) {
++			gsize matches = 0, selected = 0;
++			for (gsize i = 0; i < suid_msg->n_uid; i++) {
++				if (suid_msg->uid[i]->high == priv->requested_uid_high &&
++				    suid_msg->uid[i]->low == priv->requested_uid_low) {
++					matches++;
++					selected = i;
++				}
++			}
++			if (matches != 1) {
++				ssc_suid_response__free_unpacked (suid_msg, NULL);
++				operation_finish (ctx, FALSE,
++				                  g_error_new_literal (G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
++				                                       "Requested sensor UID absent or ambiguous"));
++				return;
++			}
++			priv->uid_high = suid_msg->uid[selected]->high;
++			priv->uid_low = suid_msg->uid[selected]->low;
++			ssc_suid_response__free_unpacked (suid_msg, NULL);
++			attribute (ctx->sensor, ctx);
+ 			return;
+ 		}
+ 
+@@ -620,14 +647,15 @@
+ 
+ 	/*
+ 	 * Request for sensors for given datatype, if multiple sensors support a datatype,
+-	 * only return the default sensor. Do not monitor for hotplugged sensors.
++	 * return all candidates when an exact UID is requested, otherwise the default.
++	 * Do not monitor for hotplugged sensors.
+ 	 */
+ 	ssc_suid_request__init (&msg);
+ 	msg.data_type = priv->data_type;
+ 	msg.has_enable_updates = true;
+ 	msg.enable_updates = false;
+ 	msg.has_only_default_values = true;
+-	msg.only_default_values = true;
++	msg.only_default_values = !(priv->requested_uid_high || priv->requested_uid_low);
+ 
+ 	buf = g_array_new (FALSE, FALSE, 1);
+ 	g_array_set_size (buf, ssc_suid_request__get_packed_size (&msg));
+@@ -756,6 +784,12 @@
+ 	SSCSensorPrivate *priv = ssc_sensor_get_instance_private (self);
+ 
+ 	switch (prop_id) {
++		case PROP_REQUESTED_UID_HIGH:
++			priv->requested_uid_high = g_value_get_uint64 (value);
++			break;
++		case PROP_REQUESTED_UID_LOW:
++			priv->requested_uid_low = g_value_get_uint64 (value);
++			break;
+ 		case PROP_UID_LOW:
+ 			priv->uid_low = g_value_get_uint64 (value);
+ 			break;
+@@ -782,6 +816,12 @@
+ 	SSCSensorPrivate *priv = ssc_sensor_get_instance_private (self);
+ 
+ 	switch (prop_id) {
++		case PROP_REQUESTED_UID_HIGH:
++			g_value_set_uint64 (value, priv->requested_uid_high);
++			break;
++		case PROP_REQUESTED_UID_LOW:
++			g_value_set_uint64 (value, priv->requested_uid_low);
++			break;
+ 		case PROP_UID_LOW:
+ 			g_value_set_uint64 (value, priv->uid_low);
+ 			break;
+@@ -926,6 +966,18 @@
+ 				     G_PARAM_READABLE);
+ 	g_object_class_install_property (object_class, PROP_SAMPLE_RATE, properties[PROP_SAMPLE_RATE]);
+ 
++	properties[PROP_REQUESTED_UID_HIGH] =
++		g_param_spec_uint64 ("requested-uid-high", "Requested UID high",
++		                     "Required upper UID bits, or both halves zero for the default sensor.",
++		                     0, G_MAXUINT64, 0, G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
++	g_object_class_install_property (object_class, PROP_REQUESTED_UID_HIGH, properties[PROP_REQUESTED_UID_HIGH]);
++
++	properties[PROP_REQUESTED_UID_LOW] =
++		g_param_spec_uint64 ("requested-uid-low", "Requested UID low",
++		                     "Required lower UID bits, or both halves zero for the default sensor.",
++		                     0, G_MAXUINT64, 0, G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
++	g_object_class_install_property (object_class, PROP_REQUESTED_UID_LOW, properties[PROP_REQUESTED_UID_LOW]);
++
+ 	properties[PROP_RIGID_BODY] =
+ 		g_param_spec_int ("rigid-body",
+ 		                  "Rigid body",

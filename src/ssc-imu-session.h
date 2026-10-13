@@ -30,7 +30,7 @@ struct ssc_imu_session_status {
     char error[192];
 };
 
-/* Discover accel/gyro on one private worker, then require the supplied SUIDs,
+/* Discover and select the supplied SUIDs on one private worker, then require
  * available streaming sensors and exact advertised rates before opening either.
  * Callbacks run on that worker; data must remain alive until destroy succeeds.
  * report receives a borrowed event only while both streams are open. invalidate
@@ -48,7 +48,7 @@ void ssc_imu_session_get_status(struct ssc_imu_session *session,
                                 struct ssc_imu_session_status *status);
 void ssc_imu_session_stop(struct ssc_imu_session *session);
 
-/* Cancel, disable both sensors and drain callbacks before freeing. Do not race
+/* Cancel, disable all attempted subscriptions and drain callbacks before freeing. Do not race
  * destroy with public calls. Calling it from a worker callback returns false
  * without freeing; the owner must join later. NULL is already destroyed. */
 bool ssc_imu_session_destroy(struct ssc_imu_session **session);

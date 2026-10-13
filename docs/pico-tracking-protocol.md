@@ -437,3 +437,31 @@ four-subscription configurations. These checks exercise the production session
 owner with a synthetic DSP; actual calibration SUIDs, pairing and native physical
 delivery remain unverified. The offline root has not yet been updated with this
 session or the newer SSC bundle.
+
+The [sensor-selection patch](../patches/libssc/0010-select-requested-sensor-uid.patch)
+adds construct-only uint64 properties `requested-uid-high` and `requested-uid-low`.
+A nonzero 128-bit request discovers all sensors of that datatype and requires
+exactly one matching SUID before requesting attributes. Missing or duplicate
+matches fail discovery. Both halves zero retain libssc's default-sensor behavior.
+The IMU session supplies its expected identities through these properties and
+refuses older libraries without them. Selection does not infer physical identity
+from datatype or list order.
+
+The prior implementation requested only the default sensor, making a verified
+non-default IMU or calibration sensor inaccessible. The source regression
+reproduces that limitation in 128 cases and checks 1,024 corrected cases under
+ASan/UBSan, including selection among 32 candidates, wrong datatype, empty lists,
+duplicates and IDs with one zero half. QRTR session tests additionally place
+other candidates before and after each requested sensor and verify that missing
+or ambiguous selection sends no sensor-enable requests. All 32 session scenarios
+pass with UBSan on the unchanged physical-configuration kernel; native ASan/UBSan
+cancellation checks and the 429 host tests also pass. These remain virtual
+transport and lifecycle results, not physical tracking acceptance.
+
+A bounded diagnostic on the exact stock 5.8.4.0 firmware found that the Android
+shell cannot create either AF_QIPCRTR (42) or legacy Qualcomm AF_MSM_IPC (27)
+sockets: both return `EACCES`. It sent no messages, started no sensors, removed
+its temporary binary and verified the unchanged boot identity. This rules out
+direct SSC discovery from that shell context; it does not establish whether
+either transport works under the custom kernel. The receipt is retained under
+`output/pico-native-sensors-20261013-v1/socket-probe-v1/`.

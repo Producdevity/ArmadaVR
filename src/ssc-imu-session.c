@@ -275,12 +275,26 @@ static gpointer worker(gpointer data)
     g_source_set_callback(timer, watchdog, s, NULL);
     g_source_attach(timer, s->context);
     s->started_ns = now_ns();
+    GObjectClass *sensor_class = g_type_class_ref(SSC_TYPE_SENSOR);
+    const char *selectors[] = {"requested-uid-high", "requested-uid-low"};
+    for (unsigned i = 0; i < G_N_ELEMENTS(selectors); i++) {
+        GParamSpec *spec = g_object_class_find_property(sensor_class, selectors[i]);
+        if (!spec || G_PARAM_SPEC_VALUE_TYPE(spec) != G_TYPE_UINT64 ||
+            !(spec->flags & G_PARAM_CONSTRUCT_ONLY) || !(spec->flags & G_PARAM_WRITABLE))
+            stop_worker(s, "SSC library lacks exact sensor selection");
+    }
+    g_type_class_unref(sensor_class);
     if (g_cancellable_is_cancelled(s->cancel)) stop_worker(s, NULL);
-    else {
-        gchar *types[] = {"accel", "gyro", "accel_cal", "gyro_cal"};
+    else if (!s->stopping) {
+        const char *types[] = {"accel", "gyro", "accel_cal", "gyro_cal"};
         for (unsigned i = 0; i < s->channel_count; i++) s->channels[i].pending = true;
-        for (unsigned i = 0; i < s->channel_count; i++)
-            ssc_sensor_new(types[i], s->cancel, discovered, &s->channels[i]);
+        for (unsigned i = 0; i < s->channel_count; i++) {
+            guint64 high = i < 2 ? s->config.suid_high[i] : s->config.bias.suid_high[i - 2];
+            guint64 low = i < 2 ? s->config.suid_low[i] : s->config.bias.suid_low[i - 2];
+            g_async_initable_new_async(SSC_TYPE_SENSOR, G_PRIORITY_DEFAULT, s->cancel,
+                discovered, &s->channels[i], SSC_SENSOR_DATA_TYPE, types[i],
+                "requested-uid-high", high, "requested-uid-low", low, NULL);
+        }
     }
     for (;;) {
         if (s->stopping) {
