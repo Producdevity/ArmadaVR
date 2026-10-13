@@ -145,6 +145,14 @@ static int udc(const char *directory_path, char *name, size_t size)
     return 1;
 }
 
+static int configured(const char *path)
+{
+    char state[64];
+    ssize_t size = read_file(path, state, sizeof(state));
+    if (size < 0) return -1;
+    return size == (ssize_t)strlen("configured\n") && !memcmp(state, "configured\n", (size_t)size);
+}
+
 static void snapshot(const char *path)
 {
     char data[4096];
@@ -259,6 +267,13 @@ int main(void)
     }
     if (set(GADGET "/UDC", controller)) { record("DIAGNOSTIC_BIND_FAILED errno=%d\n", errno); poweroff(0); }
     record("DIAGNOSTIC_UDC_BOUND %s\n", controller);
+    /* gser accepts buffered writes before USB configuration and drops them on close. */
+    while ((found = configured("/sys/class/udc/" PRIMARY_UDC "/state")) == 0 && seconds() < deadline) usleep(100000);
+    if (found != 1) {
+        record("DIAGNOSTIC_USB_NOT_CONFIGURED\nDIAGNOSTIC_POWEROFF\n");
+        poweroff(0);
+    }
+    record("DIAGNOSTIC_USB_CONFIGURED\n");
     boot_log();
     record("ARMADA_PICO_DIAGNOSTIC_END\n");
     int sent = transmit(deadline);

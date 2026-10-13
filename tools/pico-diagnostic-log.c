@@ -66,6 +66,7 @@ int main(int argc, char **argv)
     if (libusb_init(&context)) return 1;
     double discovery_deadline = seconds() + 90;
     do {
+        matches = 0;
         ssize_t count = libusb_get_device_list(context, &devices);
         if (count < 0) goto done;
         for (ssize_t i = 0; i < count; ++i) {
@@ -77,15 +78,14 @@ int main(int argc, char **argv)
                 string_matches(handle, descriptor.iProduct, "ArmadaVR Pico diagnostic") &&
                 string_matches(handle, descriptor.iSerialNumber, argv[2])) {
                 ++matches;
-                if (!selected) {
+                if (!selected && interface(devices[i], &endpoint)) {
                     selected = handle;
-                    if (!interface(devices[i], &endpoint)) goto done;
                     continue;
                 }
             }
             libusb_close(handle);
         }
-        if (matches) break;
+        if (matches > 1 || selected) break;
         libusb_free_device_list(devices, 1);
         devices = NULL;
         const struct timespec delay = {.tv_sec = 0, .tv_nsec = 250000000};

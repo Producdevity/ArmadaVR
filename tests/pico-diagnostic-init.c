@@ -55,6 +55,16 @@ static void usb_selection(void)
     assert(udc(controllers, name, sizeof(name)) == -1);
     property(root, "compatible", compatible, sizeof(compatible));
     assert(udc(controllers, name, sizeof(name)) == 1);
+    assert(snprintf(path, sizeof(path), "%s/state", root) < (int)sizeof(path));
+    assert(configured(path) == -1);
+    const char *states[] = {"not attached\n", "powered\n", "addressed\n", "suspended\n",
+                            "configured", "configured\nextra", "configured\n"};
+    for (size_t i = 0; i < sizeof(states) / sizeof(*states); ++i) {
+        int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC, 0600);
+        assert(fd >= 0 && write(fd, states[i], strlen(states[i])) == (ssize_t)strlen(states[i]) && !close(fd));
+        assert(configured(path) == (i == sizeof(states) / sizeof(*states) - 1));
+    }
+    assert(!unlink(path));
     const char *files[] = {"primary/device/of_node/compatible", "primary/device/of_node/reg",
         "primary/device/of_node/usb-core-id", "udc/" PRIMARY_UDC, "udc/a800000.dwc3"};
     for (size_t i = 0; i < sizeof(files) / sizeof(*files); ++i) {

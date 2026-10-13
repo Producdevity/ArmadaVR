@@ -139,7 +139,11 @@ It configures the kernel's existing `gser` USB function, waits for the primary
 USB core ID before binding. Stock firmware selects this controller for the
 primary port; the enabled secondary `a800000.dwc3` controller may also register
 a UDC. The diagnostic ignores that secondary controller and refuses mismatched
-primary metadata. It transmits bounded kernel/system diagnostics. It accepts no host commands.
+primary metadata. After binding, it waits for the primary UDC to reach the
+configured state before opening the serial device. The kernel can buffer a
+short report before configuration and discard it when the serial device closes.
+The diagnostic transmits bounded kernel/system diagnostics and accepts no host
+commands.
 A 90-second alarm attempts power-off if the accepted physical diagnostic stalls;
 this cannot recover a hung kernel or replace independent recovery. The
 `1d6b:0104` Linux gadget identifier is for this development diagnostic only.
@@ -152,8 +156,9 @@ cc -std=c11 -O2 -Wall -Wextra -Werror tools/pico-diagnostic-log.c \
 NEW_LOG_RECEIVER --serial BOOT_SERIAL > NEW_LOG_FILE
 ```
 
-The receiver waits up to 90 seconds for enumeration and rejects incomplete or
-wrong-device reports. A received report proves neither physical shutdown nor
+The receiver waits up to 90 seconds for enumeration and configuration, retrying
+when a matching device has no active diagnostic interface yet. It refuses
+duplicate matching devices and rejects incomplete or wrong-device reports. A received report proves neither physical shutdown nor
 return to stock; those require separate observation. The diagnostic does not
 load an SELinux policy, so the enforcing kernel arguments alone are not a
 claim of userspace policy enforcement.
@@ -161,16 +166,18 @@ claim of userspace policy enforcement.
 October 13 offline verification uses the unchanged physical Pico kernel
 `913b4a013bcd35900e104aca29ec0ccf3e356c2d77581af699c115dda9223f08`.
 The same init binary creates the real configfs serial function in diskless
-QEMU, observes no UDC, and powers off normally; the complete harness finishes in 5.77 seconds. ARM64
+QEMU, observes no UDC, and powers off normally; the complete harness finishes in 5.53 seconds. ARM64
 sanitizer checks reproduce the previous refusal with two UDCs and verify primary
 selection, missing or mismatched controller properties, PID refusal,
-exact/conflicting command-line identities and bounded report storage; host sanitizer checks cover log identity and truncation.
+exact/conflicting command-line identities and bounded report storage; host sanitizer checks cover log identity, truncation and eight
+discovery scenarios, including delayed configuration and duplicate devices.
 These tests do not exercise physical USB enumeration or log transfer.
 
 The diagnostic Android-v2 container is assembled and unpacked with matching
 kernel, initramfs and unmodified stock DTB hashes. Its initramfs is about 1.4 MiB,
 instead of the full runtime's 35 MiB. Private build, assembly and VM receipts
-are in `output/pico-usb-20261013-v1/`. That build supersedes the earlier
+are in `output/pico-usb-20261013-v1/` (`build-v2`, `boot-v2`, `vm-v2` and
+`host-v2`). These supersede its initial build and the earlier
 `output/pico-diagnostic-20261013-v1/` images. The builder also requires the
 primary controller, PHY, charger/PD, clock and EUD drivers to be built in,
 because the diagnostic contains no modules. No diagnostic has been booted on
