@@ -473,8 +473,9 @@ preserved stock DTB pack. Head IMU sessions remain separate from Monado's HMD
 path. These checks establish an offline artifact set, not physical boot,
 display/tracking operation, damaged-boot recovery or flash readiness.
 
-The October 13 root is retained as `rootfs.ext4.zst` to reduce disk use. A full
-decompression reproduced all 7 GiB and the checksum above before the redundant
-raw image was removed. Its directory contains the compression receipt and
-`restore-root.py`, which checks the archive and manifest, requires sufficient
-space, and verifies the restored image before giving it the original filename.
+The October 13 root remains a raw APFS clone: only 593,920 bytes differ from its
+verified parent. A trial compressed representation used more additional space
+than the shared clone. Reconstructing the image from that archive, writing only
+differing 4 KiB blocks into a new parent clone, reproduced the full checksum and
+left the parent unchanged. The redundant archive was then removed. Receipts
+remain alongside the image; apparent file allocation is not exclusive disk use.
