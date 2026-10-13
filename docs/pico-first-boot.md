@@ -152,6 +152,27 @@ The reference hash must come from independently retained authentication or
 backup evidence. The output remains unsigned, with boot/recovery and physical
 DTB compatibility explicitly unverified; this command never accesses a device.
 
+The later full runtime has a separate maintained assembler:
+
+```sh
+python3 -B tools/assemble-pico-boot.py STOCK_BOOT_BACKUP \
+  PHYSICAL_PICO_KERNEL_DIRECTORY INITRAMFS_DIRECTORY ROOT_DIRECTORY \
+  --reference-sha256 RETAINED_STOCK_SHA256 \
+  --root-manifest-sha256 VERIFIED_ROOT_MANIFEST_SHA256 \
+  --mkbootimg PINNED_AOSP_TOOL_DIRECTORY --output NEW_RUNTIME_CONTAINER
+```
+
+Take the root manifest hash from the completed offline root verification. The
+assembler verifies every recorded artifact, the matching kernel, initramfs and
+firmware, current Pico startup sources, and the ext4 label and geometry. It
+binds the installed component receipts and rechecks inputs after assembly.
+Both assemblers unpack the supplied stock backup themselves; neither depends
+on another build's extracted DTB or saved command arguments. The full runtime
+container leaves display enabled and requires its separately verified external
+root image. Assembly does not establish that root transport, DTB selection,
+physical drivers or recovery work, and it does not replace the initial bounded
+diagnostic.
+
 It configures the kernel's existing `gser` USB function, waits for the primary
 `a600000.dwc3` UDC, and verifies its device-tree compatible, register extent and
 USB core ID before binding. Stock firmware selects this controller for the
