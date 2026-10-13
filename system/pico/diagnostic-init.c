@@ -71,7 +71,7 @@ static int token(const char *command, const char *expected)
     return count == 1 && keys == 1;
 }
 
-static void poweroff(int signal_number)
+static _Noreturn void poweroff(int signal_number)
 {
     (void)signal_number;
     reboot(RB_POWER_OFF);
@@ -240,9 +240,11 @@ static int transmit(double deadline)
 int main(void)
 {
     if (getpid() != 1) return 2;
+    if (signal(SIGALRM, poweroff) == SIG_ERR) goto refused;
+    alarm(90);
     if (mount("proc", "/proc", "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) ||
         mount("sysfs", "/sys", "sysfs", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) ||
-        mount("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, NULL)) return 2;
+        mount("devtmpfs", "/dev", "devtmpfs", MS_NOSUID | MS_NOEXEC, NULL)) goto refused;
     kernel_log = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
     char board[256], command[4096], serial[80], expected[128];
     struct statfs filesystem;
@@ -258,8 +260,7 @@ int main(void)
     if (virtual) {
         if (strcmp(serial, "qemu") || !token(command, "reframed.pico=diagnostic-test")) goto refused;
     } else if (strcmp(board, "qcom,kona") || !token(command, "reframed.pico=diagnostic") || !token(command, expected)) goto refused;
-    signal(SIGALRM, poweroff);
-    alarm(virtual ? 10 : 90);
+    if (virtual) alarm(10);
     if (!token(command, "msm_drm.modeset=0") || !display_disabled("/sys")) {
         record("DIAGNOSTIC_DISPLAY_GUARD_FAILED\nDIAGNOSTIC_POWEROFF\n");
         poweroff(0);
@@ -298,6 +299,6 @@ int main(void)
     record("DIAGNOSTIC_USB_DETACH result=%d\nDIAGNOSTIC_POWEROFF\n", detached);
     poweroff(0);
 refused:
-    record("REFRAMED_PICO_DIAGNOSTIC_REFUSED\n");
-    for (;;) pause();
+    record("REFRAMED_PICO_DIAGNOSTIC_REFUSED\nDIAGNOSTIC_POWEROFF\n");
+    poweroff(0);
 }

@@ -183,9 +183,11 @@ configured state before opening the serial device. The kernel can buffer a
 short report before configuration and discard it when the serial device closes.
 The diagnostic transmits bounded kernel/system diagnostics and accepts no host
 commands.
-A 90-second alarm attempts power-off if the accepted physical diagnostic stalls;
-this cannot recover a hung kernel or replace independent recovery. The
-`1d6b:0104` Linux gadget identifier is for this development diagnostic only.
+A 90-second alarm is armed before mounting the virtual filesystems or reading
+identity. Mount and identity failures immediately request power-off before USB
+setup; a validated virtual test shortens the alarm to 10 seconds. Neither the
+timer nor a shutdown request can recover a hung kernel or replace independent
+recovery. The `1d6b:0104` Linux gadget identifier is for this development diagnostic only.
 The host collector additionally requires the exact manufacturer, product,
 serial and interface descriptors, without detaching a kernel driver:
 
@@ -202,64 +204,60 @@ return to stock; those require separate observation. The diagnostic does not
 load an SELinux policy, so the enforcing kernel arguments alone are not a
 claim of userspace policy enforcement.
 
-October 13 offline verification uses the unchanged physical Pico kernel
-`913b4a013bcd35900e104aca29ec0ccf3e356c2d77581af699c115dda9223f08`.
-The same init binary creates the real configfs serial function in diskless
-QEMU, observes no UDC, and powers off normally; the complete harness finishes in 5.53 seconds. ARM64
-sanitizer checks reproduce the previous refusal with two UDCs and verify primary
-selection, missing or mismatched controller properties, PID refusal,
-exact/conflicting command-line identities and bounded report storage; host sanitizer checks cover log identity, truncation and eight
-discovery scenarios, including delayed configuration and duplicate devices.
-These tests do not exercise physical USB enumeration or log transfer.
+## Offline verification
 
-The diagnostic Android-v2 container is assembled and unpacked with matching
-kernel, initramfs and unmodified stock DTB hashes. Its initramfs is about 1.4 MiB,
-instead of the full runtime's 35 MiB. Private build, assembly and VM receipts
-are in `output/pico-usb-20261013-v1/` (`build-v2`, `boot-v2`, `vm-v2` and
-`host-v2`). These supersede its initial build and the earlier
-`output/pico-diagnostic-20261013-v1/` images. The builder also requires the
-primary controller, PHY, charger/PD, clock and EUD drivers to be built in,
-because the diagnostic contains no modules. No diagnostic has been booted on
-the headset.
+The current diagnostic uses the physical Pico kernel
+`22177b1d0003c2873172f8ba4e080c59e4ebf8ba9b3adf20b8e53295385b85d0`
+and the current Reframed init. It has not been booted on a headset. The unsigned
+Android-v2 image was assembled and unpacked with matching kernel, initramfs and
+unmodified stock DTB hashes. Its initramfs is about 1.4 MiB. Build, assembly,
+VM and host receipts are in `output/pico-diagnostic-shutdown-20261013-v1/`;
+use `build-v2` and `boot`. Earlier diagnostic artifacts remain historical.
 
-The later build through kernel patch `0034` uses Image
-`0c9d1c19e7ae046e6a18fc72376d39d5f0c0db487a580868352be0766f7b5c7a`.
-Its USB-only command line also requires `msm_drm.modeset=0`. Pico's vendor
-display configuration enables MSM DRM separately from the top-level kernel
-configuration. Its normal registration can restore the continuous splash and
-enable panel regulators before userspace starts. The existing modeset parameter
-stops MSM DRM master registration and that splash path.
+Seven diskless QEMU boots use that same init binary and physical-config kernel:
+normal startup, wrong serial, missing serial, wrong diagnostic token, missing
+`/proc`, and missing/conflicting KMS-disable options. Each reaches controlled
+power-off. Normal startup creates the real configfs serial function and finds
+no UDC. The earlier identity-refusal hang was reproduced before the fix and its
+evidence is retained. These tests do not exercise physical USB enumeration,
+log transfer, display or recovery.
 
-After validating the diagnostic identity, init checks the exact, non-conflicting
-command-line option, the kernel's `N` parameter value and absence of the
-`msm_drm` platform driver. A failed check requests power-off before USB setup.
-ARM64 sanitizer tests cover missing and malformed parameter values and an
-unexpected driver entry. Diskless boots of the actual kernel verify both the
-disabled-KMS diagnostic and controlled shutdown with missing/conflicting
-options. Other platform drivers still probe; this is not proof of an untouched
-physical display or a replacement for recovery.
+Linux ARM64 sanitizer tests cover early mount failures, missing or invalid
+identity, a non-RAM root, alarm setup failure, PID refusal, USB controller
+selection, display guards and bounded report storage. Run them with the existing
+Mesa compiler image:
 
-The corresponding diagnostic artifacts are in
-`output/pico-panel-load-20261013-v1/diagnostic-build-v3` and `diagnostic-boot-v2`.
-They supersede the earlier USB diagnostic builds. The matching full initramfs,
-root and runtime container retain display support; the KMS restriction belongs
-only to the initial USB diagnostic. Full-root filesystem and runtime-loader
-checks pass with the rebuilt modules and unchanged firmware and runtime
-libraries. The original root image remains intact. The runtime container is
-`output/pico-boot-container-20261013-v2`; it remains an offline, unsigned image.
+```sh
+just test-pico-diagnostic-init NEW_TEST_DIRECTORY
+```
 
-The exact older ABL's default ARM64 placement also passes an offline size
-check: the kernel's `0x80000` text offset matches, and its declared runtime size
-leaves 41,734,144 bytes before the diagnostic's calculated DTB boundary in the
-default 86 MiB allocation. Actual UEFI `KernelBaseAddr`/`KernelSize`, live RAM
-reservations and bootloader DTB selection still require physical verification.
-Container header addresses alone do not describe this dynamic placement.
+Host sanitizer tests cover log identity, truncation and eight USB discovery
+scenarios, including delayed configuration and duplicate devices. The matching
+host receiver is compiled in the `host` subdirectory; its tests use mocked USB.
 
-The current full-root container is assembled and roundtrip-verified offline,
+The initial diagnostic requires `msm_drm.modeset=0`. Pico's vendor display
+configuration enables MSM DRM separately from the top-level kernel
+configuration; normal registration can restore continuous splash and enable
+panel regulators before userspace. The existing modeset parameter stops MSM
+DRM master registration and that splash path. After validating identity, init
+checks the exact command-line option, the kernel's `N` parameter value and
+absence of the `msm_drm` platform driver. Other platform drivers still probe;
+this does not establish an untouched physical display.
+
+The authenticated older ABL's default ARM64 placement also passes the updated
+diagnostic size check, with more than 39 MiB between the kernel runtime extent
+and calculated DTB boundary in its default 86 MiB allocation. Actual UEFI
+`KernelBaseAddr`/`KernelSize`, live RAM reservations and bootloader DTB selection
+remain unverified. Container header addresses do not describe this dynamic
+placement. The full runtime retains display support and needs a separate,
+verified external root filesystem.
+
+The earlier full-root container was assembled and roundtrip-verified offline,
 but its external root transport and physical device-tree compatibility are
-untested. Kernel/VM results do not replace those checks. Native USB diagnostics,
-stock return and the complete recovery sequence remain physical acceptance
-requirements.
+untested. Kernel/VM results do not replace those checks. Rebuilding its
+userspace under the new project name is also pending
+(see [project naming](project-naming.md)). Native USB diagnostics, stock return
+and the complete recovery sequence remain physical acceptance requirements.
 
 Private audit and current-source receipts:
 `output/pico-flash-path-20261013-v1/`. No image has been flashed.

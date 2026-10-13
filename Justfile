@@ -23,6 +23,12 @@ test-vulkan-display directory="output/vulkan-display":
     {{ quote(directory + "/vulkan-display") }} --xcb >{{ quote(directory + "/xcb.log") }} 2>&1
     {{ quote(directory + "/vulkan-display") }} --display >{{ quote(directory + "/display.log") }} 2>&1
 
+# Test Pico diagnostic startup and refusal paths without devices.
+test-pico-diagnostic-init directory="output/pico-diagnostic-tests":
+    test ! -e {{ quote(directory) }}
+    mkdir -p {{ quote(directory) }}
+    {{ engine }} run --rm --init --network none --cap-drop ALL --security-opt no-new-privileges --memory 512m --memory-swap 512m --cpus 1 --pids-limit 128 --entrypoint sh -v "$PWD:/source:ro" -v "$(cd {{ quote(directory) }} && pwd):/output" -w /source localhost/reframed-vr:mesa-tools -c 'set -eu; for name in pico-diagnostic-init pico-diagnostic-shutdown; do cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined "tests/$name.c" -o "/output/$name"; "/output/$name"; done'
+
 # Exercise real OpenXR and FEX libraries under ARM64 Linux, capped at 2 GiB.
 test:
     mkdir -p output/lab
