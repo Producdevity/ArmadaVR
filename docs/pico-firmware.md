@@ -182,6 +182,12 @@ passes the packaged-root test with all 60 firmware files, 541 runtime entries,
 backing-disk writes. The normal and two missing-root initramfs cases also pass.
 The virtual board does not execute the physical DSP firmware.
 
+The packaged-root probe also verifies installed SSC, inventory collector,
+FastRPC and Monado files, permissions, symlinks and build records. It checks
+their library relocations under the Pico kernel without executing the sensor
+programs or enabling streams. These checks cover packaged userspace; physical
+DSP startup, native sensor identities and tracking remain separate tests.
+
 The updated unsigned boot container passes stock roundtrip and component
 checks, with 26,873,856 bytes of partition headroom. These artifacts are under
 `output/headset-initramfs-pico-dsp-20261012-v1/`,

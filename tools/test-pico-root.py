@@ -89,6 +89,30 @@ for item in runtime['files']:
     if 'link' in item:assert p.is_symlink() and os.readlink(p)==item['link'],item['path']
     else:assert sha(p)==item['sha256'] and stat.S_IMODE(p.stat().st_mode)==item['mode'],item['path']
 for name,digest in runtime['native_abi_sha256'].items():assert sha(Path('/')/name)==digest,name
+packages={}
+for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventory'),
+                     ('fastrpc','lib64/libpico-sensors.so.1'),('monado','bin/monado-service')):
+    record=expected.get(name)
+    if record is None:continue
+    installed=name.replace('_','-')
+    prefix=Path('/opt/armada-vr')/installed
+    tree=record['contents']
+    if name=='fastrpc':
+        files={n:v for n,v in tree.items() if 'sha256' in v}
+        links={n:v['symlink'] for n,v in tree.items() if 'symlink' in v}
+    else:
+        files=tree['files'];links=tree.get('links',tree.get('symlinks',{}))
+    assert sha(Path('/usr/share/armada-vr')/(installed+'-build.json'))==record['build_sha256']
+    assert {str(p.relative_to(prefix)) for p in prefix.rglob('*') if p.is_file() and not p.is_symlink()}==set(files)
+    assert {str(p.relative_to(prefix)):os.readlink(p) for p in prefix.rglob('*') if p.is_symlink()}==links
+    for path,item in files.items():
+        p=prefix/path
+        assert not p.is_symlink() and sha(p)==item['sha256'] and stat.S_IMODE(p.stat().st_mode)==item['mode'],str(p)
+    libraries=str(prefix/'lib64')+':/opt/armada-vr/ssc/lib64:/usr/lib64'
+    trace=command(['/usr/bin/env','LD_TRACE_LOADED_OBJECTS=1','LD_WARN=yes','LD_BIND_NOW=yes','LD_VERBOSE=yes',
+                   '/lib/ld-linux-aarch64.so.1','--library-path',libraries,str(prefix/program)])
+    assert 'not found' not in trace and 'undefined symbol' not in trace,(name,trace)
+    packages[name]={'files':len(files),'links':len(links),'loader_relocations':True,'program_executed':False}
 shared=[i['path'].removeprefix('files/') for i in runtime['files'] if '/libsystemd-shared-' in i['path'] and 'sha256' in i]
 assert len(shared)==1 and '/'+shared[0] in Path('/proc/1/maps').read_text()
 for name in runtime['commands']:
@@ -118,7 +142,7 @@ print(json.dumps({'status':'passed','boot_id':Path('/proc/sys/kernel/random/boot
     'taint':int(Path('/proc/sys/kernel/tainted').read_text()),'runtime_files':len(runtime['files']),
     'runtime_commands':len(runtime['commands']),'modules':len(expected['modules']),'firmware':len(expected['firmware']),
     'user_session':True,'service_isolation':True,'root_overlay':True,'root_block_readonly':True,'disk_writes':0,
-    'selinux':policy,'selinux_policy_acceptance':False}),flush=True)
+    'selinux':policy,'selinux_policy_acceptance':False,'native_packages':packages}),flush=True)
 '''
 
 
