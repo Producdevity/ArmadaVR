@@ -401,6 +401,22 @@ require implementation and physical verification. The unrelated AYN reference
 driver has different GPIO bindings and unsafe probe cleanup; it is not a drop-in
 replacement.
 
+## Display shutdown failures
+
+Patch `0041-display-shutdown-errors.patch` preserves the first failure from
+display wake-up, panel shutdown commands, host/PHY shutdown, clock disable or
+panel power-off. Previously a later successful cleanup could make
+`dsi_display_unprepare` report success to the DRM bridge. All remaining cleanup
+still runs in the same order, including interrupt and error-handler teardown;
+panel mode switching and ULPS retain their existing exclusions.
+
+The exact function passes 26,244 combinations of shutdown results and low-power
+states under macOS and ARM64 Linux sanitizers. The original reports the wrong
+result in 17,416 cases; the patched function reports none. This preserves error
+reporting, not a guarantee that a failed physical shutdown completed. Shared
+upstream regulator failures and the vendor-disabled reset rollback remain
+separate limitations.
+
 ## Continuous splash startup failures
 
 Kernel patch `0039-splash-startup-errors.patch` balances the runtime power
