@@ -340,3 +340,47 @@ UBSan-only builds. This kernel's 39-bit virtual address space cannot initialize
 the available ASan runtime; ASan coverage is limited to the native tests above.
 Logs, including the failed ASan VM startup, are retained under
 `output/pico-imu-session-20261012-v1/`.
+
+## Runtime calibration events
+
+The b1977 vendor sensor HAL (`sensors.ssc.so`, SHA-256
+`bf3acf3704b06b4218c8b24cd72744646b63b94bd74f0cc7a7b8bfd2ddb8038e`)
+subscribes to separate `accel_cal` and `gyro_cal` sensors using on-change
+configuration 514. Their `sns_cal_event` reports use message 1022, with bias
+field 1, optional scale field 2, optional compensation matrix field 3, required
+accuracy field 4 and optional fixed32 calibration ID field 5.
+
+In the inspected regular-event path, both calibrated acceleration and gyro
+subtract a timestamp-selected three-axis bias from the corresponding SSC
+sample. Uncalibrated events retain the SSC values and expose the bias separately.
+The calibration callbacks retain bias, timestamp and accuracy; they do not apply
+the saved factory correction matrices again. This identifies host-side behavior;
+it does not establish which factory corrections the DSP already performs or the
+separate FastRPC direct-channel implementation.
+
+The HAL pairs calibration sensors by their `rigid_body` attribute, ID 19.
+A matching datatype alone is insufficient. Physical SUIDs, pairing and the
+native sensor clock still require validation on this unit.
+
+[`ssc-calibration`](../src/ssc-calibration.h) decodes these reports and keeps
+32 timestamped updates per sensor. It requires explicit paired calibration SUIDs,
+the IMU generation and clock, and caller-selected age limits. Correction uses
+the newest update at or before the sample. Missing, future, expired or unreliable
+biases produce no corrected result. An unreliable update cannot silently fall
+back to an older reliable one. Reconnects clear the history; late samples whose
+calibration has been evicted are refused. The raw sample and calibration
+metadata remain available alongside the bias-subtracted result.
+
+Scale and matrix fields are preserved without application; no axes, units or
+factory-calibration policy are inferred. This component is not automatically
+subscribed or installed into the runtime. Calibration subscriptions and their
+physical pairing must be established before enabling correction.
+
+The optional `tests/ssc-calibration-stock.py` comparison extracts checksum-pinned
+descriptors from a private b1977 `libssc.so`. It checks 8,475 cases against
+Google protobuf, including packed/unpacked fields, optional metadata, invalid
+dimensions and nonfinite values. The native fixture exercises 100,000 payload
+mutations and 1,000 generations of timestamp selection, expiry, eviction and
+invalidation under ASan/UBSan. These tests do not establish physical calibration
+or a tracked pose. Private HAL exports and test receipts are retained under
+`output/pico-native-sensors-20261013-v1/`.
