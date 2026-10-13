@@ -251,3 +251,10 @@ both graphics and compute composition. Independent pixel expectations include
 per-channel texture borders. The recorded run submits 1,775 projection frames;
 all 267,912 sampled eye pixels match across the 16 stable input phases. This
 uses synthetic optics and software Vulkan, without physical panel acceptance.
+
+Adding `PICO_HMD_TEST_ROTATED=1` tests opposite 90-degree view rotations with
+the same four analytic cases. The pixel oracle rotates screen coordinates
+before evaluating the optical model. This catches differences between the
+graphics mesh and compute texture conventions. All 267,912 sampled pixels
+also match in this run; it verifies the supplied rotation, not which rotation
+a physical panel requires.

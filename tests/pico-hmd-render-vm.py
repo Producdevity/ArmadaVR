@@ -19,6 +19,9 @@ if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux
     raise SystemExit('This test requires the isolated SSC VM')
 
 analytic = os.environ.get('PICO_HMD_TEST_ANALYTIC') == '1'
+rotated = os.environ.get('PICO_HMD_TEST_ROTATED') == '1'
+if rotated and not analytic:
+    raise SystemExit('Rotated-view checks require analytic calibration')
 
 config = {'schema_version': 1, 'device': 'PICOA7H10', 'serial': 'synthetic-hmd',
           'screen': {'width': 512, 'height': 256, 'frame_interval_ns': 100000000},
@@ -32,6 +35,9 @@ config = {'schema_version': 1, 'device': 'PICOA7H10', 'serial': 'synthetic-hmd',
                   'acceleration_scale': 1, 'angular_velocity_scale': 1, 'max_age_ns': 500000000,
                   'max_gap_ns': 350000000, 'minimum_accuracy': 3, 'startup_timeout_ns': 15000000000,
                   'report_timeout_ns': 1000000000, 'bias_max_age_ns': 1000000000}}
+if rotated:
+    config['views'][0]['rotation'] = [0, 1, -1, 0]
+    config['views'][1]['rotation'] = [0, -1, 1, 0]
 Path('/synthetic-hmd.json').write_text(json.dumps(config))
 Path('/hmd-phase').write_text('running')
 controller = {'status': 'passed', 'read_only': True, 'device': 'PICOA7H10',
@@ -144,6 +150,8 @@ try:
                                         wanted = list(expected[eye])
                                         if analytic:
                                             u, v = (x % 128 + .5) / 128, (y + .5) / 128
+                                            if rotated:
+                                                u, v = (1-v, u) if eye else (v, 1-u)
                                             left, right, up, down = map(math.tan, config['views'][eye]['fov'])
                                             dx, dy = ((-.03, .05) if eye else (.04, -.06)) if cycle >= 2 else (0, 0)
                                             tx, ty = left + u*(right-left) + dx, up - v*(up-down) + dy
@@ -200,7 +208,7 @@ try:
                     clientlog.seek(0)
                     servicelog.seek(0)
                     mocklog.seek(0)
-                    report = {'mock': mocklog.read().decode(errors='replace')[-20000:], 'frames': frames, 'renderer': 'compute' if cycle % 2 else 'graphics', 'optics': ('analytic-radial-rgb' if cycle >= 2 else 'analytic-identity') if analytic else ('rgb-crop' if cycle >= 2 else 'identity'), 'cycle': cycle, 'client_exit': client.returncode if client else None,
+                    report = {'mock': mocklog.read().decode(errors='replace')[-20000:], 'frames': frames, 'renderer': 'compute' if cycle % 2 else 'graphics', 'optics': ('analytic-radial-rgb' if cycle >= 2 else 'analytic-identity') if analytic else ('rgb-crop' if cycle >= 2 else 'identity'), 'view_rotations': [view['rotation'] for view in config['views']], 'cycle': cycle, 'client_exit': client.returncode if client else None,
                               'service_exit': service.returncode if service else None,
                               'client': clientlog.read().decode(errors='replace'),
                               'service': servicelog.read().decode(errors='replace')}
