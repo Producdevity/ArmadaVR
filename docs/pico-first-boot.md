@@ -183,6 +183,32 @@ primary controller, PHY, charger/PD, clock and EUD drivers to be built in,
 because the diagnostic contains no modules. No diagnostic has been booted on
 the headset.
 
+The later build through kernel patch `0034` uses Image
+`0c9d1c19e7ae046e6a18fc72376d39d5f0c0db487a580868352be0766f7b5c7a`.
+Its USB-only command line also requires `msm_drm.modeset=0`. Pico's vendor
+display configuration enables MSM DRM separately from the top-level kernel
+configuration. Its normal registration can restore the continuous splash and
+enable panel regulators before userspace starts. The existing modeset parameter
+stops MSM DRM master registration and that splash path.
+
+After validating the diagnostic identity, init checks the exact, non-conflicting
+command-line option, the kernel's `N` parameter value and absence of the
+`msm_drm` platform driver. A failed check requests power-off before USB setup.
+ARM64 sanitizer tests cover missing and malformed parameter values and an
+unexpected driver entry. Diskless boots of the actual kernel verify both the
+disabled-KMS diagnostic and controlled shutdown with missing/conflicting
+options. Other platform drivers still probe; this is not proof of an untouched
+physical display or a replacement for recovery.
+
+The corresponding diagnostic artifacts are in
+`output/pico-panel-load-20261013-v1/diagnostic-build-v3` and `diagnostic-boot-v2`.
+They supersede the earlier USB diagnostic builds. The matching full initramfs,
+root and runtime container retain display support; the KMS restriction belongs
+only to the initial USB diagnostic. Full-root filesystem and runtime-loader
+checks pass with the rebuilt modules and unchanged firmware and runtime
+libraries. The original root image remains intact. The runtime container is
+`output/pico-boot-container-20261013-v2`; it remains an offline, unsigned image.
+
 The exact older ABL's default ARM64 placement also passes an offline size
 check: the kernel's `0x80000` text offset matches, and its declared runtime size
 leaves 41,734,144 bytes before the diagnostic's calculated DTB boundary in the

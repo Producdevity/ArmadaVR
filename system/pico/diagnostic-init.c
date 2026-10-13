@@ -153,6 +153,16 @@ static int configured(const char *path)
     return size == (ssize_t)strlen("configured\n") && !memcmp(state, "configured\n", (size_t)size);
 }
 
+static int display_disabled(const char *sysfs)
+{
+    char path[512], value[8];
+    if (snprintf(path, sizeof(path), "%s/module/msm_drm/parameters/modeset", sysfs) >= (int)sizeof(path)) return 0;
+    if (read_file(path, value, sizeof(value)) != 2 || memcmp(value, "N\n", 2)) return 0;
+    if (snprintf(path, sizeof(path), "%s/bus/platform/drivers/msm_drm", sysfs) >= (int)sizeof(path)) return 0;
+    struct stat status;
+    return lstat(path, &status) < 0 && errno == ENOENT;
+}
+
 static void snapshot(const char *path)
 {
     char data[4096];
@@ -250,8 +260,13 @@ int main(void)
     } else if (strcmp(board, "qcom,kona") || !token(command, "armada.pico=diagnostic") || !token(command, expected)) goto refused;
     signal(SIGALRM, poweroff);
     alarm(virtual ? 10 : 90);
+    if (!token(command, "msm_drm.modeset=0") || !display_disabled("/sys")) {
+        record("DIAGNOSTIC_DISPLAY_GUARD_FAILED\nDIAGNOSTIC_POWEROFF\n");
+        poweroff(0);
+    }
     double deadline = seconds() + (virtual ? 2 : 70);
     record("ARMADA_PICO_DIAGNOSTIC_BEGIN kind=%s serial=%s\n", virtual ? "virtual" : "physical", serial);
+    record("DIAGNOSTIC_KMS_DISABLED\n");
     const char *paths[] = {"/proc/version", "/proc/cmdline", "/proc/device-tree/model",
         "/proc/device-tree/compatible", "/proc/meminfo", "/proc/self/mountinfo"};
     for (size_t i = 0; i < sizeof(paths) / sizeof(*paths); ++i) snapshot(paths[i]);

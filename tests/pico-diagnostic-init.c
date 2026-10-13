@@ -78,6 +78,41 @@ static void usb_selection(void)
     assert(!rmdir(root));
 }
 
+static void display_guard(void)
+{
+    char root[] = "/tmp/pico-display-XXXXXX", path[512];
+    assert(mkdtemp(root));
+    const char *directories[] = {"module", "module/msm_drm", "module/msm_drm/parameters",
+        "bus", "bus/platform", "bus/platform/drivers"};
+    for (size_t i = 0; i < sizeof(directories) / sizeof(*directories); i++) {
+        assert(snprintf(path, sizeof(path), "%s/%s", root, directories[i]) < (int)sizeof(path));
+        assert(!mkdir(path, 0700));
+    }
+    assert(!display_disabled(root));
+    assert(snprintf(path, sizeof(path), "%s/module/msm_drm/parameters/modeset", root) < (int)sizeof(path));
+    const char *values[] = {"Y\n", "0\n", "N", "N\nextra", "", "N\n"};
+    for (size_t i = 0; i < sizeof(values) / sizeof(*values); i++) {
+        int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        assert(fd >= 0 && write(fd, values[i], strlen(values[i])) == (ssize_t)strlen(values[i]) && !close(fd));
+        assert(display_disabled(root) == (i == sizeof(values) / sizeof(*values) - 1));
+    }
+    char driver[512];
+    assert(snprintf(driver, sizeof(driver), "%s/bus/platform/drivers/msm_drm", root) < (int)sizeof(driver));
+    assert(!mkdir(driver, 0700));
+    assert(!display_disabled(root));
+    assert(!rmdir(driver));
+    assert(!symlink("/missing", driver));
+    assert(!display_disabled(root));
+    assert(!unlink(driver));
+    assert(display_disabled(root));
+    assert(!unlink(path));
+    for (size_t i = sizeof(directories) / sizeof(*directories); i > 0; i--) {
+        assert(snprintf(path, sizeof(path), "%s/%s", root, directories[i - 1]) < (int)sizeof(path));
+        assert(!rmdir(path));
+    }
+    assert(!rmdir(root));
+}
+
 int main(void)
 {
     assert(getpid() != 1);
@@ -92,6 +127,10 @@ int main(void)
     assert(!token("badarmada.pico=diagnostic", "armada.pico=diagnostic"));
     assert(token("\tarmada.pico=diagnostic\n", "armada.pico=diagnostic"));
     assert(!token("", "armada.pico=diagnostic"));
+    assert(token("msm_drm.modeset=0", "msm_drm.modeset=0"));
+    assert(!token("msm_drm.modeset=0 msm_drm.modeset=1", "msm_drm.modeset=0"));
+    assert(!token("msm_drm.modeset=0 msm_drm.modeset=0", "msm_drm.modeset=0"));
+    display_guard();
     usb_selection();
     for (unsigned int i = 0; i < 2000; ++i) record("%0100u\n", i);
     assert(used == sizeof(report) - 1 && report[used] == 0);
