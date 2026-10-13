@@ -36,7 +36,7 @@ def validate(directory):
         raise ValueError('Monado builder changed since compilation')
     if identity.get('pico_sources') != {name: digest(ROOT / 'src' / name)
                                        for name in identity['profile']['pico_driver_sources']}:
-        raise ValueError('Pico controller build sources changed')
+        raise ValueError('Pico driver build sources changed')
     for name in ('monado-display-tests.py', 'monado-display-tests.c', 'monado-space-tests.c'):
         if identity['tests'][name] != digest(ROOT / 'tests' / name):
             raise ValueError('Monado regression tests changed since compilation')
@@ -76,7 +76,7 @@ def validate(directory):
         raise ValueError('Monado SSC dependency record disagrees with build configuration')
     if pico_enabled:
         for name in ('monado-service', 'monado-cli'):
-            if b'PICO_SSC_CONFIG' not in (prefix / 'bin' / name).read_bytes():
+            if any(marker not in (prefix / 'bin' / name).read_bytes() for marker in (b'PICO_SSC_CONFIG', b'PICO_HMD_CONFIG')):
                 raise ValueError('Installed Monado executable omits the Pico prober')
     tests = ET.parse(directory / 'ctest.xml').getroot()
     if (int(tests.get('tests', '0')) == 0 or int(tests.get('failures', '-1')) != 0 or

@@ -88,6 +88,35 @@ def main():
         if 'PICO_MONADO_PROBER_PASS checks=123 sessions=100' not in log:
             raise ValueError('Prober tests did not complete')
         print(log.splitlines()[-1])
+        hmd_inputs = [ROOT / 'tests/pico-monado-hmd.c', ROOT / 'src/pico-monado-hmd.c']
+        hmd_objects = []
+        for index, path in enumerate(hmd_inputs):
+            obj = output / ('hmd-' + str(index) + '.o')
+            run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
+                 '-c', str(path), '-o', str(obj)], 'hmd-' + str(index) + '-compile.log')
+            hmd_objects.append(str(obj))
+        hmd = output / 'pico-monado-hmd'
+        run([args.cxx, *sanitize, *hmd_objects, *objects[3:], '-pthread', '-lm', collect,
+             '-o', str(hmd)], 'hmd-link.log')
+        run([str(hmd)], 'hmd-test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1',
+            ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
+        hmd_log = (output / 'hmd-test.log').read_text()
+        if 'PICO_MONADO_HMD_PASS' not in hmd_log or 'joined=1064' not in hmd_log:
+            raise ValueError('HMD callbacks and ownership checks did not complete')
+        report['hmd_inputs_sha256'] = {str(p.relative_to(ROOT)): digest(p) for p in hmd_inputs}
+        report['hmd_binary_sha256'] = digest(hmd)
+        print(hmd_log, end='')
+        config_inputs = [ROOT / ('src/' + name + '.c') for name in ('pico-hmd-config', 'pico-hmd-prober')]
+        config_inputs.append(ROOT / 'tests/pico-hmd-config.c')
+        config_binary = output / 'pico-hmd-config'
+        run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
+             *map(str, config_inputs), objects[-1], '-lm', '-o', str(config_binary)], 'hmd-config-compile.log')
+        run([str(config_binary)], 'hmd-config-test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1',
+            ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
+        if 'PICO_HMD_CONFIG_PASS refusals=39 creates=3' not in (output / 'hmd-config-test.log').read_text():
+            raise ValueError('HMD configuration or prober tests did not complete')
+        report['hmd_config_inputs_sha256'] = {str(p.relative_to(ROOT)): digest(p) for p in config_inputs}
+        report['hmd_config_binary_sha256'] = digest(config_binary)
         report['status'] = 'passed'
     except Exception as error:
         report.update(status='failed', error=str(error))

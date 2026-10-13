@@ -151,12 +151,12 @@ def build(profile):
             raise ValueError('Installed service does not contain the display selection implementation')
         if 'ssc_dependency' in report:
             if 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' not in cache:
-                raise ValueError('Pico controller driver was disabled')
+                raise ValueError('Pico driver was disabled')
             for name in profile['pico_driver_sources']:
                 if name.endswith('.c') and len([entry for entry in commands if entry['file'].endswith('/pico_ssc/' + name)]) != 1:
-                    raise ValueError('Pico controller source omitted: ' + name)
+                    raise ValueError('Pico driver source omitted: ' + name)
             for name in ('monado-service', 'monado-cli'):
-                if b'PICO_SSC_CONFIG' not in (prefix / 'bin' / name).read_bytes():
+                if any(marker not in (prefix / 'bin' / name).read_bytes() for marker in (b'PICO_SSC_CONFIG', b'PICO_HMD_CONFIG')):
                     raise ValueError('Pico prober missing from installed executable: ' + name)
         if tree_digest(source) != report['source_sha256']:
             raise ValueError('Monado source changed during compilation')

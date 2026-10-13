@@ -1,0 +1,34 @@
+--- a/src/xrt/drivers/CMakeLists.txt
++++ b/src/xrt/drivers/CMakeLists.txt
+@@ -82,9 +82,12 @@
+ 		pico_ssc/pico-monado-prober.c pico_ssc/pico-ssc-session.c
+ 		pico_ssc/pico-monado-device.c pico_ssc/pico-monado-input.c
+ 		pico_ssc/pico-controller.c pico_ssc/pico-controller-stream.c
++        pico_ssc/pico-monado-hmd.c pico_ssc/pico-hmd-config.c pico_ssc/pico-hmd-prober.c
++        pico_ssc/pico-head-tracking.c pico_ssc/pico-head-session.c
++        pico_ssc/ssc-imu.c pico_ssc/ssc-imu-session.c pico_ssc/ssc-calibration.c
+ 		pico_ssc/ssc-clock.c pico_ssc/ssc-clock-linux.c)
+ 	target_include_directories(drv_pico_ssc PRIVATE "${PICO_SSC_INCLUDE_DIR}")
+-	target_link_libraries(drv_pico_ssc PRIVATE xrt-interfaces aux_util aux_os
++	target_link_libraries(drv_pico_ssc PRIVATE xrt-interfaces aux_util aux_os aux_math
+ 		xrt-external-cjson PkgConfig::PICO_GIO "${PICO_SSC_LIBRARY}")
+ 	list(APPEND ENABLED_DRIVERS pico_ssc)
+ endif()
+--- a/src/xrt/targets/common/target_lists.c
++++ b/src/xrt/targets/common/target_lists.c
+@@ -12,6 +12,7 @@
+ 
+ #ifdef XRT_BUILD_DRIVER_PICO_SSC
+ #include "pico_ssc/pico-monado-prober.h"
++#include "pico_ssc/pico-hmd-prober.h"
+ #endif
+ #include "target_builder_interface.h"
+ 
+@@ -233,6 +234,7 @@
+ 
+ xrt_auto_prober_create_func_t target_auto_list[] = {
+ #ifdef XRT_BUILD_DRIVER_PICO_SSC
++    pico_hmd_create_auto_prober,
+     pico_ssc_create_auto_prober,
+ #endif
+ 
