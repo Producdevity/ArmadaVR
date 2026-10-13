@@ -23,7 +23,7 @@ REQUIRED = ("DEVTMPFS", "PROC_FS", "SYSFS", "TMPFS", "CONFIGFS_FS", "USB_DWC3_MS
 
 def serial(value):
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", value) or value == "qemu":
-        raise ValueError("An explicit physical headset serial of at most 64 characters is required")
+        raise ValueError("An explicit ro.boot.serialno value of at most 64 characters is required")
     return value
 
 
@@ -69,7 +69,7 @@ def kernel_input(directory):
 
 
 def build(args):
-    selected = serial(args.serial)
+    selected = serial(args.boot_serial)
     hashes = kernel_input(args.kernel)
     compiler = shutil.which(args.zig)
     if not compiler:
@@ -82,6 +82,7 @@ def build(args):
                "-Wall", "-Wextra", "-Werror", str(SOURCE), "-o", str(args.output / "init")]
     report = {"status": "started", "scope": "initramfs-only diagnostic; offline build",
               "flash_ready": False, "physical_boot_verified": False, "usb_hardware_verified": False,
+              "boot_serial": selected, "identity_source": "explicit ro.boot.serialno; not ADB serial",
               "kernel_build_sha256": kernel_tools.digest(args.kernel / "build.json"),
               "kernel_inputs": hashes, "source_sha256": source_hash, "command": command}
     try:
@@ -110,7 +111,8 @@ def build(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernel", type=lambda value: Path(value).resolve())
-    parser.add_argument("--serial", required=True)
+    parser.add_argument("--boot-serial", required=True,
+                        help="Value of ro.boot.serialno on the target; this can differ from its ADB serial")
     parser.add_argument("--output", required=True, type=lambda value: Path(value).absolute())
     parser.add_argument("--zig", default="zig")
     args = parser.parse_args()

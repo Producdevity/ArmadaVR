@@ -105,15 +105,18 @@ runtime. Verify USB controller operation and controlled return before adding
 the external root filesystem, display/mux, DSP and tracking services.
 
 `tools/build-pico-diagnostic.py` now builds that separate initramfs. It packages
-one static ARM64 init executable and an explicit device serial; no shell,
+one static ARM64 init executable and an explicit bootloader serial; no shell,
 modules, firmware, root filesystem or disk-mount service is included. Init
 requires PID 1, a RAM root, `qcom,kona`, an exact diagnostic command-line token
 and matching `androidboot.serialno`. Missing or conflicting identity refuses
 USB setup. The virtual test requires a separate `qemu` serial and test token.
+Read `ro.boot.serialno` on the identified stock device for this input. On the
+inventoried Pro Eye it differs from `ro.serialno`, the serial shown by ADB.
+Using the ADB serial would make the diagnostic refuse startup.
 
 ```sh
 python3 -B tools/build-pico-diagnostic.py PHYSICAL_PICO_KERNEL_DIRECTORY \
-  --serial HEADSET_SERIAL --output NEW_DIAGNOSTIC_DIRECTORY
+  --boot-serial BOOT_SERIAL --output NEW_DIAGNOSTIC_DIRECTORY
 ```
 
 It configures the kernel's existing `gser` USB function, waits for one UDC,
@@ -127,7 +130,7 @@ serial and interface descriptors, without detaching a kernel driver:
 ```sh
 cc -std=c11 -O2 -Wall -Wextra -Werror tools/pico-diagnostic-log.c \
   $(pkg-config --cflags --libs libusb-1.0) -o NEW_LOG_RECEIVER
-NEW_LOG_RECEIVER --serial HEADSET_SERIAL > NEW_LOG_FILE
+NEW_LOG_RECEIVER --serial BOOT_SERIAL > NEW_LOG_FILE
 ```
 
 The receiver waits up to 90 seconds for enumeration and rejects incomplete or
@@ -139,7 +142,7 @@ claim of userspace policy enforcement.
 October 13 offline verification uses the unchanged physical Pico kernel
 `913b4a013bcd35900e104aca29ec0ccf3e356c2d77581af699c115dda9223f08`.
 The same init binary creates the real configfs serial function in diskless
-QEMU, observes no UDC, and powers off normally in 5.57 seconds. ARM64 sanitizer
+QEMU, observes no UDC, and powers off normally in 5.56 seconds. ARM64 sanitizer
 checks cover PID refusal, exact/conflicting command-line identities and bounded
 report storage; host sanitizer checks cover log identity and truncation.
 These tests do not exercise physical USB enumeration or log transfer.
