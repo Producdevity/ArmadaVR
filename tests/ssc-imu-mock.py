@@ -25,6 +25,7 @@ for index, name in enumerate(('accel_cal', 'gyro_cal') if calibration else ('acc
                  'attributes': {'name': {'id': 0, 'value': name}, 'vendor': {'id': 1, 'value': 'fixture'},
                                 'available': {'id': 3, 'value': not (index == 1 and fault == 'gyro-unavailable')},
                                 'sample_rate': {'id': 6, 'value': 0.0 if calibration else 1000.0},
+                                'rigid_body': {'id': 19, 'value': 0},
                                 'stream_type': {'id': 16, 'value': 1 if calibration else 0}}, 'measurements': []})
 ssc._read_data = staticmethod(lambda: data)
 

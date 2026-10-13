@@ -401,3 +401,12 @@ rejection and fresh generations. The 8,475-case calibration corpus also passes
 inside the guest; kernel taint is unchanged and shutdown is normal. The DSP and
 IMU sample inputs are synthetic. This bundle has not replaced the previously
 verified offline root or established physical sensor delivery.
+
+The [rigid-body patch](../patches/libssc/0009-expose-rigid-body-identity.patch)
+exposes attribute 19 as the read-only integer property `rigid-body`: display
+`0`, keyboard `1`, external `2`, or unknown `-1`. Missing, duplicate, malformed
+or unsupported values remain unknown; absence is never treated as display.
+The source regression checks actual protobuf attribute parsing and public
+property reads across 128 cycles, including wrong-SUID reports and replacement
+of previously valid metadata by invalid metadata. A physical pairing must check
+this property and the expected SUIDs before enabling bias correction.

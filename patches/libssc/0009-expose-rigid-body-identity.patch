@@ -1,0 +1,86 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -37,6 +37,7 @@
+ 	PROP_CLIENT = 9,
+ 	PROP_FILE = 10,
+ 	PROP_MOUNT_MATRIX = 11,
++	PROP_RIGID_BODY = 12,
+ 	N_PROPERTIES
+ };
+ static GParamSpec *properties[N_PROPERTIES];
+@@ -59,6 +60,7 @@
+ 	gboolean available;
+ 	gfloat sample_rate;
+ 	gfloat mount_matrix[3][3];
++	gint rigid_body;
+ 
+ 	SSCClient *client;
+ 	gulong report_id;
+@@ -356,6 +358,7 @@
+ 	ReportReceivedContext *ctx = user_data;
+ 	gboolean attributes_populated = FALSE;
+ 	gboolean mount_matrix_attribute_populated = FALSE;
++	gboolean rigid_body_seen = FALSE;
+ 	GError *error = NULL;
+ 
+ 	priv = ssc_sensor_get_instance_private (ctx->sensor);
+@@ -439,6 +442,7 @@
+ 			return;
+ 		}
+ 
++		priv->rigid_body = -1;
+ 		for (gsize i = 0; i < attr_msg->n_attr; i++) {
+ 			switch (attr_msg->attr[i]->id) {
+ 		       		case SSC_ATTRIBUTE_NAME:
+@@ -467,6 +471,18 @@
+ 					if (attr_msg->attr[i]->value_array->n_v == 1 && attr_msg->attr[i]->value_array->v[0]->has_i)
+ 						priv->stream_type = attr_msg->attr[i]->value_array->v[0]->i;
+ 					break;
++				case 19: {
++					SscAttrArrayValue *values = attr_msg->attr[i]->value_array;
++					priv->rigid_body = -1;
++					if (!rigid_body_seen && values->n_v == 1) {
++						SscAttrValue *value = values->v[0];
++						if (value->has_i && value->i <= 2 && !value->a && !value->s &&
++						    !value->has_f && !value->has_b)
++							priv->rigid_body = (gint)value->i;
++					}
++					rigid_body_seen = TRUE;
++					break;
++				}
+ 				case SSC_ATTRIBUTE_MOUNT_MATRIX:
+ 					mount_matrix_attribute_populated = TRUE;
+ 					/* 3x3 mount matrix has max 9 values but a 3x4 matrix is provided, use the first 9 values */
+@@ -790,6 +806,9 @@
+ 		case PROP_SAMPLE_RATE:
+ 			g_value_set_float (value, priv->sample_rate);
+ 			break;
++		case PROP_RIGID_BODY:
++			g_value_set_int (value, priv->rigid_body);
++			break;
+ 		case PROP_MOUNT_MATRIX:
+ 			g_value_set_pointer (value, priv->mount_matrix);
+ 			break;
+@@ -907,6 +926,13 @@
+ 				     G_PARAM_READABLE);
+ 	g_object_class_install_property (object_class, PROP_SAMPLE_RATE, properties[PROP_SAMPLE_RATE]);
+ 
++	properties[PROP_RIGID_BODY] =
++		g_param_spec_int ("rigid-body",
++		                  "Rigid body",
++		                  "Sensor body: display (0), keyboard (1), external (2), or unknown (-1).",
++		                  -1, 2, -1, G_PARAM_READABLE);
++	g_object_class_install_property (object_class, PROP_RIGID_BODY, properties[PROP_RIGID_BODY]);
++
+ 	properties[PROP_MOUNT_MATRIX] =
+ 		g_param_spec_pointer (SSC_SENSOR_MOUNT_MATRIX,
+ 			      "Mount matrix",
+@@ -929,6 +955,8 @@
+ 	SSCSensorPrivate *priv = NULL;
+ 
+ 	priv = ssc_sensor_get_instance_private (self);
++
++	priv->rigid_body = -1;
+ 
+ 	/* Use identity matrix in case no mount matrix is exposed */
+ 	memset(priv->mount_matrix, 0, sizeof(priv->mount_matrix));

@@ -110,6 +110,12 @@ static void discovered(GObject *object, GAsyncResult *result, gpointer data)
     g_assert_cmpuint(stream_type, ==, s->calibration_mode ? 1 : 0);
     g_assert_true(available);
     g_assert_cmpfloat(sample_rate, ==, s->calibration_mode ? 0.0f : 1000.0f);
+    GParamSpec *body_spec = g_object_class_find_property(G_OBJECT_GET_CLASS(s->sensors[sensor]), "rigid-body");
+    g_assert_nonnull(body_spec);
+    g_assert_cmpuint(G_PARAM_SPEC_VALUE_TYPE(body_spec), ==, G_TYPE_INT);
+    gint body = -1;
+    g_object_get(s->sensors[sensor], "rigid-body", &body, NULL);
+    g_assert_cmpint(body, ==, 0);
     g_object_get(s->sensors[sensor], SSC_SENSOR_CLIENT, &s->clients[sensor],
                  SSC_SENSOR_UID_HIGH, &s->config.suid_high[sensor],
                  SSC_SENSOR_UID_LOW, &s->config.suid_low[sensor], NULL);

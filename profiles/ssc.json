@@ -14,7 +14,8 @@
     "patches/libssc/0005-own-pending-sensor-operations.patch",
     "patches/libssc/0006-log-close-errors-before-transfer.patch",
     "patches/libssc/0007-correct-sensor-property-types.patch",
-    "patches/libssc/0008-complete-calibration-sensor-startup.patch"
+    "patches/libssc/0008-complete-calibration-sensor-startup.patch",
+    "patches/libssc/0009-expose-rigid-body-identity.patch"
   ],
   "hardware_verified": false,
   "test_source_sha256": {
@@ -27,7 +28,7 @@
     "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885",
     "data/ssc-sensor-suid.proto": "e7237d39dffa248ca84bf65bacf255cbae3176cf67f05c1068947cd77fe34e76"
   },
-  "patched_sensor_source_sha256": "aac1d036cba57855c949cbeeccdd58f5e05680fe73f425856d7d06c5449a50c6",
+  "patched_sensor_source_sha256": "6618b600bde84391f8410de2241f5aaa3d4261407394c44d4eeba9cff8c44e71",
   "runtime_dependencies": {
     "libqmi": {
       "nevra": "libqmi-1.36.0-3.fc44.aarch64",

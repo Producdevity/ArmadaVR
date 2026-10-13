@@ -42,6 +42,8 @@ def main():
                 shutil.copytree(patched, output / 'property-baseline')
             if patch.name == '0008-complete-calibration-sensor-startup.patch':
                 shutil.copytree(patched, output / 'calibration-baseline')
+            if patch.name == '0009-expose-rigid-body-identity.patch':
+                shutil.copytree(patched, output / 'rigid-body-baseline')
             subprocess.run(["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
                            cwd=patched, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=10)
     if digest(patched / "src/libssc-client.c") != profile["patched_report_source_sha256"]:
@@ -210,6 +212,25 @@ def main():
         if result.returncode or marker not in log:
             raise ValueError('SSC calibration startup comparison failed: ' + name)
         calibration[name] = {'command': command, 'returncode': result.returncode}
+    rigid_body = {}
+    for name, tree in (("baseline", output / 'rigid-body-baseline'), ("patched", patched)):
+        test = output / ('rigid-body-test-' + name)
+        command = [args.cc, '-std=gnu11', '-g', '-O1', '-Wall', '-Wextra', '-Werror',
+                   '-Wno-unused-parameter', '-fsanitize=address,undefined', '-DG_LOG_DOMAIN="libssc"',
+                   *(['-DEXPECT_OLD'] if name == 'baseline' else []),
+                   '-I' + str(tree / 'src'), '-I' + str(generated), str(ROOT / 'tests/ssc-rigid-body.c'),
+                   str(tree / 'src/libssc-client.c'), str(tree / 'src/libssc-common.c'),
+                   str(generated / 'ssc-common.pb-c.c'), str(generated / 'ssc-sensor-suid.pb-c.c'),
+                   *flags, '-o', str(test)]
+        with (output / ('build-rigid-body-' + name + '.log')).open('w') as log:
+            subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+        result = subprocess.run([str(test)], env=env, capture_output=True, text=True, timeout=15)
+        log = result.stdout + result.stderr
+        (output / ('rigid-body-' + name + '.log')).write_text(log)
+        marker = 'SSC_RIGID_BODY_BASELINE_MISSING' if name == 'baseline' else 'SSC_RIGID_BODY_PASS cycles=128'
+        if result.returncode or marker not in log:
+            raise ValueError('SSC rigid-body metadata comparison failed: ' + name)
+        rigid_body[name] = {'command': command, 'returncode': result.returncode}
     report = {"passed": True, "source_commit": profile["commit"],
               "patches_sha256": {str(p.relative_to(ROOT)): digest(p) for p in patches},
               "test_sha256": digest(ROOT / "tests/ssc-reports.c"),
@@ -218,6 +239,7 @@ def main():
               "close_test_sha256": digest(ROOT / "tests/ssc-close.c"), "close_results": close_results,
               "property_test_sha256": digest(ROOT / "tests/ssc-properties.c"), "properties": properties,
               "calibration_test_sha256": digest(ROOT / "tests/ssc-calibration-open.c"), "calibration": calibration,
+              "rigid_body_test_sha256": digest(ROOT / "tests/ssc-rigid-body.c"), "rigid_body": rigid_body,
               "operation_test_sha256": digest(ROOT / "tests/ssc-operation.c"), "operations": operations,
               "wire_sha256": digest(output / "wire-patched.pb"), "compile_commands": commands,
               "scope": "Actual protobuf dispatcher; no QRTR, DSP, radio or physical stream acceptance"}
