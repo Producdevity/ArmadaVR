@@ -33,7 +33,7 @@ if [[ "$target" == x86_64 ]]; then
     compiler+=(-I"$work")
 fi
 clang++ "${compiler[@]}" -std=c++17 src/steamvr-probe.cpp -lvulkan -ldl -o "$work/steamvr-probe"
-clang++ "${compiler[@]}" -std=c++17 -shared -fPIC -fvisibility=hidden src/steamvr-controllers.cpp -pthread -o "$work/driver_armada_virtual.so"
+clang++ "${compiler[@]}" -std=c++17 -shared -fPIC -fvisibility=hidden src/steamvr-controllers.cpp -pthread -o "$work/driver_reframed_virtual.so"
 if [[ "$target" == x86_64 ]]; then
     clang "${compiler[@]}" -std=gnu11 -shared -fPIC src/vulkan-procaddr.c -ldl -pthread -o "$work/libvulkan-procaddr.so"
     clang "${compiler[@]}" -std=gnu11 -shared -fPIC src/openxr-procaddr.c -ldl -pthread -o "$work/libopenxr-procaddr.so"
@@ -46,10 +46,10 @@ else
 fi
 mkdir -p "$out"
 install -m755 "$work/steamvr-probe" "$out/steamvr-probe"
-mkdir -p "$out/armada_virtual/bin/$architecture"
-install -m755 "$work/driver_armada_virtual.so" "$out/armada_virtual/bin/$architecture/driver_armada_virtual.so"
-cp system/steamvr-controllers/driver.vrdrivermanifest "$out/armada_virtual/"
-cp -r system/steamvr-controllers/resources "$out/armada_virtual/"
+mkdir -p "$out/reframed_virtual/bin/$architecture"
+install -m755 "$work/driver_reframed_virtual.so" "$out/reframed_virtual/bin/$architecture/driver_reframed_virtual.so"
+cp system/steamvr-controllers/driver.vrdrivermanifest "$out/reframed_virtual/"
+cp -r system/steamvr-controllers/resources "$out/reframed_virtual/"
 cp "$sdk/LICENSE" "$out/OpenVR-LICENSE"
 cp "profiles/$profile" "$out/steamvr-virtual.json"
 cp system/steamvr-probe/*.json "$out/"
@@ -67,7 +67,7 @@ else
     cp profiles/steamvr-native-presentation.json "$out/steamvr-presentation.json"
 fi
 sha256sum src/steamvr-probe.cpp src/steamvr-controllers.cpp src/steamvr-headset.h "$sdk/openvr.h" "$sdk/openvr_driver.h" \
-    "$out/steamvr-probe" "$out/armada_virtual/bin/$architecture/driver_armada_virtual.so" > "$out/sha256.txt"
+    "$out/steamvr-probe" "$out/reframed_virtual/bin/$architecture/driver_reframed_virtual.so" > "$out/sha256.txt"
 clang++ --version > "$out/compiler.txt"
 python3 - "$out" "$target" "$profile" <<'PY'
 import hashlib

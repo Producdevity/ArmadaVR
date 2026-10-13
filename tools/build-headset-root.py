@@ -46,24 +46,25 @@ SCRIPT = r'''
 set -eu
 mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
 tar -xpf /rootfs.tar -C /tmp/root
+python3 -B /repo/tools/userspace-layout.py /tmp/root
 if test -d /runtime-rpms; then
     test -x /tmp/root/usr/lib/systemd/systemd
-    test ! -e /tmp/root/tmp/armada-vr-rpms
-    mkdir /tmp/root/tmp/armada-vr-rpms
-    cp /runtime-rpms/*.rpm /tmp/root/tmp/armada-vr-rpms/
+    test ! -e /tmp/root/tmp/reframed-vr-rpms
+    mkdir /tmp/root/tmp/reframed-vr-rpms
+    cp /runtime-rpms/*.rpm /tmp/root/tmp/reframed-vr-rpms/
     chroot /tmp/root /bin/sh -ec '
         export LC_ALL=C
-        for package in /tmp/armada-vr-rpms/*.rpm; do
-            rpmkeys --checksig --verbose "$package" > /tmp/armada-vr-rpms/signature.txt
-            cat /tmp/armada-vr-rpms/signature.txt
-            grep -Ei "signature.*: OK$" /tmp/armada-vr-rpms/signature.txt >/dev/null
+        for package in /tmp/reframed-vr-rpms/*.rpm; do
+            rpmkeys --checksig --verbose "$package" > /tmp/reframed-vr-rpms/signature.txt
+            cat /tmp/reframed-vr-rpms/signature.txt
+            grep -Ei "signature.*: OK$" /tmp/reframed-vr-rpms/signature.txt >/dev/null
         done
-        rpm --upgrade --test /tmp/armada-vr-rpms/*.rpm
-        rpm --upgrade /tmp/armada-vr-rpms/*.rpm
+        rpm --upgrade --test /tmp/reframed-vr-rpms/*.rpm
+        rpm --upgrade /tmp/reframed-vr-rpms/*.rpm
         ldconfig
-        rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n" /tmp/armada-vr-rpms/*.rpm
+        rpm -qp --qf "%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n" /tmp/reframed-vr-rpms/*.rpm
     ' > /output/runtime-rpms-install.txt 2>&1
-    rm -rf /tmp/root/tmp/armada-vr-rpms
+    rm -rf /tmp/root/tmp/reframed-vr-rpms
 fi
 tar -xzf /kernel/modules.tar.gz -C /tmp/modules --no-same-owner
 python3 - "$1" <<'PYROOT'
@@ -75,8 +76,8 @@ if not (root/'usr/lib/systemd/systemd').is_file() or (root/'etc/initrd-release')
     raise SystemExit('Expected full systemd userspace, not an initramfs')
 removed=[]
 for name in ['.dockerenv','run/.containerenv','vm-boot','usr/lib/modules',
-             'etc/systemd/system/multi-user.target.wants/armada-vr-lab.service',
-             'etc/systemd/system/multi-user.target.wants/armada-vr-desktop.service',
+             'etc/systemd/system/multi-user.target.wants/reframed-vr-lab.service',
+             'etc/systemd/system/multi-user.target.wants/reframed-vr-desktop.service',
              'etc/systemd/system/dev-virtio\\x2dports-org.qemu.guest_agent.0.device.wants',
              'etc/systemd/network/20-qemu.network','etc/X11/xorg.conf.d/20-virtual-display.conf']:
     path=root/name
@@ -85,7 +86,7 @@ for name in ['.dockerenv','run/.containerenv','vm-boot','usr/lib/modules',
     elif path.is_dir():
         shutil.rmtree(path);removed.append(name)
 (root/'etc/machine-id').write_text('')
-(root/'etc/hostname').write_text('armada-vr\n')
+(root/'etc/hostname').write_text('reframed-vr\n')
 (root/'etc/fstab').write_text('# Root is mounted read-only by the initramfs; writable state is in RAM.\n')
 default=root/'etc/systemd/system/default.target'
 if default.is_symlink() or default.is_file():default.unlink()
@@ -103,10 +104,10 @@ for item in manifest['files']+(gpu['files'] if gpu else []):
     shutil.copy2(Path(source)/item['path'],path)
 unit=None
 if target['profile']=='quest3':
-    unit='usr/lib/systemd/system/armada-quest-boot.service'
+    unit='usr/lib/systemd/system/reframed-quest-boot.service'
     shutil.copy2('/quest.service',root/unit)
 else:
-    if any(root.glob('usr/lib/systemd/system/armada-quest*')) or any(root.glob('etc/systemd/system/**/armada-quest*')):
+    if any(root.glob('usr/lib/systemd/system/*-quest-boot.service*')) or any(root.glob('etc/systemd/system/**/*-quest-boot.service*')):
         raise SystemExit('Pico root cannot inherit Quest startup units')
 pico_services=None
 if target.get('pico_services'):
@@ -114,7 +115,7 @@ if target.get('pico_services'):
     pico=importlib.util.module_from_spec(spec);spec.loader.exec_module(pico)
     pico_services=pico.install('/',root,manifest)
     Path('/output/pico-services.json').write_text(json.dumps(pico_services,indent=2)+'\n')
-metadata=root/'usr/share/armada-vr';metadata.mkdir(parents=True,exist_ok=True)
+metadata=root/'usr/share/reframed-vr';metadata.mkdir(parents=True,exist_ok=True)
 shutil.copy2('/kernel/build.json',metadata/'kernel-build.json')
 shutil.copy2('/firmware/manifest.json',metadata/target['firmware_metadata'])
 if Path('/output/runtime-rpms.json').exists():
@@ -123,7 +124,7 @@ if gpu:shutil.copy2('/gpu-firmware/manifest.json',metadata/'quest-gpu-firmware.j
 turnip=None
 if Path('/output/turnip.json').is_file():
     turnip=json.loads(Path('/output/turnip.json').read_text())
-    prefix=root/'opt/armada-vr/turnip'
+    prefix=root/'opt/reframed-vr/turnip'
     if prefix.exists() or prefix.is_symlink():
         raise SystemExit('Base image already supplies Turnip')
     for item in turnip['files']:
@@ -162,7 +163,7 @@ if Path('/output/lepton.json').is_file():
     artifact.install('/lepton',root,lepton)
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
-    'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'armada-vr',
+    'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'reframed-vr',
     'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'ssc_inventory':inventory,'fastrpc':fastrpc,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
 PYROOT
 if test -d /systemd-runtime; then
@@ -210,13 +211,13 @@ Path('/output/pico-services-dependencies.txt').write_text('\n'.join(logs))
 PYQRTR
 fi
 if test -f /output/turnip.json; then
-    chroot /tmp/root /usr/bin/ldd -r /opt/armada-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
-    chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/armada-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
+    chroot /tmp/root /usr/bin/ldd -r /opt/reframed-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
+    chroot /tmp/root /usr/bin/python3 -c 'import ctypes,os; library=ctypes.CDLL("/opt/reframed-vr/turnip/lib64/libvulkan_freedreno.so",mode=os.RTLD_NOW); assert library.vk_icdGetInstanceProcAddr; print("Turnip ARM64 RTLD_NOW and ICD entry: passed")' > /output/turnip-loader.txt 2>&1
 fi
 if test -f /output/monado.json; then
-    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64 /usr/bin/ldd -r /opt/armada-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 /usr/bin/ldd -r /opt/reframed-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
     python3 -c 'from pathlib import Path; data=Path("/output/monado-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
-    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/armada-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/reframed-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
 fi
 if test -f /output/lepton.json; then
     chroot /tmp/root /bin/sh -ec '
@@ -239,7 +240,7 @@ mkfs.ext4 -q -F -L "$3" -O ^orphan_file -E lazy_itable_init=0,lazy_journal_init=
 e2fsck -fn /output/rootfs.ext4 > /output/fsck.log 2>&1
 debugfs -R stats /output/rootfs.ext4 > /output/filesystem.txt 2>&1
 if test -f /quest.service; then
-    debugfs -R 'dump /usr/lib/systemd/system/armada-quest-boot.service /tmp/verify/quest.service' /output/rootfs.ext4
+    debugfs -R 'dump /usr/lib/systemd/system/reframed-quest-boot.service /tmp/verify/quest.service' /output/rootfs.ext4
 fi
 debugfs -R 'rdump /usr/lib/modules /tmp/verify/modules' /output/rootfs.ext4
 debugfs -R 'rdump /usr/lib/firmware /tmp/verify/firmware' /output/rootfs.ext4
@@ -249,7 +250,7 @@ import json,re,subprocess
 from pathlib import Path
 record=json.loads(Path('/systemd-runtime/manifest.json').read_text())
 names=[item['path'].removeprefix('files/') for item in record['files']]
-names+=list(record['native_abi_sha256'])+['usr/share/armada-vr/root-systemd.json']
+names+=list(record['native_abi_sha256'])+['usr/share/reframed-vr/root-systemd.json']
 directories={str(Path(name).parent) for name in names if '\\' in name}
 names=sorted({name for name in names if not any(Path(name).is_relative_to(directory) for directory in directories)} | directories)
 commands=[]
@@ -266,18 +267,18 @@ PYRUNTIME
 fi
 if test -f /output/turnip.json; then
     mkdir /tmp/verify/turnip
-    debugfs -R 'rdump /opt/armada-vr/turnip /tmp/verify/turnip' /output/rootfs.ext4
-    debugfs -R 'dump /usr/share/armada-vr/turnip-build.json /tmp/verify/turnip-build.json' /output/rootfs.ext4
+    debugfs -R 'rdump /opt/reframed-vr/turnip /tmp/verify/turnip' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/reframed-vr/turnip-build.json /tmp/verify/turnip-build.json' /output/rootfs.ext4
 fi
 if test -f /output/monado.json; then
-    mkdir -p /tmp/verify/monado-root/opt/armada-vr /tmp/verify/monado-root/usr/share/armada-vr
-    debugfs -R 'rdump /opt/armada-vr/monado /tmp/verify/monado-root/opt/armada-vr' /output/rootfs.ext4
-    debugfs -R 'dump /usr/share/armada-vr/monado-build.json /tmp/verify/monado-root/usr/share/armada-vr/monado-build.json' /output/rootfs.ext4
+    mkdir -p /tmp/verify/monado-root/opt/reframed-vr /tmp/verify/monado-root/usr/share/reframed-vr
+    debugfs -R 'rdump /opt/reframed-vr/monado /tmp/verify/monado-root/opt/reframed-vr' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/reframed-vr/monado-build.json /tmp/verify/monado-root/usr/share/reframed-vr/monado-build.json' /output/rootfs.ext4
 fi
 if test -f /output/lepton.json; then
-    mkdir -p /tmp/verify/lepton-root/opt/armada-vr /tmp/verify/lepton-root/usr/share/armada-vr
-    debugfs -R 'rdump /opt/armada-vr/lepton /tmp/verify/lepton-root/opt/armada-vr' /output/rootfs.ext4
-    debugfs -R 'dump /usr/share/armada-vr/lepton-build.json /tmp/verify/lepton-root/usr/share/armada-vr/lepton-build.json' /output/rootfs.ext4
+    mkdir -p /tmp/verify/lepton-root/opt/reframed-vr /tmp/verify/lepton-root/usr/share/reframed-vr
+    debugfs -R 'rdump /opt/reframed-vr/lepton /tmp/verify/lepton-root/opt/reframed-vr' /output/rootfs.ext4
+    debugfs -R 'dump /usr/share/reframed-vr/lepton-build.json /tmp/verify/lepton-root/usr/share/reframed-vr/lepton-build.json' /output/rootfs.ext4
     mkdir -p /tmp/verify/lepton-root/usr/bin /tmp/verify/lepton-root/usr/lib/android-sdk /tmp/verify/lepton-capabilities
     for program in newuidmap newgidmap adb; do
         debugfs -R "dump -p /usr/bin/$program /tmp/verify/lepton-root/usr/bin/$program" /output/rootfs.ext4
@@ -290,7 +291,7 @@ if test -f /output/lepton.json; then
 import json,subprocess
 from pathlib import Path
 record=json.loads(Path('/output/lepton-runtime.json').read_text())['host']
-names=[i['path'] for i in record['files']]+['usr/share/armada-vr/lepton-host.json','home/vr/.config/containers/storage.conf']
+names=[i['path'] for i in record['files']]+['usr/share/reframed-vr/lepton-host.json','home/vr/.config/containers/storage.conf']
 for name in names:
     target=Path('/tmp/verify/lepton-root')/name;target.parent.mkdir(parents=True,exist_ok=True)
     subprocess.run(['debugfs','-R',f'dump -p /{name} {target}','/output/rootfs.ext4'],check=True)
@@ -321,7 +322,7 @@ turnip=None
 if Path('/output/turnip.json').is_file():
     turnip=json.loads(Path('/output/turnip.json').read_text())
     for item in turnip['files']:
-        path=Path('/tmp/verify/turnip')/item['path'].removeprefix('opt/armada-vr/')
+        path=Path('/tmp/verify/turnip')/item['path'].removeprefix('opt/reframed-vr/')
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=item['sha256']:
             raise SystemExit('Root image Turnip mismatch: '+item['path'])
     if hashlib.sha256(Path('/tmp/verify/turnip-build.json').read_bytes()).hexdigest()!=turnip['build_sha256']:
@@ -555,7 +556,7 @@ def run(args):
         raise ValueError("Root size must be 6–32 GiB")
     build, hashes, version, fw, validator, expected, runtime, inputs = target_inputs(
         args.profile, kernel, firmware, initramfs, runtime_dir, gpu_dir)
-    pico_services = "system/pico/armada-pico-qrtr" in inputs
+    pico_services = "system/pico/reframed-pico-qrtr" in inputs
     if ssc and (args.profile != "pico-neo3" or not pico_services):
         raise ValueError("SSC currently requires the Pico QRTR root services")
     if ssc:
@@ -567,12 +568,13 @@ def run(args):
             raise ValueError("FastRPC requires the Pico DSP startup services")
         inputs["tools/fastrpc-artifact.py"] = builder.digest(ROOT / "tools/fastrpc-artifact.py")
     if pico_services:
-        for name in ("tools/pico-services.py", "system/pico/armada-pico-qrtr-root.service",
-                     "system/pico/armada-pico-pd-mapper-root.service"):
+        for name in ("tools/pico-services.py", "system/pico/reframed-pico-qrtr-root.service",
+                     "system/pico/reframed-pico-pd-mapper-root.service"):
             inputs[name] = builder.digest(ROOT / name)
     runtime_sha = builder.digest(runtime_dir / "manifest.json") if runtime_dir else None
     if gpu and (gpu["reference_build"] != fw["reference_build"] or gpu["source_image_sha256"] != fw["source_image_sha256"]):
         raise ValueError("GPU and ADSP firmware must come from the same declared reference image")
+    inputs["tools/userspace-layout.py"] = builder.digest(ROOT / "tools/userspace-layout.py")
     inputs["tools/build-headset-root.py"] = builder.digest(Path(__file__))
     inputs["tools/build-headset-initramfs.py"] = builder.digest(Path(builder.__file__))
     inputs["profiles/kernel/" + args.profile + ".json"] = builder.digest(ROOT / "profiles/kernel" / (args.profile + ".json"))
@@ -624,7 +626,7 @@ def run(args):
     try:
         if monado_dir and not args.userspace_export and not rpms:
             probe = """import ctypes, os, subprocess
-prefix='/opt/armada-vr/monado'
+prefix='/opt/reframed-vr/monado'
 data=subprocess.check_output(['ldd','-r',prefix+'/bin/monado-service'],text=True,stderr=subprocess.STDOUT)
 print(data,flush=True)
 if 'not found' in data or 'undefined symbol' in data:
@@ -635,9 +637,9 @@ print('Monado runtime image preflight: passed')
 """
             command = [args.engine, "run", "--rm", "--read-only", "--network", "none",
                        "--memory", "256m", "--memory-swap", "256m", "--cpus", "1", "--pids-limit", "64",
-                       "-v", f"{monado_dir / monado_artifact.PREFIX}:/opt/armada-vr/monado:ro",
-                       *(["-v", f"{ssc_dir / ssc_artifact.PREFIX}:/opt/armada-vr/ssc:ro"] if ssc_dir else []),
-                       "-e", "LD_LIBRARY_PATH=/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64",
+                       "-v", f"{monado_dir / monado_artifact.PREFIX}:/opt/reframed-vr/monado:ro",
+                       *(["-v", f"{ssc_dir / ssc_artifact.PREFIX}:/opt/reframed-vr/ssc:ro"] if ssc_dir else []),
+                       "-e", "LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64",
                        "--entrypoint", "python3", image["Id"], "-B", "-c", probe]
             report["commands"].append(command)
             with (output / "monado-preflight.txt").open("wb") as log:
@@ -671,7 +673,8 @@ print('Monado runtime image preflight: passed')
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "2g", "--memory-swap", "2g",
                    "--cpus", "2", "--pids-limit", "256", "-v", f"{output}:/output", "-v", f"{archive}:/rootfs.tar:ro", "-v", f"{kernel}:/kernel:ro",
                    "-v", f"{firmware}:/firmware:ro",
-                   *(["-v", f"{ROOT / 'system/quest/armada-quest-boot.service'}:/quest.service:ro"] if args.profile == "quest3" else []),
+                   "-v", f"{ROOT / 'tools/userspace-layout.py'}:/repo/tools/userspace-layout.py:ro",
+                   *(["-v", f"{ROOT / 'system/quest/reframed-quest-boot.service'}:/quest.service:ro"] if args.profile == "quest3" else []),
                    *([arg for name in ("tools/pico-services.py", "system/pico", "profiles/qcom-services.json",
                                         "patches/pd-mapper",
                                         "patches/qrtr/0001-check-qmi-packet-bounds.patch")
@@ -759,7 +762,7 @@ if __name__ == "__main__":
     parser.add_argument("--profile", choices=("quest3", "pico-neo3"), default="quest3")
     parser.add_argument("--firmware", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--image", default="localhost/armada-vr:runtime")
+    parser.add_argument("--image", default="localhost/reframed-vr:runtime")
     parser.add_argument("--systemd-runtime", type=Path, help="Prepared root-scope systemd runtime; required for Pico")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
     parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
@@ -773,7 +776,7 @@ if __name__ == "__main__":
     parser.add_argument("--fastrpc", type=Path, help="Verified Pico FastRPC bundle; installs libraries without starting sensor streams")
     parser.add_argument("--runtime-rpms", type=Path, help="Manifest-pinned RPMs; signatures and dependencies must validate inside the selected userspace")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
-    parser.add_argument("--root-label", default="armada-vr-root")
+    parser.add_argument("--root-label", default="reframed-vr-root")
     parser.add_argument("--size-gib", type=int, default=8)
     try:
         run(parser.parse_args())

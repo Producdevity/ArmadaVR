@@ -15,7 +15,7 @@ bring-up follow that milestone. This is not yet an installation procedure.
    Bind every affected partition to verified original bytes, GPT extent and
    replacement size/hash. Preserve XBL, XBL configuration, GPTs, stock recovery
    and unrelated firmware. Do not perform a full firmware downgrade.
-3. Verify the physical restoration mechanism before installing ArmadaVR.
+3. Verify the physical restoration mechanism before installing Reframed VR.
    An actual restoration rehearsal writes storage; it cannot be silently
    treated as a read-only test under the current no-flash constraint. No
    deliberate bootloader corruption is required. A plan and readable backups

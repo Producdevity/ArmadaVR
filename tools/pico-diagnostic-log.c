@@ -45,7 +45,7 @@ static double seconds(void)
 
 static int complete(const unsigned char *data, size_t size, const char *begin)
 {
-    const char *end = "ARMADA_PICO_DIAGNOSTIC_END\n";
+    const char *end = "REFRAMED_PICO_DIAGNOSTIC_END\n";
     return size >= strlen(begin) + strlen(end) && !memcmp(data, begin, strlen(begin)) &&
         !memcmp(data + size - strlen(end), end, strlen(end));
 }
@@ -74,8 +74,8 @@ int main(int argc, char **argv)
             if (libusb_get_device_descriptor(devices[i], &descriptor) || descriptor.idVendor != 0x1d6b || descriptor.idProduct != 0x0104) continue;
             libusb_device_handle *handle = NULL;
             if (libusb_open(devices[i], &handle)) continue;
-            if (string_matches(handle, descriptor.iManufacturer, "ArmadaVR") &&
-                string_matches(handle, descriptor.iProduct, "ArmadaVR Pico diagnostic") &&
+            if (string_matches(handle, descriptor.iManufacturer, "Reframed VR") &&
+                string_matches(handle, descriptor.iProduct, "Reframed VR Pico diagnostic") &&
                 string_matches(handle, descriptor.iSerialNumber, argv[2])) {
                 ++matches;
                 if (!selected && interface(devices[i], &endpoint)) {
@@ -92,7 +92,7 @@ int main(int argc, char **argv)
         nanosleep(&delay, NULL);
     } while (seconds() < discovery_deadline);
     if (matches != 1 || !selected || libusb_claim_interface(selected, 0)) {
-        fputs("No unique available ArmadaVR diagnostic interface; no driver was detached.\n", stderr);
+        fputs("No unique available Reframed VR diagnostic interface; no driver was detached.\n", stderr);
         goto done;
     }
     claimed = 1;
@@ -100,7 +100,7 @@ int main(int argc, char **argv)
     size_t used = 0;
     double deadline = seconds() + 75;
     char begin[160];
-    snprintf(begin, sizeof(begin), "ARMADA_PICO_DIAGNOSTIC_BEGIN kind=physical serial=%s\n", argv[2]);
+    snprintf(begin, sizeof(begin), "REFRAMED_PICO_DIAGNOSTIC_BEGIN kind=physical serial=%s\n", argv[2]);
     while (used < sizeof(data) - 1 && seconds() < deadline) {
         int transferred = 0;
         int bytes = (int)(sizeof(data) - 1 - used);

@@ -126,12 +126,12 @@ def run(args):
                  'truncate -s 256M /output/rootfs.ext4; '
                  'mke2fs -q -t ext4 -O ^orphan_file,^metadata_csum_seed -d /tmp/root /output/rootfs.ext4'], 'filesystem.log')
         report['rootfs_sha256'] = digest(output / 'rootfs.ext4')
-        execute([args.qemu, '-name', 'Armada Android mount test', '-machine', 'virt', '-accel', args.accel,
+        execute([args.qemu, '-name', 'Reframed Android mount test', '-machine', 'virt', '-accel', args.accel,
                  '-cpu', 'host' if args.accel in ('hvf', 'kvm') else 'max', '-smp', '2', '-m', '1024',
                  '-nodefaults', '-nographic', '-monitor', 'none', '-serial', 'stdio', '-no-reboot', '-nic', 'none',
                  '-kernel', str(kernel / 'Image'), '-initrd', str(output / 'initramfs.cpio'),
                  '-drive', f'file={output}/rootfs.ext4,if=virtio,format=raw,snapshot=on',
-                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 armada.lepton_mount_test=1'], 'boot.log', 90)
+                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 reframed.lepton_mount_test=1'], 'boot.log', 90)
         report['capabilities'] = check_log((output / 'boot.log').read_text(errors='replace'))
         if android.kernel_inputs(kernel)[1] != hashes or digest(kernel / 'build.json') != report['kernel_build_sha256']:
             raise ValueError('Kernel inputs changed during execution')
@@ -154,7 +154,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('kernel', type=Path)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--image', default='localhost/armada-vr:android-container-tools')
+    parser.add_argument('--image', default='localhost/reframed-vr:android-container-tools')
     parser.add_argument('--engine', default=os.environ.get('CONTAINER_ENGINE', 'docker'))
     parser.add_argument('--zig', default='zig')
     parser.add_argument('--qemu', default='qemu-system-aarch64')

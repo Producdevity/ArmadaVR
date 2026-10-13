@@ -1,5 +1,5 @@
 export engine := env("CONTAINER_ENGINE", "docker")
-image := "localhost/armada-vr:vm"
+image := "localhost/reframed-vr:vm"
 
 # List the local development commands.
 default:
@@ -47,18 +47,18 @@ fetch-steam directory="output/steam-client":
 
 # Add native Steam UI dependencies to the existing lab image.
 build-steam:
-    {{ engine }} build --platform linux/arm64 --build-arg LAB_UID="$(id -u)" --build-arg LAB_GID="$(id -g)" -f Containerfile.steam -t localhost/armada-vr:steam .
+    {{ engine }} build --platform linux/arm64 --build-arg LAB_UID="$(id -u)" --build-arg LAB_GID="$(id -g)" -f Containerfile.steam -t localhost/reframed-vr:steam .
 
 # Capture a short offline client startup using isolated home and client data.
 steam-sandbox:
     mkdir -p output/steam-sandbox
-    {{ engine }} run --rm --network none --memory 2g --memory-swap 2g --shm-size 256m --cpus 2 --pids-limit 256 --user "$(id -u):$(id -g)" --entrypoint bash -v "$PWD/output/steam-client:/client" -v "$PWD/output/steam-sandbox:/output" localhost/armada-vr:steam /usr/local/bin/steam-sandbox
+    {{ engine }} run --rm --network none --memory 2g --memory-swap 2g --shm-size 256m --cpus 2 --pids-limit 256 --user "$(id -u):$(id -g)" --entrypoint bash -v "$PWD/output/steam-client:/client" -v "$PWD/output/steam-sandbox:/output" localhost/reframed-vr:steam /usr/local/bin/steam-sandbox
 
 # Build a desktop VM from a fresh, verified copy of the native client.
 build-desktop directory="output/desktop" client="output/desktop-client":
     python3 -B tools/fetch-steam.py {{ quote(client) }}
-    {{ engine }} build --platform linux/arm64 --build-context steam-client={{ quote(client) }} -f Containerfile.desktop -t localhost/armada-vr:desktop .
-    VR_VM_IMAGE=localhost/armada-vr:desktop CONTAINER_ENGINE={{ engine }} bash tools/build-vm.sh {{ quote(directory) }}
+    {{ engine }} build --platform linux/arm64 --build-context steam-client={{ quote(client) }} -f Containerfile.desktop -t localhost/reframed-vr:desktop .
+    VR_VM_IMAGE=localhost/reframed-vr:desktop CONTAINER_ENGINE={{ engine }} bash tools/build-vm.sh {{ quote(directory) }}
 
 # Open the persistent development VM in a native QEMU window.
 desktop directory="output/desktop":
@@ -90,7 +90,7 @@ inspect-boot image:
 
 # Install the vendor-kernel compiler inside an ARM64 Linux container image.
 build-kernel-tools:
-    {{ engine }} build --platform linux/arm64 -f Containerfile.kernel -t localhost/armada-vr:kernel .
+    {{ engine }} build --platform linux/arm64 -f Containerfile.kernel -t localhost/reframed-vr:kernel .
 
 # Attempt the original vendor configuration in Linux, capped at 6 GiB.
 build-vendor-kernel directory="output/kernel/quest3/vendor-build" profile="quest3":
@@ -138,7 +138,7 @@ build-runtime-image:
 
 # Produce a fresh QEMU desktop with native and Windows OpenXR boot acceptance.
 build-runtime-vm directory="output/runtime-vm":
-    VR_VM_IMAGE=localhost/armada-vr:runtime CONTAINER_ENGINE={{ engine }} bash tools/build-vm.sh {{ quote(directory) }}
+    VR_VM_IMAGE=localhost/reframed-vr:runtime CONTAINER_ENGINE={{ engine }} bash tools/build-vm.sh {{ quote(directory) }}
 
 # Verify offline sensor record decoding against Meta's pinned C UAPI.
 test-syncboss directory="output/syncboss":
@@ -146,7 +146,7 @@ test-syncboss directory="output/syncboss":
 
 # Install the optional software Vulkan driver's compiler in an ARM64 container.
 build-mesa-tools:
-    {{ engine }} build --platform linux/arm64 -f Containerfile.mesa -t localhost/armada-vr:mesa-tools .
+    {{ engine }} build --platform linux/arm64 -f Containerfile.mesa -t localhost/reframed-vr:mesa-tools .
 
 # Compile the pinned Lavapipe synchronization patch and cross-process probes.
 build-mesa directory="output/mesa/build":
@@ -158,7 +158,7 @@ build-turnip directory="output/mesa/turnip":
 
 # Build the small ARM64 Podman/FUSE dependency image for Quest VM tests.
 build-android-container-tools:
-    {{ engine }} build --platform linux/arm64 -f tests/android-container/Containerfile -t localhost/armada-vr:android-container-tools tests/android-container
+    {{ engine }} build --platform linux/arm64 -f tests/android-container/Containerfile -t localhost/reframed-vr:android-container-tools tests/android-container
 
 # Test rootless rootfs/data/APK overlay persistence, isolation and shutdown.
 test-android-mounts kernel="output/kernel/quest3/qemu-abi-v10" directory="output/android-mounts":

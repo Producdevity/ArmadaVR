@@ -1,4 +1,4 @@
-# Steam Frame software reuse in Armada VR
+# Steam Frame software reuse in Reframed VR
 
 For the October 8 update and current implementation priorities, see
 [device installation requirements](device-installation.md). The findings below
@@ -7,7 +7,7 @@ retain their original investigation dates.
 ## October 10 package availability
 
 The official [Frame hotfix package repository](https://holo-packages.steamos.cloud/archlinux-deckard-hotfixes/)
-now provides individual ARM64 SteamVR, Mesa and Vulkan-layer packages. ArmadaVR
+now provides individual ARM64 SteamVR, Mesa and Vulkan-layer packages. Reframed VR
 has acquired and checksum-verified the current SteamVR package and
 [compared its compositor with current validation](steamvr-arm64.md#current-official-package-comparison).
 Stereo rendering passes in the observed run; synchronization diagnostics and
@@ -70,7 +70,7 @@ September results below are historical, including their access and Docker limits
 
 The September 14, 2026 investigation finds useful public runtime changes,
 controller contracts and development tools, but no newly obtainable complete
-Frame OS or native Valve SteamVR bundle. Armada VR already has native ARM64
+Frame OS or native Valve SteamVR bundle. Reframed VR already has native ARM64
 Steam, ARM64 Proton, Monado and a Quest-specific Turnip/kernel path. The first
 new implementation is a reproducible diskless Android-container kernel test;
 it proves BinderFS isolation and identifies rootless OverlayFS as an unresolved
@@ -108,7 +108,7 @@ SteamOS. These facts support keeping native host graphics and XR services, but
 do not specify that every internal compositor component is open or directly
 portable. [2]
 
-Armada's native Linux Monado path and its ARM64 Proton/OpenXR test path already
+Reframed's native Linux Monado path and its ARM64 Proton/OpenXR test path already
 follow that direction. Its desktop SteamVR path still executes x86 binaries
 through Valve's FEX tool. That is a compatibility baseline. The Wine-side x86
 OpenXR bridge exists because that particular SteamVR client library is x86;
@@ -141,7 +141,7 @@ machine and `--target-arch=arm64`; it explicitly says the resulting tool cannot
 be used with an x86 Steam client under FEX. The ARM64 tool manifest requires
 Steam runtime app `4185400` and enables sessions. [4]
 
-Valve's runtime distribution reports exactly the version Armada already pins.
+Valve's runtime distribution reports exactly the version Reframed already pins.
 `SteamLinuxRuntime_4-arm64.tar.xz` SHA-256 remains
 `caa4b3bc3aad1cac43d94dbd802a963c13ed63ea1c414f04669ae402af505adf`.
 No archive update is warranted merely because the hardware launch occurred. [5]
@@ -194,7 +194,7 @@ unused local fix. Full rebuilt-FEX and rendering tests remain pending.
 Valve published SteamVR 2.17 on September 10. The release includes dashboard
 and cursor changes, Linux improvements and 32-bit OpenXR support. Its laser
 hand-switch fix is listed under Steam Link hand tracking, so it cannot be
-assumed to fix Armada's custom virtual-controller dashboard issue. A new
+assumed to fix Reframed's custom virtual-controller dashboard issue. A new
 backend still needs both-hand selection, scrolling, menu and focus tests. [9]
 
 The public SteamVR tracker at
@@ -269,10 +269,10 @@ separately. Failed fixture setup runs are retained alongside the successful one.
 
 Igalia's engineering report identifies Frame's Adreno 750 and Turnip work,
 including improvements that also benefit older Adreno generations. This
-reinforces Armada's existing use of Mesa/Turnip. It does not imply the GPUs,
+reinforces Reframed's existing use of Mesa/Turnip. It does not imply the GPUs,
 kernel display paths or firmware are interchangeable. [15]
 
-Armada currently pins Mesa 26.1.8 and carries KGSL synchronization and explicit
+Reframed currently pins Mesa 26.1.8 and carries KGSL synchronization and explicit
 DRM-display integration for the Quest's recorded Adreno740v3 variant. The
 retained Meta 5.10.246 source, Eureka/Anorak device trees, panel definitions,
 firmware inventories, thermal work and Qualcomm service startup remain the
@@ -281,7 +281,7 @@ board-specific foundation. The native Monado build is also retained.
 Valve's debugging documentation names an Android Mesa package,
 `deckard-mesa-android-aarch64-debug`. Its example development version is not a
 current package manifest. More importantly, that package is an Android ABI
-build; Armada's glibc Turnip library cannot simply be mounted into the same
+build; Reframed's glibc Turnip library cannot simply be mounted into the same
 slot. [11]
 
 Existing Armada/ROCKNIX reuse still covers the Fedora/package workflow, FEX
@@ -306,7 +306,7 @@ only the developer-tools project. These mappings are useful source-location
 evidence, not downloadable OS artifacts. [17]
 
 The exposed profiling configurations name MSM GPU counters/render stages and
-DRM vblank/dma-fence tracepoints. An Armada adaptation should discover the
+DRM vblank/dma-fence tracepoints. An Reframed adaptation should discover the
 available KGSL/DRM events and userspace producers first. A software QEMU GPU
 cannot supply Frame's hardware counters. Profiling should be bounded and
 explicitly distinguish frame submission, display presentation and actual

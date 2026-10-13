@@ -7,13 +7,13 @@ out="${1:-output/syncboss}"
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
 "$engine" run --rm --network none --memory 256m --memory-swap 256m --cpus 1 --pids-limit 64 \
-    --mount "type=volume,src=armada-vr-quest3-kernel,dst=/work,readonly" \
+    --mount "type=volume,src=reframed-vr-quest3-kernel,dst=/work,readonly" \
     --mount "type=bind,src=$PWD/tools,dst=/project/tools,readonly" \
     --mount "type=bind,src=$PWD/profiles,dst=/project/profiles,readonly" \
     --mount "type=bind,src=$PWD/tests/syncboss_uapi_fixture.c,dst=/fixture.c,readonly" \
     --mount "type=bind,src=$PWD/output/downloads/quest3-kernel.tar.gz,dst=/archive.tar.gz,readonly" \
     --mount "type=bind,src=$out,dst=/output" \
-    localhost/armada-vr:kernel -c '
+    localhost/reframed-vr:kernel -c '
         set -e
         python3 -B /project/tools/kernel-source.py verify-full quest3 --source /work/source \
             --archive /archive.tar.gz > /output/source-verify.log

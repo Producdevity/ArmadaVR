@@ -59,8 +59,8 @@ suite models KGSL calls. Neither test demonstrates actual GPU completion.
 
 `--turnip` validates the build, source/profile/patch/test identities, artifact
 checksums, ELF architecture and installed ICD path. The root receives the
-library and ICD under `/opt/armada-vr/turnip/`, plus the build record under
-`/usr/share/armada-vr/`. Loading with `RTLD_NOW` inside the assembled userspace
+library and ICD under `/opt/reframed-vr/turnip/`, plus the build record under
+`/usr/share/reframed-vr/`. Loading with `RTLD_NOW` inside the assembled userspace
 must succeed. After formatting, the builder extracts these files from the ext4
 image and compares their hashes with the validated bundle.
 

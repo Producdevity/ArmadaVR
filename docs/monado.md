@@ -11,7 +11,7 @@ With the existing ARM64 development image available:
 
 ```sh
 docker build --platform linux/arm64 -f Containerfile.monado \
-  -t localhost/armada-vr:monado-tools .
+  -t localhost/reframed-vr:monado-tools .
 bash tools/build-monado.sh NEW_MONADO_DIRECTORY
 ```
 
@@ -32,7 +32,7 @@ different installed dependency is refused before copying Monado.
 
 The runtime still requires both `PICO_SSC_CONFIG` and `PICO_SSC_COUNTER=1` to
 open a controller session. See [controller configuration](pico-controller-protocol.md#controller-configuration).
-Include `/opt/armada-vr/ssc/lib64` alongside the Monado library directory in
+Include `/opt/reframed-vr/ssc/lib64` alongside the Monado library directory in
 `LD_LIBRARY_PATH` for this optional build. No configuration, default runtime or
 automatic subscription is installed. The prober supplies digital/touch controls;
 physical analog calibration, tracking and haptics remain separate work.
@@ -43,7 +43,7 @@ immutable tools image without network access, two CPUs, a 4 GiB memory limit and
 builder records the profile, patches, tests, compiler commands, package inventory,
 source tree identity, test results and output hashes.
 
-The installed bundle is under `stage/opt/armada-vr/monado`. It contains native
+The installed bundle is under `stage/opt/reframed-vr/monado`. It contains native
 service/client libraries, tools and the OpenXR manifest. `tools/monado-artifact.py`
 provides `validate(directory)` for build and test callers; validation rejects
 changed sources, failed tests, damaged artifacts and foreign-architecture ELFs.
@@ -58,7 +58,7 @@ validated bundle so its artifact inventory remains unchanged.
 
 Runtime dependencies must be checked in the final userspace. The current base
 runtime needed Fedora's `opencv-videoio` package for this build. The separate
-`localhost/armada-vr:monado-runtime-test` image adds that dependency; `ldd -r` on
+`localhost/reframed-vr:monado-runtime-test` image adds that dependency; `ldd -r` on
 the service and immediate dynamic loading of both client libraries then passed.
 The canonical runtime image and retained complete headset roots have not yet
 received this bundle.

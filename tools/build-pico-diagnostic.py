@@ -99,8 +99,8 @@ def build(args):
         report["artifacts"] = [{"path": name, "bytes": (args.output / name).stat().st_size,
                                 "sha256": kernel_tools.digest(args.output / name)}
                                for name in ("init", "initramfs.cpio", "test-initramfs.cpio")]
-        report["cmdline"] = "rdinit=/init armada.pico=diagnostic msm_drm.modeset=0 selinux=1 enforcing=1"
-        report["test_cmdline"] = "rdinit=/init armada.pico=diagnostic-test msm_drm.modeset=0"
+        report["cmdline"] = "rdinit=/init reframed.pico=diagnostic msm_drm.modeset=0 selinux=1 enforcing=1"
+        report["test_cmdline"] = "rdinit=/init reframed.pico=diagnostic-test msm_drm.modeset=0"
         report["status"] = "built"
     except Exception as error:
         report.update(status="failed", error=str(error))

@@ -1,5 +1,5 @@
-#ifndef ARMADA_SSC_IMU_SESSION_H
-#define ARMADA_SSC_IMU_SESSION_H
+#ifndef REFRAMED_SSC_IMU_SESSION_H
+#define REFRAMED_SSC_IMU_SESSION_H
 
 #include "ssc-calibration.h"
 

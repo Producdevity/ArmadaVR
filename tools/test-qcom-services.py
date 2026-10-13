@@ -25,11 +25,11 @@ sources = load("qcom_sources", "fetch-qcom-services.py")
 
 SCRIPT = r'''
 set -eu
-cmp /profile.json /usr/share/armada-qcom-services/sources.json
-cmp /bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
-cmp /path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
-cmp /maps.patch /usr/share/armada-qcom-services/0002-explicit-service-maps.patch
-cmp /read.patch /usr/share/armada-qcom-services/0003-check-firmware-attribute-length.patch
+cmp /profile.json /usr/share/reframed-qcom-services/sources.json
+cmp /bounds.patch /usr/share/reframed-qcom-services/0001-check-qmi-packet-bounds.patch
+cmp /path.patch /usr/share/reframed-qcom-services/0001-report-actual-firmware-path.patch
+cmp /maps.patch /usr/share/reframed-qcom-services/0002-explicit-service-maps.patch
+cmp /read.patch /usr/share/reframed-qcom-services/0003-check-firmware-attribute-length.patch
 mkdir /tmp/pd-mapper
 tar -xzf /sources/pd-mapper.tar.gz -C /tmp/pd-mapper --strip-components=1
 gcc -O2 -Wall -Wextra -Werror -I/tmp/pd-mapper /tests/probe.c /tmp/pd-mapper/servreg_loc.c -lqrtr -o /output/qmi-probe
@@ -37,7 +37,7 @@ mkdir -p /output/extra
 cp /tests/init.sh /output/extra/qmi-init
 chmod 755 /output/extra/qmi-init
 cp /output/qmi-probe /output/extra/qmi-probe
-cp /usr/share/armada-qcom-services/sanitizers.log /output/sanitizers.log
+cp /usr/share/reframed-qcom-services/sanitizers.log /output/sanitizers.log
 python3 - <<'PY'
 import re,shutil,subprocess
 from pathlib import Path
@@ -128,11 +128,11 @@ def run(args):
                 raise TimeoutError("QRTR/QMI test did not finish; inspect boot.log")
         report["elapsed_seconds"] = round(time.monotonic() - started, 3)
         log = (output / "boot.log").read_text(errors="replace")
-        markers = ["ARMADA_QMI_CYCLE_PASS=1", "ARMADA_QMI_CYCLE_PASS=2", "ARMADA_QMI_NO_MAPS_PASS",
-                   "ARMADA_QMI_INIT_PASS", "no pd maps available", "reboot: Power down",
+        markers = ["REFRAMED_QMI_CYCLE_PASS=1", "REFRAMED_QMI_CYCLE_PASS=2", "REFRAMED_QMI_NO_MAPS_PASS",
+                   "REFRAMED_QMI_INIT_PASS", "no pd maps available", "reboot: Power down",
                    "Cannot open firmware path: /lib/firmware//missing"]
         if (report["returncode"] or not all(marker in log for marker in markers) or
-                log.count("ARMADA_QMI_PASS requests=96") != 2 or "ARMADA_QMI_FAIL" in log):
+                log.count("REFRAMED_QMI_PASS requests=96") != 2 or "REFRAMED_QMI_FAIL" in log):
             raise RuntimeError("QRTR/QMI acceptance failed; inspect boot.log")
         if sources.verify(source_dir) != profile or any(builder.digest(ROOT / name) != sha for name, sha in report["inputs_sha256"].items()):
             raise ValueError("Test sources changed during execution")
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument("initramfs", type=Path)
     parser.add_argument("sources", type=Path)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--image", default="localhost/armada-vr:qcom-services")
+    parser.add_argument("--image", default="localhost/reframed-vr:qcom-services")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--qemu", default="qemu-system-aarch64")
     parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"), default="hvf" if platform.system() == "Darwin" else "tcg")

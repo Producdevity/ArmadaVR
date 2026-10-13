@@ -148,7 +148,7 @@ def prepare(args):
     if len(patches) != 14:
         raise ValueError("Expected the fourteen reviewed Lepton patches")
     replacements = {}
-    with tempfile.TemporaryDirectory(prefix="armada-lepton-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="reframed-lepton-") as temporary:
         work = Path(temporary)
         with tarfile.open(source) as archive:
             for member in archive:

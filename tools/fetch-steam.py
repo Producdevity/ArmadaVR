@@ -113,7 +113,7 @@ def main():
                 header = src.read(20)
             if header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\xb7\x00":
                 raise ValueError("Expected an ELF64 little-endian AArch64 client")
-            (root / "armada-client-manifest.json").write_text(lock_path.read_text())
+            (root / "reframed-client-manifest.json").write_text(lock_path.read_text())
             root.rename(args.directory)
     except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError) as error:
         parser.exit(1, f"{error}\n")

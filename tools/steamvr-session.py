@@ -24,7 +24,7 @@ def prepare_fex_server(config, rootfs):
     if runtime.is_symlink() or not runtime.is_dir() or runtime.stat().st_uid != os.getuid():
         raise ValueError("FEX isolation requires an owned runtime directory")
     identity = hashlib.sha256(os.fsencode(str(config.resolve()) + "\0" + str(rootfs.resolve()))).hexdigest()[:16]
-    parent = runtime / "armada-vr-fex"
+    parent = runtime / "reframed-vr-fex"
     data = parent / identity
     socket = data / "Server" / f"{os.getuid()}.FEXServer.Socket"
     if len(os.fsencode(socket)) > 107:
@@ -36,7 +36,7 @@ def prepare_fex_server(config, rootfs):
         if directory.stat().st_uid != os.getuid() or directory.stat().st_mode & 0o077:
             raise ValueError("FEX server directories must be private and owned")
     return {"FEX_APP_DATA_LOCATION": str(data) + "/",
-            "FEX_SERVERSOCKETPATH": f"armada-vr-{os.getuid()}-{identity}"}
+            "FEX_SERVERSOCKETPATH": f"reframed-vr-{os.getuid()}-{identity}"}
 
 
 def prepare_browser_config(config, interpreter_sha256):
@@ -184,7 +184,7 @@ def prepare_virtual_session(bundle, binaries, state):
     if settings.get("steamvr", {}).get("forcedDriver") != "null" or not settings.get("driver_null", {}).get("enable"):
         raise ValueError("Virtual presentation requires Valve's null headset profile")
     for path in (bundle / "xpresent/libXpresent.so.1", bundle / "libvulkan-procaddr.so", bundle / "steamvr-probe",
-                 bundle / "armada_virtual/driver.vrdrivermanifest"):
+                 bundle / "reframed_virtual/driver.vrdrivermanifest"):
         if not path.is_file():
             raise ValueError(f"Missing virtual SteamVR dependency: {path}")
     directory = state / "steamvr-virtual"
@@ -199,7 +199,7 @@ def prepare_virtual_session(bundle, binaries, state):
     registry = directory / "openvrpaths.vrpath"
     registry.write_text(json.dumps({"version": 1, "jsonid": "vrpathreg",
         "runtime": [str(binaries.parent.parent)], "config": [str(directory / "config")],
-        "log": [str(directory / "logs")], "external_drivers": [str(bundle / "armada_virtual")]}) + "\n")
+        "log": [str(directory / "logs")], "external_drivers": [str(bundle / "reframed_virtual")]}) + "\n")
     return registry, directory / "logs/vrcompositor.txt"
 
 
@@ -280,9 +280,9 @@ def validate_native_inputs(runtime, bundle):
     if manifest.get("target") != "steamvr-virtual-aarch64":
         raise ValueError("Native session requires an AArch64 virtual-device bundle")
     required = {"steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
-                "steamvr-virtual.json", "armada_virtual/driver.vrdrivermanifest",
-                "armada_virtual/resources/rendermodels/controller/controller.json",
-                "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"}
+                "steamvr-virtual.json", "reframed_virtual/driver.vrdrivermanifest",
+                "reframed_virtual/resources/rendermodels/controller/controller.json",
+                "reframed_virtual/bin/linuxarm64/driver_reframed_virtual.so"}
     hashes = manifest.get("sha256", {})
     if not required.issubset(hashes):
         raise ValueError("Native bundle is missing its checked session dependencies")
@@ -312,8 +312,8 @@ def validate_native_inputs(runtime, bundle):
         raise ValueError("Native OpenXR manifest does not select this runtime's client")
     settings = json.loads((bundle / "steamvr-virtual.json").read_text())
     steamvr = settings.get("steamvr", {})
-    driver = settings.get("driver_armada_virtual", {})
-    if steamvr.get("forcedDriver") != "armada_virtual" or driver.get("simulateHeadset") is not True or driver.get("enable") is not True:
+    driver = settings.get("driver_reframed_virtual", {})
+    if steamvr.get("forcedDriver") != "reframed_virtual" or driver.get("simulateHeadset") is not True or driver.get("enable") is not True:
         raise ValueError("Native test requires the explicitly enabled simulated headset")
     if any(steamvr.get(name) is not False for name in ("activateMultipleDrivers", "startMonitorFromAppLaunch",
             "startCompositorFromAppLaunch", "startDashboardFromAppLaunch", "startOverlayAppsFromDashboard")):
@@ -377,13 +377,13 @@ def run_native(args):
             raise ValueError("Native presentation must use the probe from its checked bundle")
     if not args.icd.is_file() or not args.render_node.exists():
         raise ValueError("Native checks require an existing Vulkan ICD and DRM render node")
-    state = Path.home() / ".local/state/armada-vr"
+    state = Path.home() / ".local/state/reframed-vr"
     state.mkdir(parents=True, exist_ok=True)
     with (state / "steamvr-session.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError("An Armada VR session is already running") from error
+            raise RuntimeError("An Reframed VR session is already running") from error
         with tempfile.TemporaryDirectory(prefix="native-", dir=state) as temporary:
             directory = Path(temporary)
             for name in ("config", "logs", "run"):
@@ -392,7 +392,7 @@ def run_native(args):
             registry = directory / "openvrpaths.vrpath"
             registry.write_text(json.dumps({"version": 1, "jsonid": "vrpathreg", "runtime": [str(runtime)],
                 "config": [str(directory / "config")], "log": [str(directory / "logs")],
-                "external_drivers": [str(bundle / "armada_virtual")]}) + "\n")
+                "external_drivers": [str(bundle / "reframed_virtual")]}) + "\n")
             binaries = runtime / "bin/linuxarm64"
             libraries = f"{binaries}:{binaries / 'qt/lib'}"
             env = os.environ | {"VR_PATHREG_OVERRIDE": str(registry), "VR_OVERRIDE": str(runtime),
@@ -400,7 +400,7 @@ def run_native(args):
                 "XDG_RUNTIME_DIR": str(directory / "run"), "STEAMVR_TOOLSDIR": str(runtime),
                 "LD_LIBRARY_PATH": libraries, "VRCOMPOSITOR_LD_LIBRARY_PATH": libraries,
                 "VK_DRIVER_FILES": str(args.icd.resolve()), "LVP_DRM_SYNC": str(args.render_node), "LP_NUM_THREADS": "2"}
-            for name in ("LD_PRELOAD", "FEX_ENV", "FEX_GDBSERVER", "STEAMVR_VRENV", "ARMADA_VR_XPRESENT_BOOTSTRAP"):
+            for name in ("LD_PRELOAD", "FEX_ENV", "FEX_GDBSERVER", "STEAMVR_VRENV", "REFRAMED_VR_XPRESENT_BOOTSTRAP"):
                 env.pop(name, None)
             processes = []
             def interrupted(_signum, _frame):
@@ -497,13 +497,13 @@ def run(args):
         raise ValueError(f"Missing Vulkan resolver: {args.resolver}")
     if not args.render_node.exists():
         raise ValueError(f"Missing DRM render node: {args.render_node}")
-    state = Path.home() / ".local/state/armada-vr"
+    state = Path.home() / ".local/state/reframed-vr"
     state.mkdir(parents=True, exist_ok=True)
     with (state / "steamvr-session.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
-            raise RuntimeError("An Armada VR session is already running") from error
+            raise RuntimeError("An Reframed VR session is already running") from error
         bundle = args.bundle.resolve()
         compositor_log = client / "logs/vrcompositor.txt"
         registry = None
@@ -570,7 +570,7 @@ def run(args):
                     if name == "vrcompositor" and args.virtual_display:
                         compositor_libraries = f"{bundle / 'xpresent'}:{libraries}"
                         process_env.update({"LD_LIBRARY_PATH": compositor_libraries,
-                            "VRCOMPOSITOR_LD_LIBRARY_PATH": compositor_libraries, "ARMADA_VR_XPRESENT_BOOTSTRAP": "1337"})
+                            "VRCOMPOSITOR_LD_LIBRARY_PATH": compositor_libraries, "REFRAMED_VR_XPRESENT_BOOTSTRAP": "1337"})
                     if name == "vrcompositor" and args.debug_compositor:
                         process_env["FEX_GDBSERVER"] = "1"
                     # SteamVR checks the compositor's Linux comm name for liveness.
@@ -656,7 +656,7 @@ def main():
                         help="Launch this HOME profile's x86 Steam client after the virtual dashboard is ready")
     parser.add_argument("--rootfs", type=Path, default=Path("/usr/share/guestos/fex-mesa"))
     parser.add_argument("--icd", type=Path,
-                        default=Path("/opt/armada-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json"))
+                        default=Path("/opt/reframed-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json"))
     parser.add_argument("--render-node", type=Path, default=Path("/dev/dri/renderD128"))
     parser.add_argument("--startup-timeout", type=int, default=900)
     parser.add_argument("--session-timeout", type=int, default=3600)

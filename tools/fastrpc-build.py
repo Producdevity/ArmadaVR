@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIX = Path("opt/armada-vr/fastrpc")
+PREFIX = Path("opt/reframed-vr/fastrpc")
 
 
 def digest(path):

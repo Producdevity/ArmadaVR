@@ -7,7 +7,7 @@ It is built as a separate bundle; the builder neither installs it into a
 headset root nor starts a device service.
 
 ```sh
-docker build --platform linux/arm64 -f Containerfile.fastrpc -t localhost/armada-vr:fastrpc-tools .
+docker build --platform linux/arm64 -f Containerfile.fastrpc -t localhost/reframed-vr:fastrpc-tools .
 tools/build-fastrpc.sh source.tar.gz output/fastrpc
 ```
 
@@ -16,7 +16,7 @@ be reused. The wrapper verifies it before creating the output directory and
 runs the build without network access. It records the immutable compiler
 image, input hashes, tests, dependency versions and bundle contents in
 `bundle/build.json`. The bundle contains source, patches and licenses under
-`opt/armada-vr/fastrpc/share`; runtime libraries are under `lib64`.
+`opt/reframed-vr/fastrpc/share`; runtime libraries are under `lib64`.
 
 The sensor process must select `createstaticpd:sensorspd` through Qualcomm's
 `ITRANSPORT_PREFIX` interface before opening its sensor module. Sensor
@@ -68,7 +68,7 @@ Pass `--fastrpc /path/to/verified/bundle` to `tools/build-headset-root.py` when
 building a Pico root with its DSP startup services. The installer verifies the
 source and profile hashes, complete library inventory, ARM64 ELF headers,
 permissions, licenses and relative library links before copying the bundle.
-The libraries stay under `/opt/armada-vr/fastrpc`; installation does not select
+The libraries stay under `/opt/reframed-vr/fastrpc`; installation does not select
 a heap or start a sensor stream.
 
 The root builder checks symbol resolution using the target root's dynamic

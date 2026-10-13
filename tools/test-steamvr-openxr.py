@@ -39,7 +39,7 @@ def run(bundle, output):
              "VRCOMPOSITOR_LD_LIBRARY_PATH", "VR_PATHREG_OVERRIDE", "VR_OVERRIDE", "VR_CONFIG_PATH", "VR_LOG_PATH",
              "STEAMVR_TOOLSDIR", "STEAMVR_VRENV", "MESA_VK_WSI_SW_PRESENT")
     env = {key: original[key] for key in names if key in original}
-    expected_registry = Path.home() / ".local/state/armada-vr/steamvr-virtual/openvrpaths.vrpath"
+    expected_registry = Path.home() / ".local/state/reframed-vr/steamvr-virtual/openvrpaths.vrpath"
     if Path(env.get("VR_PATHREG_OVERRIDE", "")).resolve() != expected_registry.resolve():
         raise ValueError("Refusing a session outside the private virtual-headset registry")
     registry = json.loads(expected_registry.read_text())

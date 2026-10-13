@@ -31,7 +31,7 @@ RUN cmake -S /src -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 COPY tools/test-xr.sh /usr/local/bin/test-xr
 COPY tools/test-input.py /usr/local/bin/test-input
 COPY tools/render-xr.sh /usr/local/bin/render-xr
-COPY tools/check-render.py /usr/local/libexec/armada-vr/check-render.py
+COPY tools/check-render.py /usr/local/libexec/reframed-vr/check-render.py
 RUN chmod +x /usr/local/bin/test-input
 CMD ["test-xr", "/output"]
 
@@ -41,9 +41,9 @@ RUN --mount=from=fex,source=/rpms,target=/rpms \
       /rpms/fex-emu-[0-9]*.rpm /rpms/fex-emu-filesystem-*.rpm clang lld \
     && dnf clean all
 COPY tests/fex-smoke.S /tmp/fex-smoke.S
-RUN mkdir -p /usr/local/libexec/armada-vr \
+RUN mkdir -p /usr/local/libexec/reframed-vr \
     && clang --target=x86_64-linux-gnu -fuse-ld=lld -nostdlib -static \
-       /tmp/fex-smoke.S -o /usr/local/libexec/armada-vr/fex-smoke \
+       /tmp/fex-smoke.S -o /usr/local/libexec/reframed-vr/fex-smoke \
     && rm /tmp/fex-smoke.S
 COPY tools/test-fex.sh /usr/local/bin/test-fex
 
@@ -55,12 +55,12 @@ RUN dnf -y --setopt=install_weak_deps=False install kernel-core kernel-modules-c
     && cp /usr/lib/modules/$kver/vmlinuz /vm-boot/Image \
     && dracut --force --no-hostonly --no-hostonly-cmdline --kver "$kver" \
        --add-drivers 'virtio_pci virtio_blk ext4' /vm-boot/initramfs.img
-COPY system/armada-vr-lab.service /etc/systemd/system/armada-vr-lab.service
+COPY system/reframed-vr-lab.service /etc/systemd/system/reframed-vr-lab.service
 COPY tools/vm-test.sh /usr/local/bin/vm-test
 COPY tools/make-rootfs.sh /usr/local/bin/make-rootfs
-COPY tools/extract-kernel.py /usr/local/libexec/armada-vr/extract-kernel.py
-RUN python3 /usr/local/libexec/armada-vr/extract-kernel.py /vm-boot/Image /vm-boot/Image
-RUN systemctl enable armada-vr-lab.service \
-    && mkdir -p /usr/share/armada-vr \
-    && rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' | sort > /usr/share/armada-vr/package-versions.txt
+COPY tools/extract-kernel.py /usr/local/libexec/reframed-vr/extract-kernel.py
+RUN python3 /usr/local/libexec/reframed-vr/extract-kernel.py /vm-boot/Image /vm-boot/Image
+RUN systemctl enable reframed-vr-lab.service \
+    && mkdir -p /usr/share/reframed-vr \
+    && rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' | sort > /usr/share/reframed-vr/package-versions.txt
 CMD ["/sbin/init"]

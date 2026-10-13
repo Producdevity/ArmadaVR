@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 engine="${CONTAINER_ENGINE:-docker}"
 out="${1:?Choose a new output directory}"
 [[ ! -e "$out" && ! -L "$out" ]] || { echo "Output exists: $out" >&2; exit 1; }
-image=$("$engine" image inspect --format '{{.Id}}' "${MONADO_BUILD_IMAGE_ID:-localhost/armada-vr:monado-tools}")
+image=$("$engine" image inspect --format '{{.Id}}' "${MONADO_BUILD_IMAGE_ID:-localhost/reframed-vr:monado-tools}")
 extra=()
 if [[ -n "${2:-}" ]]; then
     ssc=$(cd "$2" && pwd)
@@ -14,7 +14,7 @@ python3 -B tools/monado-build.py fetch
 archive=$(python3 -B -c 'import json; p=json.load(open("profiles/monado.json")); print("output/downloads/monado-"+p["commit"]+".tar.gz")')
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-"$engine" run --rm --name armada-vr-monado-builder --platform linux/arm64 \
+"$engine" run --rm --name reframed-vr-monado-builder --platform linux/arm64 \
     --network none --read-only --memory 4g --memory-swap 4g --cpus 2 --pids-limit 256 \
     --tmpfs /work:rw,exec,size=1024m --tmpfs /tmp:rw,exec,size=64m \
     --env "MONADO_BUILD_IMAGE_ID=$image" --env PYTHONDONTWRITEBYTECODE=1 \

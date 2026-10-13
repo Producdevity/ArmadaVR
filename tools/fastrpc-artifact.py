@@ -9,8 +9,8 @@ import stat
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIX = "opt/armada-vr/fastrpc"
-BUILD_RECORD = "usr/share/armada-vr/fastrpc-build.json"
+PREFIX = "opt/reframed-vr/fastrpc"
+BUILD_RECORD = "usr/share/reframed-vr/fastrpc-build.json"
 
 
 def digest(path):

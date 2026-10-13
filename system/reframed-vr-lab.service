@@ -1,5 +1,5 @@
 [Unit]
-Description=Armada VR virtual headset acceptance tests
+Description=Reframed VR virtual headset acceptance tests
 After=local-fs.target
 
 [Service]

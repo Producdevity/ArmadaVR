@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_CONTROLLER_H
-#define ARMADA_PICO_CONTROLLER_H
+#ifndef REFRAMED_PICO_CONTROLLER_H
+#define REFRAMED_PICO_CONTROLLER_H
 
 #include <stdbool.h>
 #include <stddef.h>

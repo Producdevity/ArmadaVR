@@ -34,7 +34,7 @@ def session_tools():
 def session_details(process, native_bundle=None):
     original = dict(entry.decode().split('=', 1) for entry in
                     (process / 'environ').read_bytes().split(b'\0') if b'=' in entry)
-    state = (Path.home() / '.local/state/armada-vr').resolve()
+    state = (Path.home() / '.local/state/reframed-vr').resolve()
     expected = Path(original.get('VR_PATHREG_OVERRIDE', '')).resolve(strict=True)
     if native_bundle is None:
         if expected != state / 'steamvr-virtual/openvrpaths.vrpath':
@@ -57,7 +57,7 @@ def session_details(process, native_bundle=None):
         bundle = native_bundle.resolve(strict=True)
         session = session_tools()
         configured = session.prepare_native_presentation(runtime, bundle, session.validate_native_inputs(runtime, bundle))
-        steamvr, driver = settings.get('steamvr', {}), settings.get('driver_armada_virtual', {})
+        steamvr, driver = settings.get('steamvr', {}), settings.get('driver_reframed_virtual', {})
         if (any(steamvr.get(key) != configured['steamvr'][key] for key in
                 ('forcedDriver', 'activateMultipleDrivers', 'enableLinuxVulkanAsync', 'startCompositorFromAppLaunch'))
             or driver.get('simulateHeadset') is not True or driver.get('enable') is not True):
@@ -65,7 +65,7 @@ def session_details(process, native_bundle=None):
         if (executable != runtime / 'bin/linuxarm64/vrcompositor'
             or Path(registry['config'][0]).resolve() != expected.parent / 'config'
             or Path(original.get('VR_CONFIG_PATH', '')).resolve() != expected.parent / 'config'
-            or registry.get('external_drivers') != [str(bundle / 'armada_virtual')]):
+            or registry.get('external_drivers') != [str(bundle / 'reframed_virtual')]):
             raise ValueError('Native session components do not match its private registry')
         profile = json.loads((bundle / 'steamvr-presentation.json').read_text())
         with (runtime / 'bin/linux64/vrclient.so').open('rb') as stream:
@@ -120,7 +120,7 @@ def prepare_native_translation(directory, fex, rootfs, resolver, env):
             for prefix in ('/usr/lib', '/usr/lib/x86_64-linux-gnu') for name in aliases]}}}) + '\n')
     identity = hashlib.sha256(os.fsencode(directory)).hexdigest()[:16]
     return fex, env | {'FEX_APP_CONFIG_LOCATION': str(config) + '/', 'FEX_APP_DATA_LOCATION': str(data) + '/',
-        'FEX_SERVERSOCKETPATH': 'armada-windows-' + identity, 'FEX_PORTABLE': '1',
+        'FEX_SERVERSOCKETPATH': 'reframed-windows-' + identity, 'FEX_PORTABLE': '1',
         'FEX_ENV': 'LD_PRELOAD=' + str(resolver)}
 
 
@@ -145,7 +145,7 @@ def run(args):
         raise ValueError('Run as the desktop user')
     fex, manifest, env = active_session(args.native_bundle)
     if args.native_bundle:
-        with tempfile.TemporaryDirectory(prefix='armada-windows-', dir='/tmp') as temporary:
+        with tempfile.TemporaryDirectory(prefix='reframed-windows-', dir='/tmp') as temporary:
             fex, env = prepare_native_translation(Path(temporary), args.fex, args.fex_rootfs, args.vulkan_compat, env)
             started = []
             try:
@@ -180,7 +180,7 @@ def run_application(args, fex, manifest, env, started=None):
     env.update({
         'FEX_ENV': preload + ':' + str(compat),
         'XR_RUNTIME_JSON': str(manifest), 'XR_LOADER_DEBUG': 'warn',
-        'ARMADA_VR_OPENXR_ONLY': '1', 'WINEPREFIX': str(prefix),
+        'REFRAMED_VR_OPENXR_ONLY': '1', 'WINEPREFIX': str(prefix),
         'WINELOADERNOEXEC': '1', 'WINELOADER': str(proton / 'bin/wine'),
         'WINESERVER': str(proton / 'bin/wineserver'),
         'WINEDLLPATH': str(proton / 'lib/wine') + ':' + str(proton / 'lib/vkd3d'),

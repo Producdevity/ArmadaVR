@@ -23,7 +23,7 @@ class DesktopSteamTests(unittest.TestCase):
                 library.touch()
             subprocess.run(["bash", str(LAUNCHER), "-applaunch", "250820"],
                            env=os.environ | {"HOME": str(home)}, check=True, capture_output=True)
-            return (home / ".local/state/armada-vr/steam.log").read_text().splitlines()
+            return (home / ".local/state/reframed-vr/steam.log").read_text().splitlines()
 
     def test_x86_only_runtime_skips_native_client_integration(self):
         args = self.launch(["linux64"])

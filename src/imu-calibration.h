@@ -1,5 +1,5 @@
-#ifndef ARMADA_IMU_CALIBRATION_H
-#define ARMADA_IMU_CALIBRATION_H
+#ifndef REFRAMED_IMU_CALIBRATION_H
+#define REFRAMED_IMU_CALIBRATION_H
 
 #include <stdbool.h>
 #include <stddef.h>

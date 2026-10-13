@@ -14,16 +14,16 @@ int main(void)
 {
     g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
     const char pico[] = "qcom,kona", virt[] = "linux,dummy-virt";
-    g_assert_true(platform_permitted(pico, sizeof(pico), "ro armada.pico=qrtr\n"));
-    g_assert_true(platform_permitted(virt, sizeof(virt), "armada.ssc_test=1 ro"));
-    g_assert_false(platform_permitted(pico, sizeof(pico) - 1, "armada.pico=qrtr"));
-    g_assert_false(platform_permitted(pico, sizeof(pico), "armada.pico=qrtr armada.pico=no"));
-    g_assert_false(platform_permitted(pico, sizeof(pico), "armada.pico=qrtr armada.pico=qrtr"));
-    g_assert_false(platform_permitted(pico, sizeof(pico), "armada.pico=qrtr-extra"));
-    g_assert_false(platform_permitted(pico, sizeof(pico), "armada.ssc_test=1"));
-    g_assert_false(platform_permitted(virt, sizeof(virt), "armada.pico=qrtr"));
-    g_assert_false(platform_permitted(virt, sizeof(virt), "armada.ssc_test=1 armada.ssc_test=0"));
-    g_assert_false(platform_permitted(virt, sizeof(virt), "armada.ssc_test=1 armada.pico=qrtr"));
+    g_assert_true(platform_permitted(pico, sizeof(pico), "ro reframed.pico=qrtr\n"));
+    g_assert_true(platform_permitted(virt, sizeof(virt), "reframed.ssc_test=1 ro"));
+    g_assert_false(platform_permitted(pico, sizeof(pico) - 1, "reframed.pico=qrtr"));
+    g_assert_false(platform_permitted(pico, sizeof(pico), "reframed.pico=qrtr reframed.pico=no"));
+    g_assert_false(platform_permitted(pico, sizeof(pico), "reframed.pico=qrtr reframed.pico=qrtr"));
+    g_assert_false(platform_permitted(pico, sizeof(pico), "reframed.pico=qrtr-extra"));
+    g_assert_false(platform_permitted(pico, sizeof(pico), "reframed.ssc_test=1"));
+    g_assert_false(platform_permitted(virt, sizeof(virt), "reframed.pico=qrtr"));
+    g_assert_false(platform_permitted(virt, sizeof(virt), "reframed.ssc_test=1 reframed.ssc_test=0"));
+    g_assert_false(platform_permitted(virt, sizeof(virt), "reframed.ssc_test=1 reframed.pico=qrtr"));
     for (unsigned cycle = 0; cycle < 100; cycle++) {
         SscUid uid = SSC_UID__INIT, other = SSC_UID__INIT;
         uid.high = 1; uid.low = UINT64_MAX;

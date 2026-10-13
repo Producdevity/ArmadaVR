@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-runtime=/opt/armada-vr/runtime/SteamLinuxRuntime_4-arm64
-export PRESSURE_VESSEL_VARIABLE_DIR="$HOME/.cache/armada-vr/steamrt4"
+runtime=/opt/reframed-vr/runtime/SteamLinuxRuntime_4-arm64
+export PRESSURE_VESSEL_VARIABLE_DIR="$HOME/.cache/reframed-vr/steamrt4"
 export PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES=1
 export XR_RUNTIME_JSON=/usr/share/openxr/1/openxr_monado.json
 export LP_NUM_THREADS=2

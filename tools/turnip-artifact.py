@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LIBRARY = 'libvulkan_freedreno.so'
 ICD = 'freedreno_icd.aarch64.json'
-PREFIX = '/opt/armada-vr/turnip'
+PREFIX = '/opt/reframed-vr/turnip'
 
 
 def digest(path):

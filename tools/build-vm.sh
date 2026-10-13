@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 engine="${CONTAINER_ENGINE:-docker}"
-image="${VR_VM_IMAGE:-localhost/armada-vr:vm}"
+image="${VR_VM_IMAGE:-localhost/reframed-vr:vm}"
 out="${1:-output/vm}"
 [[ ! -e "$out" ]] || { echo "Output already exists: $out; choose a new directory" >&2; exit 1; }
 mkdir -p "$out"
@@ -24,7 +24,7 @@ python3 - "$out" <<'PY'
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
 image = json.loads((root / "image.json").read_text())[0]
-desktop = (image.get("Config", {}).get("Labels") or {}).get("org.armada-vr.desktop") == "true"
+desktop = (image.get("Config", {}).get("Labels") or {}).get("org.reframed-vr.desktop") == "true"
 hashes = {}
 for name in ("Image", "initramfs.img", "rootfs.ext4"):
     with (root / name).open("rb") as stream:

@@ -97,7 +97,7 @@ int main(int argc, char **argv)
         bool virtual = g_file_get_contents("/proc/device-tree/compatible", &identity, NULL, NULL) &&
                        !strcmp(identity, "linux,dummy-virt") &&
                        g_file_get_contents("/proc/cmdline", &command, NULL, NULL) &&
-                       strstr(command, "armada.ssc_test=1");
+                       strstr(command, "reframed.ssc_test=1");
         g_free(identity); g_free(command);
         if (!virtual) return 2;
     }

@@ -1,7 +1,7 @@
 [Unit]
 Description=QEMU-only Quest startup model
 DefaultDependencies=no
-Before=armada-quest-boot.service
+Before=reframed-quest-boot.service
 After=systemd-udev-trigger.service
 Conflicts=shutdown.target
 Before=shutdown.target

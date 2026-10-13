@@ -2,7 +2,7 @@
  * Copyright (c) 2016-2019, 2021, The Linux Foundation. All rights reserved.
  *
  * Lifecycle routines from ByteDance neo3-kernel 9cacc1c1356dd32a048f4cb13bc84af402bd3326,
- * techpack/display/msm/dsi/dsi_panel.c, with ArmadaVR patches through 0027.
+ * techpack/display/msm/dsi/dsi_panel.c, with Reframed VR patches through 0027.
  */
 static int dsi_panel_pinctrl_init(struct dsi_panel *panel)
 {

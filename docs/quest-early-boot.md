@@ -64,12 +64,12 @@ the directory is not yet a validated installation manifest.
 ## Startup and root lifecycle
 
 Build with `--firmware DIRECTORY --quest-services --image
-localhost/armada-vr:qcom-services`. These options are required together for this
+localhost/reframed-vr:qcom-services`. These options are required together for this
 service; firmware-only and firmware-free builds remain available. The offline
-assembler adds `armada.quest=usb-root` only for a service-bearing initramfs and
+assembler adds `reframed.quest=usb-root` only for a service-bearing initramfs and
 checks that command line after unpacking the generated boot image.
 
-`system/quest/armada-quest-boot` verifies the Eureka/Anorak identity and all 48
+`system/quest/reframed-quest-boot` verifies the Eureka/Anorak identity and all 48
 firmware hashes before loading the QRTR, ADSP loader, PMIC and UCSI modules.
 `ucsi_glink` has no module alias in this vendor build, so it is loaded explicitly.
 The helper finds exactly one Anorak ADSP remoteproc and waits for a real QRTR

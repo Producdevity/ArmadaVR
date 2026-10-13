@@ -6,7 +6,7 @@ mount -t devtmpfs devtmpfs /dev
 mount -t tmpfs tmpfs /run
 IFS= read -r -d '' compatible < /proc/device-tree/compatible
 if [ "$compatible" != linux,dummy-virt ] || [ "$$" != 1 ]; then
-    echo ARMADA_QMI_INIT_REFUSED
+    echo REFRAMED_QMI_INIT_REFUSED
     exec /bin/sh
 fi
 
@@ -25,20 +25,20 @@ run_cases() {
         wait "$mapper"
         cat /run/pd-mapper.log
         test "$result" = 0 || return 1
-        echo ARMADA_QMI_CYCLE_PASS="$cycle"
+        echo REFRAMED_QMI_CYCLE_PASS="$cycle"
     done
     printf 'missing/adsp.mdt\n' > /run/remoteproc/remoteproc0/firmware
     /usr/bin/pd-mapper > /run/no-maps.log 2>&1
     result=$?
     cat /run/no-maps.log
     test "$result" = 1 || return 1
-    echo ARMADA_QMI_NO_MAPS_PASS
+    echo REFRAMED_QMI_NO_MAPS_PASS
 }
 
 if run_cases; then
-    echo ARMADA_QMI_INIT_PASS
+    echo REFRAMED_QMI_INIT_PASS
 else
-    echo ARMADA_QMI_INIT_FAIL
+    echo REFRAMED_QMI_INIT_FAIL
 fi
 systemctl --force --force poweroff
 exec /bin/sh

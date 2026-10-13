@@ -156,7 +156,7 @@ preserved under `output/quest-live-sensors-20261011-v1/`.
 Host and ARM64 Linux sanitizer tests cover truncated and unaligned records,
 unpublished counters, incorrect types/headers, invalid clock status, signed
 offset underflow/overflow, both supported driver headers and all four payload
-versions. Live capture is stock Android driver evidence, not native ArmadaVR
+versions. Live capture is stock Android driver evidence, not native Reframed VR
 boot or physical tracking acceptance.
 
 `syncboss_imu_stream_accept` provides a separate gate before tracking consumption.

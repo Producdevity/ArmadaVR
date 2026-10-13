@@ -16,7 +16,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define GADGET "/sys/kernel/config/usb_gadget/armada_diagnostic"
+#define GADGET "/sys/kernel/config/usb_gadget/reframed_diagnostic"
 #define PRIMARY_UDC "a600000.dwc3"
 static char report[128 * 1024];
 static size_t used;
@@ -106,8 +106,8 @@ static int gadget(const char *serial)
     return set(GADGET "/idVendor", "0x1d6b") || set(GADGET "/idProduct", "0x0104") ||
         set(GADGET "/bcdDevice", "0x0001") || set(GADGET "/bcdUSB", "0x0200") ||
         set(GADGET "/strings/0x409/serialnumber", serial) ||
-        set(GADGET "/strings/0x409/manufacturer", "ArmadaVR") ||
-        set(GADGET "/strings/0x409/product", "ArmadaVR Pico diagnostic") ||
+        set(GADGET "/strings/0x409/manufacturer", "Reframed VR") ||
+        set(GADGET "/strings/0x409/product", "Reframed VR Pico diagnostic") ||
         set(GADGET "/configs/c.1/strings/0x409/configuration", "Boot diagnostics") ||
         set(GADGET "/configs/c.1/bmAttributes", "0x80") ||
         set(GADGET "/configs/c.1/MaxPower", "250") ||
@@ -256,8 +256,8 @@ int main(void)
     int virtual = !strcmp(board, "linux,dummy-virt");
     snprintf(expected, sizeof(expected), "androidboot.serialno=%s", serial);
     if (virtual) {
-        if (strcmp(serial, "qemu") || !token(command, "armada.pico=diagnostic-test")) goto refused;
-    } else if (strcmp(board, "qcom,kona") || !token(command, "armada.pico=diagnostic") || !token(command, expected)) goto refused;
+        if (strcmp(serial, "qemu") || !token(command, "reframed.pico=diagnostic-test")) goto refused;
+    } else if (strcmp(board, "qcom,kona") || !token(command, "reframed.pico=diagnostic") || !token(command, expected)) goto refused;
     signal(SIGALRM, poweroff);
     alarm(virtual ? 10 : 90);
     if (!token(command, "msm_drm.modeset=0") || !display_disabled("/sys")) {
@@ -265,7 +265,7 @@ int main(void)
         poweroff(0);
     }
     double deadline = seconds() + (virtual ? 2 : 70);
-    record("ARMADA_PICO_DIAGNOSTIC_BEGIN kind=%s serial=%s\n", virtual ? "virtual" : "physical", serial);
+    record("REFRAMED_PICO_DIAGNOSTIC_BEGIN kind=%s serial=%s\n", virtual ? "virtual" : "physical", serial);
     record("DIAGNOSTIC_KMS_DISABLED\n");
     const char *paths[] = {"/proc/version", "/proc/cmdline", "/proc/device-tree/model",
         "/proc/device-tree/compatible", "/proc/meminfo", "/proc/self/mountinfo"};
@@ -290,7 +290,7 @@ int main(void)
     }
     record("DIAGNOSTIC_USB_CONFIGURED\n");
     boot_log();
-    record("ARMADA_PICO_DIAGNOSTIC_END\n");
+    record("REFRAMED_PICO_DIAGNOSTIC_END\n");
     int sent = transmit(deadline);
     record("DIAGNOSTIC_USB_TRANSMIT result=%d\n", sent);
     sleep(2);
@@ -298,6 +298,6 @@ int main(void)
     record("DIAGNOSTIC_USB_DETACH result=%d\nDIAGNOSTIC_POWEROFF\n", detached);
     poweroff(0);
 refused:
-    record("ARMADA_PICO_DIAGNOSTIC_REFUSED\n");
+    record("REFRAMED_PICO_DIAGNOSTIC_REFUSED\n");
     for (;;) pause();
 }

@@ -29,11 +29,11 @@ filesystem repair helper. Inputs and previous outputs are never overwritten.
 The builder verifies its manifest before and after construction, then checks
 every firmware hash and rejects unexpected firmware in the unpacked image.
 Firmware inclusion alone does not add an ADSP startup service. Add
-`--quest-services --image localhost/armada-vr:qcom-services` to include the
+`--quest-services --image localhost/reframed-vr:qcom-services` to include the
 [bounded Quest startup and mapper lifecycle](quest-early-boot.md). The builder
 checks the pinned mapper source profile and patches, then verifies the installed
 helper, unit, enable link, firmware checksum manifest and mapper binaries.
-Activation also requires `armada.quest=usb-root`, emitted by the offline assembler
+Activation also requires `reframed.quest=usb-root`, emitted by the offline assembler
 for this variant.
 
 For Pico, `--pico-firmware DIRECTORY` includes a private Adreno 650 bundle made
@@ -47,7 +47,7 @@ The root handoff currently uses a dedicated ext4 root selected by label, with
 journal loading disabled and writable state held in RAM:
 
 ```text
-root=LABEL=armada-vr-root ro rootfstype=ext4 rootflags=noload
+root=LABEL=reframed-vr-root ro rootfstype=ext4 rootflags=noload
 systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0
 rd.systemd.gpt_auto=0 systemd.gpt_auto=0
 rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30

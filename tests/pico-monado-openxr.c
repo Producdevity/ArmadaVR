@@ -43,7 +43,7 @@ int main(void)
     file = fopen("/proc/cmdline", "r");
     assert(file && fgets(cmdline, sizeof(cmdline), file));
     fclose(file);
-    assert(!strcmp(board, "linux,dummy-virt") && strstr(cmdline, "armada.ssc_test=1"));
+    assert(!strcmp(board, "linux,dummy-virt") && strstr(cmdline, "reframed.ssc_test=1"));
 
     const char *extensions[] = {"XR_MND_headless", "XR_BD_controller_interaction"};
     XrInstanceCreateInfo create = {.type = XR_TYPE_INSTANCE_CREATE_INFO,

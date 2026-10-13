@@ -112,13 +112,13 @@ def run(args):
         if binary[:6] != b'\x7fELF\x02\x01' or binary[18:20] != b'\xb7\x00':
             raise ValueError('Compiler did not produce a little-endian ARM64 ELF')
         (output / 'initramfs.cpio').write_bytes(archive.initramfs(binary))
-        execute([args.qemu, '-name', 'Armada Android container ABI', '-machine',
+        execute([args.qemu, '-name', 'Reframed Android container ABI', '-machine',
                  'virt,secure=on,virtualization=on' if pico else 'virt', '-accel', args.accel,
                  '-cpu', 'cortex-a76' if pico else 'host' if args.accel in ('hvf', 'kvm') else 'max',
                  '-smp', '2', '-m', '2048' if pico else '512',
                  '-nodefaults', '-nographic', '-monitor', 'none', '-serial', 'stdio', '-no-reboot',
                  '-nic', 'none', '-kernel', str(kernel / 'Image'), '-initrd', str(output / 'initramfs.cpio'),
-                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 armada.android_container_test=1' +
+                 '-append', 'console=ttyAMA0 rdinit=/init selinux=0 audit=0 panic=-1 reframed.android_container_test=1' +
                  (' initcall_blacklist=hwinfo_init' if pico else '')], 'boot.log', 90 if pico else 45)
         report['capabilities'] = check_log((output / 'boot.log').read_text(errors='replace'), pico=pico)
         if any(builder.digest(kernel / name) != sha for name, sha in hashes.items()):

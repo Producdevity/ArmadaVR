@@ -34,14 +34,14 @@ public:
         index = device_index;
         container = vr::VRProperties()->TrackedDeviceToPropertyContainer(index);
         auto properties = vr::VRProperties();
-        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "armada_virtual");
+        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "reframed_virtual");
         properties->SetStringProperty(container, vr::Prop_ModelNumber_String,
-                                      left ? "Armada VR virtual left controller" : "Armada VR virtual right controller");
-        properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Armada VR simulator");
+                                      left ? "Reframed VR virtual left controller" : "Reframed VR virtual right controller");
+        properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Reframed VR simulator");
         properties->SetStringProperty(container, vr::Prop_ControllerType_String, "vive_controller");
-        const bool simulated_headset = vr::VRSettings()->GetBool("driver_armada_virtual", "simulateHeadset");
+        const bool simulated_headset = vr::VRSettings()->GetBool("driver_reframed_virtual", "simulateHeadset");
         properties->SetStringProperty(container, vr::Prop_RenderModelName_String,
-                                      simulated_headset ? "{armada_virtual}controller" : "vr_controller_vive_1_5");
+                                      simulated_headset ? "{reframed_virtual}controller" : "vr_controller_vive_1_5");
         properties->SetStringProperty(container, vr::Prop_InputProfilePath_String, "{htc}/input/vive_controller_profile.json");
         properties->SetInt32Property(container, vr::Prop_ControllerRoleHint_Int32,
                                      left ? vr::TrackedControllerRole_LeftHand : vr::TrackedControllerRole_RightHand);
@@ -151,15 +151,15 @@ public:
         VR_INIT_SERVER_DRIVER_CONTEXT(context);
         char driver[64] = {};
         vr::VRSettings()->GetString("steamvr", "forcedDriver", driver, sizeof(driver));
-        use_headset = !std::strcmp(driver, "armada_virtual") &&
-            vr::VRSettings()->GetBool("driver_armada_virtual", "simulateHeadset");
+        use_headset = !std::strcmp(driver, "reframed_virtual") &&
+            vr::VRSettings()->GetBool("driver_reframed_virtual", "simulateHeadset");
         if (std::strcmp(driver, "null") && !use_headset) return vr::VRInitError_Driver_Failed;
-        if (use_headset && !vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-qemu", vr::TrackedDeviceClass_HMD, &headset))
+        if (use_headset && !vr::VRServerDriverHost()->TrackedDeviceAdded("reframed-vr-qemu", vr::TrackedDeviceClass_HMD, &headset))
             return vr::VRInitError_Driver_Failed;
-        if (!vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-left", vr::TrackedDeviceClass_Controller, &left) ||
-            !vr::VRServerDriverHost()->TrackedDeviceAdded("armada-vr-right", vr::TrackedDeviceClass_Controller, &right))
+        if (!vr::VRServerDriverHost()->TrackedDeviceAdded("reframed-vr-left", vr::TrackedDeviceClass_Controller, &left) ||
+            !vr::VRServerDriverHost()->TrackedDeviceAdded("reframed-vr-right", vr::TrackedDeviceClass_Controller, &right))
             return vr::VRInitError_Driver_Failed;
-        vr::VRDriverLog()->Log("Armada VR simulated controllers registered; no hardware transport");
+        vr::VRDriverLog()->Log("Reframed VR simulated controllers registered; no hardware transport");
         return vr::VRInitError_None;
     }
     void Cleanup() override { headset.Deactivate(); left.Deactivate(); right.Deactivate(); VR_CLEANUP_SERVER_DRIVER_CONTEXT(); }

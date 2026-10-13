@@ -232,7 +232,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
 
     env = {**os.environ, "ARCH": "arm64", "LLVM": "1", "LLVM_IAS": "1", "REAL_CC": "clang",
            "CROSS_COMPILE": "aarch64-linux-gnu-", "CROSS_COMPILE_COMPAT": "arm-linux-gnueabi-",
-           "CROSS_COMPILE_ARM32": "arm-linux-gnueabi-", "KBUILD_BUILD_USER": "armada",
+           "CROSS_COMPILE_ARM32": "arm-linux-gnueabi-", "KBUILD_BUILD_USER": "reframed",
            "KBUILD_BUILD_HOST": "kernel-builder", "KBUILD_BUILD_TIMESTAMP": "2026-09-10 00:00:00 UTC"}
 
     def run(command, log, timeout=120):

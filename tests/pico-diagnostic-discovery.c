@@ -71,7 +71,7 @@ static void mock_libusb_close(libusb_device_handle *handle) { assert(handle); ++
 static int mock_libusb_get_string_descriptor_ascii(libusb_device_handle *handle, uint8_t index, unsigned char *data, int length)
 {
     (void)handle;
-    const char *text = index == 1 ? "ArmadaVR" : index == 2 ? "ArmadaVR Pico diagnostic" : serial;
+    const char *text = index == 1 ? "Reframed VR" : index == 2 ? "Reframed VR Pico diagnostic" : serial;
     assert((int)strlen(text) < length); memcpy(data, text, strlen(text)); return (int)strlen(text);
 }
 static int mock_libusb_get_active_config_descriptor(libusb_device *device, struct libusb_config_descriptor **result)
@@ -102,7 +102,7 @@ static int mock_libusb_release_interface(libusb_device_handle *handle, int inter
 static int mock_libusb_bulk_transfer(libusb_device_handle *handle, unsigned char ep, unsigned char *data, int length, int *transferred, unsigned timeout)
 {
     assert(handle && ep == 0x81 && timeout == 1000 && claims == 1);
-    const char *report = "ARMADA_PICO_DIAGNOSTIC_BEGIN kind=physical serial=test-device\nARMADA_PICO_DIAGNOSTIC_END\n";
+    const char *report = "REFRAMED_PICO_DIAGNOSTIC_BEGIN kind=physical serial=test-device\nREFRAMED_PICO_DIAGNOSTIC_END\n";
     assert((int)strlen(report) < length); memcpy(data, report, strlen(report)); *transferred = (int)strlen(report); return 0;
 }
 static int mock_clock_gettime(clockid_t clock, struct timespec *now)

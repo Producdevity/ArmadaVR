@@ -1,5 +1,5 @@
-#ifndef ARMADA_SNS_LOW_LATENCY_H
-#define ARMADA_SNS_LOW_LATENCY_H
+#ifndef REFRAMED_SNS_LOW_LATENCY_H
+#define REFRAMED_SNS_LOW_LATENCY_H
 
 #include <stddef.h>
 #include <stdint.h>

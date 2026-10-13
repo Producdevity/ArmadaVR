@@ -13,15 +13,15 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 VOLATILE_ROOT = ROOT / "system/systemd/volatile-root.conf"
-PICO_INPUTS = ["system/pico/armada-pico-qrtr", "system/pico/armada-pico-qrtr.service",
-               "system/pico/armada-pico-pd-mapper", "system/pico/armada-pico-pd-mapper.service",
+PICO_INPUTS = ["system/pico/reframed-pico-qrtr", "system/pico/reframed-pico-qrtr.service",
+               "system/pico/reframed-pico-pd-mapper", "system/pico/reframed-pico-pd-mapper.service",
                "tools/pico-services.py",
                "system/pico/module-setup.sh", "profiles/qcom-services.json",
                "patches/qrtr/0001-check-qmi-packet-bounds.patch",
                "patches/pd-mapper/0001-report-actual-firmware-path.patch",
                "patches/pd-mapper/0002-explicit-service-maps.patch",
                "patches/pd-mapper/0003-check-firmware-attribute-length.patch"]
-QUEST_INPUTS = ["system/quest/armada-quest-boot", "system/quest/armada-quest-boot.service",
+QUEST_INPUTS = ["system/quest/reframed-quest-boot", "system/quest/reframed-quest-boot.service",
                 "system/quest/module-setup.sh", "profiles/qcom-services.json",
                 "patches/qrtr/0001-check-qmi-packet-bounds.patch",
                 "patches/pd-mapper/0001-report-actual-firmware-path.patch",
@@ -106,8 +106,8 @@ if [ "$3" = yes ]; then
     set -- "$@" --include /firmware/files /usr/lib/firmware
 fi
 if [ "$4" = yes ] || [ "$5" = yes ]; then
-    cmp /qcom-profile.json /usr/share/armada-qcom-services/sources.json
-    cmp /qmi-bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
+    cmp /qcom-profile.json /usr/share/reframed-qcom-services/sources.json
+    cmp /qmi-bounds.patch /usr/share/reframed-qcom-services/0001-check-qmi-packet-bounds.patch
 fi
 if [ "$5" = yes ]; then
     python3 - <<'PYPICO'
@@ -122,21 +122,21 @@ if checksums is not None:
             raise SystemExit('Pico PD mapper source identity mismatch: '+name)
     Path('/tmp/pico-service-maps.sha256').write_bytes(checksums)
 PYPICO
-    cp -a /pico /usr/lib/dracut/modules.d/95armada-pico
-    set -- "$@" --add armada-pico
+    cp -a /pico /usr/lib/dracut/modules.d/95reframed-pico
+    set -- "$@" --add reframed-pico
 fi
 if [ "$4" = yes ]; then
-    cmp /firmware-path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
-    cmp /service-maps.patch /usr/share/armada-qcom-services/0002-explicit-service-maps.patch
-    cmp /firmware-read.patch /usr/share/armada-qcom-services/0003-check-firmware-attribute-length.patch
-    cp -a /quest /usr/lib/dracut/modules.d/95armada-quest
+    cmp /firmware-path.patch /usr/share/reframed-qcom-services/0001-report-actual-firmware-path.patch
+    cmp /service-maps.patch /usr/share/reframed-qcom-services/0002-explicit-service-maps.patch
+    cmp /firmware-read.patch /usr/share/reframed-qcom-services/0003-check-firmware-attribute-length.patch
+    cp -a /quest /usr/lib/dracut/modules.d/95reframed-quest
     python3 - <<'PYFW'
 import json
 from pathlib import Path
 manifest=json.loads(Path('/firmware/manifest.json').read_text())
 Path('/tmp/quest-firmware.sha256').write_text(''.join(item['sha256']+'  /usr/lib/firmware/'+item['path']+'\n' for item in manifest['files']))
 PYFW
-    set -- "$@" --add armada-quest
+    set -- "$@" --add reframed-quest
 fi
 dracut --kver "$1" --kmoddir "/lib/modules/$1" \
     --kernel-image /kernel/Image --no-hostonly --no-hostonly-cmdline \
@@ -188,31 +188,31 @@ if dropin.is_symlink() or dropin.read_bytes()!=Path('/volatile-root.conf').read_
 required.append(str(dropin))
 quest_files=[]
 if sys.argv[4]=='yes':
-    pairs=[('/quest/armada-quest-boot','usr/libexec/armada-quest-boot'),
-           ('/quest/armada-quest-boot.service','usr/lib/systemd/system/armada-quest-boot.service'),
-           ('/tmp/quest-firmware.sha256','etc/armada-vr/quest-firmware.sha256'),
+    pairs=[('/quest/reframed-quest-boot','usr/libexec/reframed-quest-boot'),
+           ('/quest/reframed-quest-boot.service','usr/lib/systemd/system/reframed-quest-boot.service'),
+           ('/tmp/quest-firmware.sha256','etc/reframed-vr/quest-firmware.sha256'),
            ('/usr/bin/pd-mapper','usr/bin/pd-mapper'),('/usr/bin/qrtr-lookup','usr/bin/qrtr-lookup')]
     for source,name in pairs:
         path=Path(name)
         sha=hashlib.sha256(Path(source).read_bytes()).hexdigest()
         if not path.is_file() or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest()!=sha:
             raise SystemExit('Missing or changed Quest startup file: '+name)
-        if name == 'usr/libexec/armada-quest-boot' and not path.stat().st_mode & 0o111:
+        if name == 'usr/libexec/reframed-quest-boot' and not path.stat().st_mode & 0o111:
             raise SystemExit('Quest startup helper is not executable')
         quest_files.append({'path':name,'sha256':sha})
     required += [item['path'] for item in quest_files]
-    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/armada-quest-boot.service']
+    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/reframed-quest-boot.service']
 pico_files=[]
 if sys.argv[5]=='yes':
-    pairs=[('/pico/armada-pico-qrtr','usr/libexec/armada-pico-qrtr'),
-           ('/pico/armada-pico-qrtr.service','usr/lib/systemd/system/armada-pico-qrtr.service'),
+    pairs=[('/pico/reframed-pico-qrtr','usr/libexec/reframed-pico-qrtr'),
+           ('/pico/reframed-pico-qrtr.service','usr/lib/systemd/system/reframed-pico-qrtr.service'),
            ('/usr/bin/qrtr-ns','usr/bin/qrtr-ns'),('/usr/bin/qrtr-lookup','usr/bin/qrtr-lookup')]
     if Path('/tmp/pico-service-maps.sha256').is_file():
-        pairs += [('/pico/armada-pico-pd-mapper','usr/libexec/armada-pico-pd-mapper'),
-                  ('/pico/armada-pico-pd-mapper.service','usr/lib/systemd/system/armada-pico-pd-mapper.service'),
-                  ('/tmp/pico-service-maps.sha256','etc/armada-vr/pico-service-maps.sha256'),
+        pairs += [('/pico/reframed-pico-pd-mapper','usr/libexec/reframed-pico-pd-mapper'),
+                  ('/pico/reframed-pico-pd-mapper.service','usr/lib/systemd/system/reframed-pico-pd-mapper.service'),
+                  ('/tmp/pico-service-maps.sha256','etc/reframed-vr/pico-service-maps.sha256'),
                   ('/usr/bin/pd-mapper','usr/bin/pd-mapper')]
-        required += ['usr/bin/sha256sum','etc/systemd/system/initrd.target.wants/armada-pico-pd-mapper.service']
+        required += ['usr/bin/sha256sum','etc/systemd/system/initrd.target.wants/reframed-pico-pd-mapper.service']
     for source,name in pairs:
         path=Path(name)
         sha=hashlib.sha256(Path(source).read_bytes()).hexdigest()
@@ -222,7 +222,7 @@ if sys.argv[5]=='yes':
             raise SystemExit('Pico startup executable has no execute permission: '+name)
         pico_files.append({'path':name,'sha256':sha})
     required += [item['path'] for item in pico_files]
-    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/armada-pico-qrtr.service']
+    required += ['usr/bin/systemd-notify','etc/systemd/system/initrd.target.wants/reframed-pico-qrtr.service']
 for name in required:
     path=Path(name)
     if path.is_symlink() and path.readlink().is_absolute():
@@ -347,7 +347,7 @@ if __name__ == "__main__":
     group.add_argument("--pico-firmware", type=Path, help="prepared Neo3 GPU or GPU/DSP firmware; requires the Pico kernel")
     parser.add_argument("--pico-services", action="store_true", help="include bounded Pico QRTR startup; requires Pico firmware, compatible systemd and the QCOM service image")
     parser.add_argument("--quest-services", action="store_true", help="include bounded Quest ADSP/USB startup; requires --firmware and the QCOM service image")
-    parser.add_argument("--image", default="localhost/armada-vr:vm")
+    parser.add_argument("--image", default="localhost/reframed-vr:vm")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     try:
         run(parser.parse_args())

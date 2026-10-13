@@ -114,12 +114,12 @@ print(log)
                 raise ValueError('Dependency hash mismatch')
             files[relative] = path.read_bytes()
         (output / 'initramfs.cpio').write_bytes(initramfs(files))
-        execute([args.qemu, '-name', 'Armada KGSL display descriptor test', '-machine', 'virt', '-accel', args.accel,
+        execute([args.qemu, '-name', 'Reframed KGSL display descriptor test', '-machine', 'virt', '-accel', args.accel,
                  '-cpu', 'host' if args.accel in ('hvf', 'kvm') else 'max', '-smp', '2', '-m', '1024',
                  '-nodefaults', '-nographic', '-monitor', 'none', '-serial', 'stdio', '-no-reboot',
                  '-nic', 'none', '-device', 'virtio-gpu-pci', '-kernel', str(kernel / 'Image'),
                  '-initrd', str(output / 'initramfs.cpio'),
-                 '-append', 'console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 armada.kgsl_display_test=1'],
+                 '-append', 'console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 reframed.kgsl_display_test=1'],
                 'boot.log', 45)
         log = (output / 'boot.log').read_text(errors='replace')
         cases = ['PRIMARY_AND_RENDER', 'MASTER_CONTENTION', 'LEASE_IDENTITY', 'REACQUIRE_CLEANUP', 'ALL']

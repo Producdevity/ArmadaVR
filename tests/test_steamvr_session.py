@@ -121,7 +121,7 @@ class SessionTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(linked)}):
                 with self.assertRaisesRegex(ValueError, "owned runtime"):
                     session.prepare_fex_server(root / "config", root / "rootfs")
-            parent = runtime / "armada-vr-fex"
+            parent = runtime / "reframed-vr-fex"
             parent.mkdir(mode=0o755)
             with mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": str(runtime)}):
                 with self.assertRaisesRegex(ValueError, "private and owned"):
@@ -237,8 +237,8 @@ class SessionTests(unittest.TestCase):
         (runtime / "steamxr_linuxarm64.json").write_text(json.dumps({
             "runtime": {"library_path": "bin/linuxarm64/vrclient.so"}}))
         for name in ("steamvr-probe", "vulkan-interop", "vulkan-external-sync", "steamvr-session.py",
-                     "armada_virtual/resources/rendermodels/controller/controller.json",
-                     "armada_virtual/driver.vrdrivermanifest", "armada_virtual/bin/linuxarm64/driver_armada_virtual.so"):
+                     "reframed_virtual/resources/rendermodels/controller/controller.json",
+                     "reframed_virtual/driver.vrdrivermanifest", "reframed_virtual/bin/linuxarm64/driver_reframed_virtual.so"):
             path = bundle / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(payload)
@@ -256,7 +256,7 @@ class SessionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             runtime, bundle = self.native_fixture(Path(temporary))
             settings = session.validate_native_inputs(runtime, bundle)
-            self.assertTrue(settings["driver_armada_virtual"]["simulateHeadset"])
+            self.assertTrue(settings["driver_reframed_virtual"]["simulateHeadset"])
             self.assertFalse((runtime / "config").exists())
 
     def native_presentation_fixture(self, root):
@@ -277,7 +277,7 @@ class SessionTests(unittest.TestCase):
             self.assertTrue(configured["steamvr"]["enableLinuxVulkanAsync"])
             self.assertFalse(settings["steamvr"]["startCompositorFromAppLaunch"])
             self.assertFalse(configured["steamvr"]["activateMultipleDrivers"])
-            self.assertTrue(configured["driver_armada_virtual"]["simulateHeadset"])
+            self.assertTrue(configured["driver_reframed_virtual"]["simulateHeadset"])
             self.assertEqual((bundle / "steamvr-virtual.json").read_bytes(), original)
             perception = runtime / "drivers/cv/bin/linuxarm64/libArcturusPerception.so"
             perception.parent.mkdir(parents=True)
@@ -338,7 +338,7 @@ class SessionTests(unittest.TestCase):
     def test_native_bundle_requires_controller_pose_resource(self):
         with tempfile.TemporaryDirectory() as temporary:
             runtime, bundle = self.native_fixture(Path(temporary))
-            (bundle / "armada_virtual/resources/rendermodels/controller/controller.json").unlink()
+            (bundle / "reframed_virtual/resources/rendermodels/controller/controller.json").unlink()
             self.native_manifest(bundle)
             with self.assertRaisesRegex(ValueError, "missing its checked session dependencies"):
                 session.validate_native_inputs(runtime, bundle)
@@ -363,7 +363,7 @@ class SessionTests(unittest.TestCase):
 
     def test_native_bundle_rejects_physical_or_automatic_launch_profile(self):
         for section, name, value in (("steamvr", "forcedDriver", "lighthouse"),
-                ("driver_armada_virtual", "simulateHeadset", False),
+                ("driver_reframed_virtual", "simulateHeadset", False),
                 ("steamvr", "startCompositorFromAppLaunch", True)):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
                 runtime, bundle = self.native_fixture(Path(temporary))
@@ -481,7 +481,7 @@ class SessionTests(unittest.TestCase):
         (bundle / "steamvr-presentation.json").write_text(json.dumps(profile))
         (bundle / "steamvr-virtual.json").write_text(json.dumps({
             "steamvr": {"forcedDriver": "null"}, "driver_null": {"enable": True}}))
-        for name in ("xpresent/libXpresent.so.1", "libvulkan-procaddr.so", "steamvr-probe", "armada_virtual/driver.vrdrivermanifest"):
+        for name in ("xpresent/libXpresent.so.1", "libvulkan-procaddr.so", "steamvr-probe", "reframed_virtual/driver.vrdrivermanifest"):
             path = bundle / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("fixture")

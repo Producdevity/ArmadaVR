@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-logs="$HOME/.local/state/armada-vr"
+logs="$HOME/.local/state/reframed-vr"
 mkdir -p "$logs"
 export QWERTY_ENABLE=1 XRT_DEBUG_GUI=1 XRT_NO_STDIN=1
 export XRT_COMPOSITOR_FORCE_XCB=1 XRT_COMPOSITOR_SCALE_PERCENTAGE=40
@@ -8,7 +8,7 @@ export XR_RUNTIME_JSON=/usr/share/openxr/1/openxr_monado.json
 export VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.aarch64.json
 export LP_NUM_THREADS=2
 unset SIMULATED_ENABLE XRT_COMPOSITOR_NULL
-exec 9> "$XDG_RUNTIME_DIR/armada-vr-scene.lock"
+exec 9> "$XDG_RUNTIME_DIR/reframed-vr-scene.lock"
 if ! flock -n 9 || pgrep -u "$UID" -x monado-service >/dev/null; then
     echo 'A Monado session is already running.'
     exit 1

@@ -12,21 +12,21 @@ RUNTIME = ("usr/bin/qrtr-ns", "usr/bin/qrtr-lookup", "usr/lib64/libqrtr.so.1.2")
 LIBRARY_LINK = "usr/lib64/libqrtr.so.1"
 LIBRARY_TARGET = "libqrtr.so.1.2"
 PROVENANCE = {
-    "usr/share/armada-qcom-services/sources.json": "profiles/qcom-services.json",
-    "usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch":
+    "usr/share/reframed-qcom-services/sources.json": "profiles/qcom-services.json",
+    "usr/share/reframed-qcom-services/0001-check-qmi-packet-bounds.patch":
         "patches/qrtr/0001-check-qmi-packet-bounds.patch",
 }
-LICENSES = ("usr/share/licenses/armada-qcom-services/qrtr",
-            "usr/share/licenses/armada-qcom-services/qrtr-ns")
+LICENSES = ("usr/share/licenses/reframed-qcom-services/qrtr",
+            "usr/share/licenses/reframed-qcom-services/qrtr-ns")
 MAPPER = "usr/bin/pd-mapper"
-MAP_CHECKSUMS = "etc/armada-vr/pico-service-maps.sha256"
+MAP_CHECKSUMS = "etc/reframed-vr/pico-service-maps.sha256"
 MAP_DOMAINS = {"adspr.jsn": ("adsp", "root_pd", 74), "adspua.jsn": ("adsp", "audio_pd", 74),
                "cdspr.jsn": ("cdsp", "root_pd", 76), "slpir.jsn": ("slpi", "root_pd", 90),
                "slpius.jsn": ("slpi", "sensor_pd", 90)}
-MAPPER_PROVENANCE = {"usr/share/armada-qcom-services/" + name: "patches/pd-mapper/" + name for name in (
+MAPPER_PROVENANCE = {"usr/share/reframed-qcom-services/" + name: "patches/pd-mapper/" + name for name in (
     "0001-report-actual-firmware-path.patch", "0002-explicit-service-maps.patch",
     "0003-check-firmware-attribute-length.patch")}
-MAPPER_LICENSE = "usr/share/licenses/armada-qcom-services/pd-mapper"
+MAPPER_LICENSE = "usr/share/licenses/reframed-qcom-services/pd-mapper"
 
 
 def service_maps(manifest):
@@ -96,13 +96,13 @@ def install(source, root, firmware=None):
     root = Path(root)
     if (root / "etc/initrd-release").exists() or (root / "etc/initrd-release").is_symlink():
         raise ValueError("Pico root services require a real root, not an initramfs")
-    if any(root.glob("usr/lib/systemd/system/armada-quest*")) or any(root.glob("etc/systemd/system/**/armada-quest*")):
+    if any(root.glob("usr/lib/systemd/system/*-quest-boot.service*")) or any(root.glob("etc/systemd/system/**/*-quest-boot.service*")):
         raise ValueError("Pico root cannot contain Quest startup units")
     checksums = service_maps(firmware)
     files = source_files(source, mapper=checksums is not None)
     files.update({
-        "usr/libexec/armada-pico-qrtr": ROOT / "system/pico/armada-pico-qrtr",
-        "usr/lib/systemd/system/armada-pico-qrtr.service": ROOT / "system/pico/armada-pico-qrtr-root.service",
+        "usr/libexec/reframed-pico-qrtr": ROOT / "system/pico/reframed-pico-qrtr",
+        "usr/lib/systemd/system/reframed-pico-qrtr.service": ROOT / "system/pico/reframed-pico-qrtr-root.service",
     })
     if checksums is not None:
         for line in checksums.decode().splitlines():
@@ -110,9 +110,9 @@ def install(source, root, firmware=None):
             if digest(regular(root, name.lstrip("/"))) != checksum:
                 raise ValueError("Changed installed Pico service map: " + name)
         files.update({MAP_CHECKSUMS: checksums,
-                      "usr/libexec/armada-pico-pd-mapper": ROOT / "system/pico/armada-pico-pd-mapper",
-                      "usr/lib/systemd/system/armada-pico-pd-mapper.service":
-                          ROOT / "system/pico/armada-pico-pd-mapper-root.service"})
+                      "usr/libexec/reframed-pico-pd-mapper": ROOT / "system/pico/reframed-pico-pd-mapper",
+                      "usr/lib/systemd/system/reframed-pico-pd-mapper.service":
+                          ROOT / "system/pico/reframed-pico-pd-mapper-root.service"})
     expected = []
     for name, path in files.items():
         mode = 0o755 if name in (*RUNTIME, MAPPER) or name.startswith("usr/libexec/") else 0o644
@@ -123,11 +123,11 @@ def install(source, root, firmware=None):
             raise ValueError("Pico runtime destination is not a file: " + name)
         expected.append({"path": name, "sha256": hashlib.sha256(path).hexdigest() if isinstance(path, bytes) else digest(path), "mode": mode})
     links = {LIBRARY_LINK: LIBRARY_TARGET,
-             "etc/systemd/system/multi-user.target.wants/armada-pico-qrtr.service":
-                 "/usr/lib/systemd/system/armada-pico-qrtr.service"}
+             "etc/systemd/system/multi-user.target.wants/reframed-pico-qrtr.service":
+                 "/usr/lib/systemd/system/reframed-pico-qrtr.service"}
     if checksums is not None:
-        links["etc/systemd/system/multi-user.target.wants/armada-pico-pd-mapper.service"] = \
-            "/usr/lib/systemd/system/armada-pico-pd-mapper.service"
+        links["etc/systemd/system/multi-user.target.wants/reframed-pico-pd-mapper.service"] = \
+            "/usr/lib/systemd/system/reframed-pico-pd-mapper.service"
     for name, target in links.items():
         link = root / name
         if not link.parent.resolve().is_relative_to(root.resolve()):
@@ -150,7 +150,7 @@ def install(source, root, firmware=None):
         if not link.is_symlink():
             link.symlink_to(target)
     result = {"files": expected, "links": links,
-              "required_cmdline": "armada.pico=qrtr", "pd_mapper": checksums is not None, "dsp_startup": False}
+              "required_cmdline": "reframed.pico=qrtr", "pd_mapper": checksums is not None, "dsp_startup": False}
     verify(root, result)
     return result
 

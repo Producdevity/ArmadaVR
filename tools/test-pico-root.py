@@ -24,14 +24,14 @@ HANDOFF = r'''#!/bin/bash
 set -euo pipefail
 IFS= read -r -d '' model < /sys/firmware/devicetree/base/compatible
 [[ $model == linux,dummy-virt && $(stat -f -c %t /sysroot) == 794c7630 ]]
-grep -qw 'armada.pico_root_test=1' /proc/cmdline
-[[ ! -e /sysroot/etc/systemd/system/armada-pico-test-agent.service ]]
+grep -qw 'reframed.pico_root_test=1' /proc/cmdline
+[[ ! -e /sysroot/etc/systemd/system/reframed-pico-test-agent.service ]]
 mkdir -p /sysroot/etc/systemd/system/multi-user.target.wants
-cp /pico-agent.service /sysroot/etc/systemd/system/armada-pico-test-agent.service
-ln -s /etc/systemd/system/armada-pico-test-agent.service /sysroot/etc/systemd/system/multi-user.target.wants/
+cp /pico-agent.service /sysroot/etc/systemd/system/reframed-pico-test-agent.service
+ln -s /etc/systemd/system/reframed-pico-test-agent.service /sysroot/etc/systemd/system/multi-user.target.wants/
 cp /pico-probe.py /run/pico-probe.py
 cp /pico-expected.json /run/pico-expected.json
-echo ARMADA_PICO_PACKAGED_ROOT_HANDOFF
+echo REFRAMED_PICO_PACKAGED_ROOT_HANDOFF
 '''
 
 HANDOFF_UNIT = '''[Unit]
@@ -53,7 +53,7 @@ AGENT_UNIT = '''[Unit]
 Description=Private Pico root verification agent
 
 [Service]
-ExecStart=/usr/bin/qemu-ga --method=virtio-serial --path=/dev/virtio-ports/org.armada.pico_root_test.0
+ExecStart=/usr/bin/qemu-ga --method=virtio-serial --path=/dev/virtio-ports/org.reframed.pico_root_test.0
 StandardOutput=journal+console
 StandardError=journal+console
 '''
@@ -64,7 +64,7 @@ def sha(p):
     with p.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
 def command(args,timeout=30):
     return subprocess.check_output(args,text=True,stderr=subprocess.STDOUT,timeout=timeout)
-assert os.getuid()==0 and 'armada.pico_root_test=1' in Path('/proc/cmdline').read_text()
+assert os.getuid()==0 and 'reframed.pico_root_test=1' in Path('/proc/cmdline').read_text()
 assert Path('/sys/firmware/devicetree/base/compatible').read_bytes().split(b'\0')[0]==b'linux,dummy-virt'
 expected=json.loads(Path('/run/pico-expected.json').read_text())
 if expected['enforcing_boot']:
@@ -74,14 +74,14 @@ assert Path('/sys/block/vda/ro').read_text().strip()=='1'
 for line in Path('/proc/self/mountinfo').read_text().splitlines():
     if ' - ext4 /dev/vda ' in line:assert 'ro' in line.split()[5].split(',')
 assert command(['systemctl','is-system-running','--wait'],90).strip()=='running'
-assert sha(Path('/usr/share/armada-vr/kernel-build.json'))==expected['kernel_build_sha256']
-assert not Path('/usr/lib/systemd/system/armada-quest-boot.service').exists()
+assert sha(Path('/usr/share/reframed-vr/kernel-build.json'))==expected['kernel_build_sha256']
+assert not Path('/usr/lib/systemd/system/reframed-quest-boot.service').exists()
 for item in expected['modules']:
     assert sha(Path('/usr/lib/modules')/item['path'])==item['sha256'],item['path']
 assert {str(p.relative_to('/usr/lib/modules')) for p in Path('/usr/lib/modules').rglob('*.ko')}=={i['path'] for i in expected['modules']}
 for item in expected['firmware']:
     assert sha(Path('/usr/lib/firmware')/item['path'])==item['sha256'],item['path']
-runtime_path=Path('/usr/share/armada-vr/root-systemd.json')
+runtime_path=Path('/usr/share/reframed-vr/root-systemd.json')
 assert sha(runtime_path)==expected['systemd_runtime_sha256']
 runtime=json.loads(runtime_path.read_text())
 for item in runtime['files']:
@@ -95,20 +95,20 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
     record=expected.get(name)
     if record is None:continue
     installed=name.replace('_','-')
-    prefix=Path('/opt/armada-vr')/installed
+    prefix=Path('/opt/reframed-vr')/installed
     tree=record['contents']
     if name=='fastrpc':
         files={n:v for n,v in tree.items() if 'sha256' in v}
         links={n:v['symlink'] for n,v in tree.items() if 'symlink' in v}
     else:
         files=tree['files'];links=tree.get('links',tree.get('symlinks',{}))
-    assert sha(Path('/usr/share/armada-vr')/(installed+'-build.json'))==record['build_sha256']
+    assert sha(Path('/usr/share/reframed-vr')/(installed+'-build.json'))==record['build_sha256']
     assert {str(p.relative_to(prefix)) for p in prefix.rglob('*') if p.is_file() and not p.is_symlink()}==set(files)
     assert {str(p.relative_to(prefix)):os.readlink(p) for p in prefix.rglob('*') if p.is_symlink()}==links
     for path,item in files.items():
         p=prefix/path
         assert not p.is_symlink() and sha(p)==item['sha256'] and stat.S_IMODE(p.stat().st_mode)==item['mode'],str(p)
-    libraries=str(prefix/'lib64')+':/opt/armada-vr/ssc/lib64:/usr/lib64'
+    libraries=str(prefix/'lib64')+':/opt/reframed-vr/ssc/lib64:/usr/lib64'
     trace=command(['/usr/bin/env','LD_TRACE_LOADED_OBJECTS=1','LD_WARN=yes','LD_BIND_NOW=yes','LD_VERBOSE=yes',
                    '/lib/ld-linux-aarch64.so.1','--library-path',libraries,str(prefix/program)])
     assert 'not found' not in trace and 'undefined symbol' not in trace,(name,trace)
@@ -116,7 +116,7 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
 shared=[i['path'].removeprefix('files/') for i in runtime['files'] if '/libsystemd-shared-' in i['path'] and 'sha256' in i]
 assert len(shared)==1 and '/'+shared[0] in Path('/proc/1/maps').read_text()
 for name in runtime['commands']:
-    data=command(['/lib/ld-linux-aarch64.so.1','--library-path','/usr/lib64:/opt/armada-vr/systemd/usr/lib:/opt/armada-vr/systemd/usr/lib/systemd','--list','/opt/armada-vr/systemd/'+name])
+    data=command(['/lib/ld-linux-aarch64.so.1','--library-path','/usr/lib64:/opt/reframed-vr/systemd/usr/lib:/opt/reframed-vr/systemd/usr/lib/systemd','--list','/opt/reframed-vr/systemd/'+name])
     assert 'not found' not in data,name
 command(['loginctl','enable-linger','vr'])
 command(['systemctl','start','user@1000.service'])
@@ -124,7 +124,7 @@ assert Path('/run/user/1000/bus').is_socket()
 assert command(['systemctl','is-active','user@1000.service']).strip()=='active'
 probe=Path('/run/pico-isolation.py')
 probe.write_text("from pathlib import Path\nassert 'NoNewPrivs:\\t1' in Path('/proc/self/status').read_text()\ntry: Path('/usr/pico-forbidden').write_text('bad')\nexcept OSError as e: assert e.errno==30,e\nelse: raise AssertionError('system writable')\nPath('/tmp/pico-private-probe').write_text('private')\nprint('PICO_ROOT_ISOLATION_PASS')\n".replace('\\t','\t'))
-isolation=command(['systemd-run','--unit=armada-pico-isolation','--wait','--pipe','--property=NoNewPrivileges=yes','--property=PrivateTmp=yes','--property=PrivateNetwork=yes','--property=ProtectSystem=strict','/usr/bin/python3',str(probe)],45)
+isolation=command(['systemd-run','--unit=reframed-pico-isolation','--wait','--pipe','--property=NoNewPrivileges=yes','--property=PrivateTmp=yes','--property=PrivateNetwork=yes','--property=ProtectSystem=strict','/usr/bin/python3',str(probe)],45)
 assert 'PICO_ROOT_ISOLATION_PASS' in isolation and not Path('/tmp/pico-private-probe').exists()
 Path('/pico-volatile-write').write_text('guest RAM only\n')
 assert Path('/sys/block/vda/stat').read_text().split()[4]=='0'
@@ -229,19 +229,19 @@ def run(args):
         boot.write_bytes((initramfs / "initramfs.img").read_bytes() + gzip.compress(cpio(files), mtime=0))
         record["test_initramfs_sha256"] = builder.digest(boot)
         with tempfile.TemporaryDirectory(prefix="pico-root-", dir="/tmp") as sockets:
-            command = [args.qemu, "-name", "ArmadaVR Pico root acceptance", "-machine", "virt,secure=on,virtualization=on",
+            command = [args.qemu, "-name", "Reframed VR Pico root acceptance", "-machine", "virt,secure=on,virtualization=on",
                        "-accel", "tcg", "-cpu", "cortex-a76", "-smp", "2", "-m", "4096", "-nodefaults",
                        "-nographic", "-monitor", "none", "-serial", "stdio", "-no-reboot", "-nic", "none",
                        "-kernel", str(kernel / "Image"), "-initrd", str(boot),
                        "-drive", f"file={disk},if=none,id=root,format=raw,readonly=on", "-device", "virtio-blk-device,drive=root",
                        "-object", "rng-random,id=rng,filename=/dev/urandom", "-device", "virtio-rng-device,rng=rng",
                        "-device", "virtio-serial-device", "-chardev", f"socket,path={sockets}/agent.sock,server=on,wait=off,id=agent",
-                       "-device", "virtserialport,chardev=agent,name=org.armada.pico_root_test.0", "-append",
+                       "-device", "virtserialport,chardev=agent,name=org.reframed.pico_root_test.0", "-append",
                        "console=ttyAMA0 earlycon " + ("selinux=1 enforcing=1" if args.enforcing_boot else "selinux=0") +
                        " audit=0 root=LABEL=" + root["root_label"] +
                        " ro rootfstype=ext4 rootflags=noload systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0"
                        " rd.systemd.gpt_auto=0 systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30"
-                       " initcall_blacklist=hwinfo_init armada.pico_root_test=1 systemd.unified_cgroup_hierarchy=1"]
+                       " initcall_blacklist=hwinfo_init reframed.pico_root_test=1 systemd.unified_cgroup_hierarchy=1"]
             record["command"] = command
             with (output / "boot.log").open("xb") as log:
                 process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)

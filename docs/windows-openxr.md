@@ -267,7 +267,7 @@ panel over the scene. Evidence is in `output/steamvr-windows-launcher-v5/`.
 The earlier v3 attempt rendered but failed its dashboard-close stimulus and
 exited without a result report; its evidence is retained in
 `output/steamvr-backend-v17/`. After stopping the backend and verifying all
-3,544 runtime files, bundle v10 was installed at `/opt/armada-vr/openvr`.
+3,544 runtime files, bundle v10 was installed at `/opt/reframed-vr/openvr`.
 The previous bundle remains at `/var/tmp/steamvr-before-install-v7`;
 `output/steamvr-bundle-v10/install-v7.json` records the installed hashes.
 Both installed command entry points pass `--help`; runtime testing above used
@@ -336,22 +336,22 @@ the pinned Proton release and must be revalidated when Proton changes.
 
 Build `Containerfile.windows` to obtain `/windows/openxr-launcher.exe`, the
 Windows sample, support DLLs and CPU smoke test. In the development guest,
-the files live in `/opt/armada-vr/windows`; the three shell wrappers are installed
+the files live in `/opt/reframed-vr/windows`; the three shell wrappers are installed
 as `/usr/local/bin/run-runtime`, `run-proton` and `run-proton-openxr`.
 The archives and hashes are in `profiles/vr-runtime.json`.
 
 With Monado running and its runtime directory exported:
 
 ```sh
-run-proton-openxr 'Z:\opt\armada-vr\windows\hello_xr.exe' -g Vulkan
+run-proton-openxr 'Z:\opt\reframed-vr\windows\hello_xr.exe' -g Vulkan
 ```
 
 The automated sample test owns its Xvfb display and simulated Monado session:
 
 ```sh
-render-xr "$HOME/.local/state/armada-vr/windows-openxr" \
+render-xr "$HOME/.local/state/reframed-vr/windows-openxr" \
   run-proton-openxr --test-quit-after 12 \
-  'Z:\opt\armada-vr\windows\hello_xr.exe' -g Vulkan
+  'Z:\opt\reframed-vr\windows\hello_xr.exe' -g Vulkan
 ```
 
 `--test-quit-after` sends a real Return key event to the Windows console;
@@ -374,7 +374,7 @@ it intercepts only `xrCreateVulkanDeviceKHR` acquired through OpenXR's resolver,
 recognizes the actual native device-resolver pointer and substitutes the native
 instance resolver. Correct callers and other entry points are forwarded. It
 retains explicit handles to Wine's privately loaded OpenXR and Vulkan libraries.
-The CMake build installs it to `/usr/local/libexec/armada-vr`, and only
+The CMake build installs it to `/usr/local/libexec/reframed-vr`, and only
 `run-proton-openxr` selects it through `LD_PRELOAD` for that process tree.
 The unchanged Windows Vulkan 2 sample then passes with 50,171 changed pixels,
 309 colors, exit status 0 and a trace confirming both the correction and

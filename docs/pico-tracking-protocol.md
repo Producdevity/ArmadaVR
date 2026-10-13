@@ -126,7 +126,7 @@ Pass that package to `build-headset-root.py --ssc-inventory`, together with
 its exact `--ssc` dependency. Installation checks the collector, source and
 build record, verifies the installed SSC dependency, and checks the root's
 loader and image readback. It adds no service or automatic sensor query.
-The installed command is `/opt/armada-vr/ssc-inventory/bin/ssc-inventory`;
+The installed command is `/opt/reframed-vr/ssc-inventory/bin/ssc-inventory`;
 its launcher supplies the packaged dependency search path explicitly.
 
 After a separately authorized and recoverable native Linux boot, with the Pico
@@ -137,7 +137,7 @@ attributes. Fixed64 attribute values use decimal strings to preserve precision;
 rates and nested arrays remain intact. An empty list means that the requested
 type was not advertised, not that the hardware is absent.
 
-The collector requires a Kona device tree and the exact `armada.pico=qrtr`
+The collector requires a Kona device tree and the exact `reframed.pico=qrtr`
 token, or the separately guarded virtual test environment. It refuses duplicate
 or reserved SUIDs, malformed attributes and non-finite values. Each request has
 a three-second deadline; the complete process has a sixty-second deadline.
@@ -173,7 +173,7 @@ Replay through the C processor preserves every pair, vector and auxiliary value
 and verifies the integer clock mapping. The same replay and rejection tests
 pass AddressSanitizer and UndefinedBehaviorSanitizer on macOS and ARM64 Linux.
 This verifies decoding of observed stock data, not native sensor delivery under
-the Armada kernel.
+the Reframed kernel.
 
 ## Low-latency RPC messages
 

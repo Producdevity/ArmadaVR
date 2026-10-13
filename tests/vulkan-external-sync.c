@@ -39,7 +39,7 @@ struct allocation {
 static void init(struct context *c)
 {
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "Armada VR external synchronization test", .apiVersion = VK_API_VERSION_1_2};
+        .pApplicationName = "Reframed VR external synchronization test", .apiVersion = VK_API_VERSION_1_2};
     VkInstanceCreateInfo instance = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, .pApplicationInfo = &app};
     CHECK(vkCreateInstance(&instance, NULL, &c->instance));
     uint32_t count = 1;

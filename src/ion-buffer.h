@@ -1,5 +1,5 @@
-#ifndef ARMADA_ION_BUFFER_H
-#define ARMADA_ION_BUFFER_H
+#ifndef REFRAMED_ION_BUFFER_H
+#define REFRAMED_ION_BUFFER_H
 
 #include <stdbool.h>
 #include <stddef.h>

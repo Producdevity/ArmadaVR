@@ -10,9 +10,9 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
-INSTALL_PREFIX = 'opt/armada-vr/monado'
+INSTALL_PREFIX = 'opt/reframed-vr/monado'
 PREFIX = 'stage/' + INSTALL_PREFIX
-BUILD_RECORD = 'usr/share/armada-vr/monado-build.json'
+BUILD_RECORD = 'usr/share/reframed-vr/monado-build.json'
 
 
 def digest(path):
@@ -64,7 +64,7 @@ def validate(directory):
     if b'Unable to select a compatible display plane' not in (prefix / 'bin/monado-service').read_bytes():
         raise ValueError('Monado service omits the display selection patch')
     manifest = json.loads((prefix / 'share/openxr/1/openxr_monado.json').read_text())
-    if manifest['runtime']['library_path'] != '/opt/armada-vr/monado/lib64/libopenxr_monado.so':
+    if manifest['runtime']['library_path'] != '/opt/reframed-vr/monado/lib64/libopenxr_monado.so':
         raise ValueError('Unexpected Monado OpenXR runtime path')
     if '#define VK_USE_PLATFORM_DISPLAY_KHR' not in (directory / 'display-preprocessor.txt').read_text():
         raise ValueError('Monado build omitted direct-display support')

@@ -10,7 +10,7 @@
 static void require(bool condition, const char *message)
 {
     if (!condition) {
-        fprintf(stderr, "ARMADA_QMI_FAIL: %s (errno=%d)\n", message, errno);
+        fprintf(stderr, "REFRAMED_QMI_FAIL: %s (errno=%d)\n", message, errno);
         exit(1);
     }
 }
@@ -46,7 +46,7 @@ static struct qrtr_packet discover(int fd)
         struct qrtr_packet packet = receive_packet(fd, buffer, sizeof(buffer));
         if (packet.type == QRTR_TYPE_NEW_SERVER && packet.service == 64 &&
             packet.version == 1 && packet.instance == 1 && packet.node && packet.port) {
-            printf("ARMADA_QMI_DISCOVERED node=%u port=%u version=%u instance=%u\n",
+            printf("REFRAMED_QMI_DISCOVERED node=%u port=%u version=%u instance=%u\n",
                    packet.node, packet.port, packet.version, packet.instance);
             return packet;
         }
@@ -155,13 +155,13 @@ int main(int argc, char **argv)
         unsigned int transaction = 100 + i * 4;
         query(fd, &server, transaction, "tms/servreg", pico ? pico_domains : quest_domains,
               pico ? 5 : 4, false);
-        query(fd, &server, transaction + 1, "armada/missing", NULL, 0, false);
+        query(fd, &server, transaction + 1, "reframed/missing", NULL, 0, false);
         query(fd, &server, transaction + 2, "", NULL, 0, true);
         if (pico)
             query(fd, &server, transaction + 3, "avs/audio", &pico_domains[1], 1, false);
     }
     qrtr_close(fd);
-    puts(pico ? "ARMADA_PICO_QMI_PASS requests=128 instances=74,76,90" :
-         "ARMADA_QMI_PASS requests=96 charger=msm/adsp/charger_pd instance=74");
+    puts(pico ? "REFRAMED_PICO_QMI_PASS requests=128 instances=74,76,90" :
+         "REFRAMED_QMI_PASS requests=96 charger=msm/adsp/charger_pd instance=74");
     return 0;
 }

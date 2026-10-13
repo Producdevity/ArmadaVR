@@ -16,4 +16,4 @@ changed = sum(a[i:i+3] != b[i:i+3] for i in range(0, len(a), 3))
 colors = len(set(zip(b[0::3], b[1::3], b[2::3])))
 if changed < 100 or colors < 5:
     raise SystemExit(f"Insufficient rendered content: changed={changed}, colors={colors}")
-print(f"ARMADA_VR_RENDER_PASS changed_pixels={changed} colors={colors}")
+print(f"REFRAMED_VR_RENDER_PASS changed_pixels={changed} colors={colors}")

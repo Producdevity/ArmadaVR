@@ -11,8 +11,8 @@ depends() {
 
 install() {
     inst_multiple pd-mapper qrtr-lookup systemd-notify sha256sum modprobe sleep mkdir basename readlink
-    inst_script "$moddir/armada-quest-boot" /usr/libexec/armada-quest-boot
-    inst_simple "$moddir/armada-quest-boot.service" "$systemdsystemunitdir/armada-quest-boot.service"
-    inst_simple /tmp/quest-firmware.sha256 /etc/armada-vr/quest-firmware.sha256
-    $SYSTEMCTL -q --root "$initdir" add-wants initrd.target armada-quest-boot.service
+    inst_script "$moddir/reframed-quest-boot" /usr/libexec/reframed-quest-boot
+    inst_simple "$moddir/reframed-quest-boot.service" "$systemdsystemunitdir/reframed-quest-boot.service"
+    inst_simple /tmp/quest-firmware.sha256 /etc/reframed-vr/quest-firmware.sha256
+    $SYSTEMCTL -q --root "$initdir" add-wants initrd.target reframed-quest-boot.service
 }

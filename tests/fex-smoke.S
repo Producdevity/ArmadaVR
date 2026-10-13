@@ -22,6 +22,6 @@ exit:
     syscall
 .section .rodata
 message:
-    .ascii "ARMADA_VR_FEX_PASS\n"
+    .ascii "REFRAMED_VR_FEX_PASS\n"
 message_end:
 .section .note.GNU-stack,"",@progbits

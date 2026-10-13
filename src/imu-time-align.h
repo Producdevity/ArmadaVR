@@ -1,5 +1,5 @@
-#ifndef ARMADA_IMU_TIME_ALIGN_H
-#define ARMADA_IMU_TIME_ALIGN_H
+#ifndef REFRAMED_IMU_TIME_ALIGN_H
+#define REFRAMED_IMU_TIME_ALIGN_H
 
 #include <stdbool.h>
 #include <stdint.h>

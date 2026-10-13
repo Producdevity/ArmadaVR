@@ -1,5 +1,5 @@
-#ifndef ARMADA_SSC_CLOCK_LINUX_H
-#define ARMADA_SSC_CLOCK_LINUX_H
+#ifndef REFRAMED_SSC_CLOCK_LINUX_H
+#define REFRAMED_SSC_CLOCK_LINUX_H
 
 #include "ssc-clock.h"
 

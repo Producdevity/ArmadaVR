@@ -1,5 +1,5 @@
-#ifndef ARMADA_SSC_CLOCK_H
-#define ARMADA_SSC_CLOCK_H
+#ifndef REFRAMED_SSC_CLOCK_H
+#define REFRAMED_SSC_CLOCK_H
 
 #include <stdbool.h>
 #include <stdint.h>

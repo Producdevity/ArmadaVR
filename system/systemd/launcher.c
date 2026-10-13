@@ -6,12 +6,12 @@
 #include <string.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
-#ifdef ARMADA_SYSTEMD_NATIVE_LIBRARIES
+#ifdef REFRAMED_SYSTEMD_NATIVE_LIBRARIES
     const char *loader = "/lib/ld-linux-aarch64.so.1";
-    const char *libraries = "/usr/lib64:/opt/armada-vr/systemd/usr/lib:/opt/armada-vr/systemd/usr/lib/systemd";
+    const char *libraries = "/usr/lib64:/opt/reframed-vr/systemd/usr/lib:/opt/reframed-vr/systemd/usr/lib/systemd";
 #else
-    const char *loader = "/opt/armada-vr/systemd/usr/lib/ld-linux-aarch64.so.1";
-    const char *libraries = "/opt/armada-vr/systemd/usr/lib:/opt/armada-vr/systemd/usr/lib/systemd";
+    const char *loader = "/opt/reframed-vr/systemd/usr/lib/ld-linux-aarch64.so.1";
+    const char *libraries = "/opt/reframed-vr/systemd/usr/lib:/opt/reframed-vr/systemd/usr/lib/systemd";
 #endif
     char path[PATH_MAX], target[PATH_MAX];
     ssize_t n = readlink("/proc/self/exe", path, sizeof(path) - 1);
@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
         else return 126;
     } else return 126;
     if (strncmp(path, "/usr/", 5) || strstr(path, "..") ||
-        snprintf(target, sizeof(target), "/opt/armada-vr/systemd%s", path) >= (int)sizeof(target)) return 126;
+        snprintf(target, sizeof(target), "/opt/reframed-vr/systemd%s", path) >= (int)sizeof(target)) return 126;
     char **args = calloc((size_t)argc + 7, sizeof(char *));
     if (!args) return 126;
     args[0] = (char *)loader; args[1] = "--library-path";

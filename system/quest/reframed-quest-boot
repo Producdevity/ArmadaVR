@@ -5,7 +5,7 @@ mapper=
 stage=identity
 
 fail() {
-    echo "Armada Quest startup failed: $stage: $*" >&2
+    echo "Reframed Quest startup failed: $stage: $*" >&2
     exit 1
 }
 
@@ -81,7 +81,7 @@ usb_ready() {
 compatible /sys/firmware/devicetree/base/compatible oculus,eureka || fail 'requires Quest Eureka device tree'
 compatible /sys/firmware/devicetree/base/compatible qcom,anorak || fail 'requires Anorak platform'
 stage=firmware
-sha256sum --strict -c /etc/armada-vr/quest-firmware.sha256 || fail 'firmware checksum mismatch'
+sha256sum --strict -c /etc/reframed-vr/quest-firmware.sha256 || fail 'firmware checksum mismatch'
 stage=modules
 for module in qrtr qrtr_smd qcom_q6v5_pas adsp_loader_dlkm pmic_glink ucsi_glink; do
     modprobe "$module" || fail "cannot load $module"
@@ -96,14 +96,14 @@ stage=adsp-boot
 case $(< "$adsp/state") in
     running) ;;
     offline)
-        mkdir /run/armada-quest-adsp-requested || fail 'ADSP boot was already requested'
+        mkdir /run/reframed-quest-adsp-requested || fail 'ADSP boot was already requested'
         printf '1\n' > /sys/kernel/boot_adsp/boot || fail 'ADSP boot request failed'
         ;;
     *) fail "unexpected ADSP state: $(< "$adsp/state")" ;;
 esac
 stage=usb-role
 wait_for usb_ready
-echo 'Armada Quest startup ready: ADSP running, PMIC channel, UCSI port and USB host role present'
+echo 'Reframed Quest startup ready: ADSP running, PMIC channel, UCSI port and USB host role present'
 systemd-notify --ready --status='Quest USB root prerequisites available'
 stage=mapper-runtime
 wait "$mapper" || fail 'service mapper exited'

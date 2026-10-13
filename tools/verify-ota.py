@@ -146,7 +146,7 @@ def check_signature_format(signature):
 
 def authenticate(stream, signature, signed_length, trust, openssl):
     check_signature_format(signature)
-    with tempfile.TemporaryDirectory(prefix="armadavr-ota-") as workspace:
+    with tempfile.TemporaryDirectory(prefix="reframedvr-ota-") as workspace:
         directory = Path(workspace)
         (directory / "signature.der").write_bytes(signature)
         (directory / "trusted.pem").write_bytes(trust)

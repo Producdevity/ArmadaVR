@@ -10,8 +10,8 @@ import stat
 import shutil
 import subprocess
 
-PREFIX = "opt/armada-vr/lepton"
-BUILD_RECORD = "usr/share/armada-vr/lepton-build.json"
+PREFIX = "opt/reframed-vr/lepton"
+BUILD_RECORD = "usr/share/reframed-vr/lepton-build.json"
 ADB_LINK = "usr/lib/android-sdk/platform-tools/adb"
 HELPERS = {"newuidmap": "cap_setuid=ep", "newgidmap": "cap_setgid=ep"}
 HOST_FILES = {
@@ -19,7 +19,7 @@ HOST_FILES = {
     "usr/share/guestos/android/vendor/vulkan_layers/libVkLayer_fossilize.so": 0o755,
     "usr/share/vulkan/implicit_layer.d/VkLayer_fossilize.json": 0o644,
 }
-HOST_RECORD = "usr/share/armada-vr/lepton-host.json"
+HOST_RECORD = "usr/share/reframed-vr/lepton-host.json"
 STORAGE_CONFIG = "home/vr/.config/containers/storage.conf"
 STORAGE_CONTENT = '[storage]\ndriver = "overlay"\n[storage.options.overlay]\nmount_program = "/usr/bin/fuse-overlayfs"\n'
 

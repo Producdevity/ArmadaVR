@@ -62,14 +62,14 @@ static bool controllers(vr::IVRSystem *system, vr::IVRDebug *debug, vr::IVRInput
                 !system->IsTrackedDeviceConnected(device)) continue;
             char serial[128]{};
             system->GetStringTrackedDeviceProperty(device, vr::Prop_SerialNumber_String, serial, sizeof(serial));
-            if (std::strcmp(serial, hand ? "armada-vr-right" : "armada-vr-left")) continue;
+            if (std::strcmp(serial, hand ? "reframed-vr-right" : "reframed-vr-left")) continue;
             if (index != vr::k_unTrackedDeviceIndexInvalid) return false;
             index = device;
         }
         if (index == vr::k_unTrackedDeviceIndexInvalid) { std::puts("FAIL: missing virtual controller"); return false; }
         char tracking[128] = {};
         system->GetStringTrackedDeviceProperty(index, vr::Prop_TrackingSystemName_String, tracking, sizeof(tracking));
-        if (std::strcmp(tracking, "armada_virtual")) { std::puts("FAIL: controller is not simulated"); return false; }
+        if (std::strcmp(tracking, "reframed_virtual")) { std::puts("FAIL: controller is not simulated"); return false; }
         auto buttons = [&](bool down) {
             INPUT_CHECK(input->UpdateActionState(&active, sizeof(active), 1));
             vr::InputDigitalActionData_t trigger_data{}, grip_data{};
@@ -187,8 +187,8 @@ int main(int argc, char **argv) {
     std::printf("tracking=%s compositor_connected=%s\n", tracking, compositor ? "true" : "false");
     char model[128] = {};
     system->GetStringTrackedDeviceProperty(0, vr::Prop_ModelNumber_String, model, sizeof(model));
-    require(!std::strcmp(tracking, "null") || (!std::strcmp(tracking, "armada_virtual") &&
-        !std::strcmp(model, "Armada VR virtual headset")), "This probe requires a simulated headset");
+    require(!std::strcmp(tracking, "null") || (!std::strcmp(tracking, "reframed_virtual") &&
+        !std::strcmp(model, "Reframed VR virtual headset")), "This probe requires a simulated headset");
     if (dashboard) {
         auto overlay = static_cast<vr::IVROverlay *>(get(vr::IVROverlay_Version, &error));
         require(overlay && error == vr::VRInitError_None, "No IVROverlay");
@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
         require(debug && error == vr::VRInitError_None, "No IVRDebug");
         auto vr_input = static_cast<vr::IVRInput *>(get(vr::IVRInput_Version, &error));
         require(vr_input && error == vr::VRInitError_None, "No IVRInput");
-        if (!std::strcmp(tracking, "armada_virtual")) {
+        if (!std::strcmp(tracking, "reframed_virtual")) {
             auto models = static_cast<vr::IVRRenderModels *>(get(vr::IVRRenderModels_Version, &error));
             require(models && error == vr::VRInitError_None, "No IVRRenderModels");
             for (const char *hand : {"/user/hand/left", "/user/hand/right"}) {
@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
                 for (const char *component : {"tip", "grip"}) {
                     vr::RenderModel_ComponentState_t pose{};
                     vr::RenderModel_ControllerMode_State_t mode{};
-                    require(models->GetComponentStateForDevicePath("{armada_virtual}controller", component,
+                    require(models->GetComponentStateForDevicePath("{reframed_virtual}controller", component,
                             path, &mode, &pose), "Missing virtual controller pose component");
                     for (unsigned row = 0; row < 3; ++row)
                         for (unsigned column = 0; column < 4; ++column)
@@ -263,7 +263,7 @@ int main(int argc, char **argv) {
     uint32_t bytes = compositor->GetVulkanInstanceExtensionsRequired(instance_extensions, sizeof(instance_extensions));
     require(bytes > 0 && bytes <= sizeof(instance_extensions), "Invalid instance extension list");
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Armada VR frame probe";
+    app.pApplicationName = "Reframed VR frame probe";
     app.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pApplicationInfo = &app;

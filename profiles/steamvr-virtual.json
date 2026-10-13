@@ -15,8 +15,8 @@
   },
   "driver_null": {
     "enable": true,
-    "serialNumber": "armada-vr-qemu",
-    "modelNumber": "Armada VR virtual headset",
+    "serialNumber": "reframed-vr-qemu",
+    "modelNumber": "Reframed VR virtual headset",
     "windowX": 0,
     "windowY": 0,
     "windowWidth": 1024,

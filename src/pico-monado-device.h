@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_MONADO_DEVICE_H
-#define ARMADA_PICO_MONADO_DEVICE_H
+#ifndef REFRAMED_PICO_MONADO_DEVICE_H
+#define REFRAMED_PICO_MONADO_DEVICE_H
 
 #include "pico-monado-input.h"
 

@@ -1,6 +1,6 @@
 [Unit]
 Description=Pico QRTR name service
-ConditionKernelCommandLine=armada.pico=qrtr
+ConditionKernelCommandLine=reframed.pico=qrtr
 ConditionPathExists=!/etc/initrd-release
 After=local-fs.target
 FailureAction=poweroff
@@ -8,7 +8,7 @@ FailureAction=poweroff
 [Service]
 Type=notify
 NotifyAccess=all
-ExecStart=/usr/libexec/armada-pico-qrtr
+ExecStart=/usr/libexec/reframed-pico-qrtr
 TimeoutStartSec=12
 TimeoutStopSec=5
 KillMode=control-group

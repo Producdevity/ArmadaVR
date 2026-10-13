@@ -9,7 +9,7 @@ import shutil
 import stat
 import struct
 
-PREFIX = 'opt/armada-vr/systemd'
+PREFIX = 'opt/reframed-vr/systemd'
 EXECUTOR = 'usr/lib/systemd/systemd-executor'
 MANAGER = 'usr/lib/systemd/systemd'
 VALIDATEFS = 'usr/lib/systemd/systemd-validatefs'
@@ -235,7 +235,7 @@ def install(bundle, root):
             path.symlink_to(item['link'])
         else:
             shutil.copy2(bundle / item['path'], path)
-    metadata = root / 'usr/share/armada-vr'
+    metadata = root / 'usr/share/reframed-vr'
     metadata.mkdir(parents=True, exist_ok=True)
     shutil.copy2(bundle / 'manifest.json', metadata / metadata_name(record['scope']))
     verify_install(bundle, root)
@@ -254,7 +254,7 @@ def verify_install(bundle, root):
                 raise ValueError('Installed runtime link mismatch')
         elif digest(path) != item['sha256'] or stat.S_IMODE(path.stat().st_mode) != item['mode']:
             raise ValueError(f'Installed runtime file mismatch: {path}')
-    if digest(root / 'usr/share/armada-vr' / metadata_name(record['scope'])) != digest(bundle / 'manifest.json'):
+    if digest(root / 'usr/share/reframed-vr' / metadata_name(record['scope'])) != digest(bundle / 'manifest.json'):
         raise ValueError('Installed runtime metadata mismatch')
     for name, sha in record.get('native_abi_sha256', {}).items():
         if digest(root / name) != sha:

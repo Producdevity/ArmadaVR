@@ -117,16 +117,16 @@ int main(void)
 {
     assert(getpid() != 1);
     assert(diagnostic_main() == 2);
-    const char *command = "rdinit=/init armada.pico=diagnostic androidboot.serialno=test";
-    assert(token(command, "armada.pico=diagnostic"));
+    const char *command = "rdinit=/init reframed.pico=diagnostic androidboot.serialno=test";
+    assert(token(command, "reframed.pico=diagnostic"));
     assert(token(command, "androidboot.serialno=test"));
     assert(!token(command, "androidboot.serialno=tes"));
-    assert(!token(command, "armada.pico=diagnostic-test"));
-    assert(!token("armada.pico=diagnostic armada.pico=diagnostic", "armada.pico=diagnostic"));
-    assert(!token("armada.pico=diagnostic armada.pico=wrong", "armada.pico=diagnostic"));
-    assert(!token("badarmada.pico=diagnostic", "armada.pico=diagnostic"));
-    assert(token("\tarmada.pico=diagnostic\n", "armada.pico=diagnostic"));
-    assert(!token("", "armada.pico=diagnostic"));
+    assert(!token(command, "reframed.pico=diagnostic-test"));
+    assert(!token("reframed.pico=diagnostic reframed.pico=diagnostic", "reframed.pico=diagnostic"));
+    assert(!token("reframed.pico=diagnostic reframed.pico=wrong", "reframed.pico=diagnostic"));
+    assert(!token("badreframed.pico=diagnostic", "reframed.pico=diagnostic"));
+    assert(token("\treframed.pico=diagnostic\n", "reframed.pico=diagnostic"));
+    assert(!token("", "reframed.pico=diagnostic"));
     assert(token("msm_drm.modeset=0", "msm_drm.modeset=0"));
     assert(!token("msm_drm.modeset=0 msm_drm.modeset=1", "msm_drm.modeset=0"));
     assert(!token("msm_drm.modeset=0 msm_drm.modeset=0", "msm_drm.modeset=0"));

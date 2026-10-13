@@ -1,6 +1,6 @@
 # Headset boot and board-support bring-up
 
-Checked 2026-09-10. No Armada installation has been attempted on a physical
+Checked 2026-09-10. No Reframed installation has been attempted on a physical
 headset. The current QEMU image exercises ARM64 userspace and a simulated headset;
 it is not a Qualcomm board image. This document addresses the driver, device-tree
 and ROCKNIX ABL concerns separately.
@@ -475,7 +475,7 @@ either vendor kernel. The exact output is `output/hardware-research/userspace-ab
 ## Boot strategy and integration order
 
 The working design is to keep the headset boot integration separate from the
-Armada userspace. A stock ABL that demonstrably accepts a custom Android boot
+Reframed userspace. A stock ABL that demonstrably accepts a custom Android boot
 image could load Linux without replacing ABL. That is a candidate route,
 **not a confirmed capability of either headset**. Root, Android boot-image
 unlocking, critical bootloader replacement and EDL recovery are distinct checks.
@@ -572,7 +572,7 @@ both `xt_CONNMARK.h` and `xt_connmark.h`; extracting it onto the development Mac
 case-insensitive volume overwrote one. Verification rejected that tree and the
 initial compilation was stopped. `output/kernel/quest3/full-source` and
 `build-vendor` are invalid initial diagnostics, not build inputs or results.
-The supported workflow uses the Docker volume `armada-vr-quest3-kernel`, with no
+The supported workflow uses the Docker volume `reframed-vr-quest3-kernel`, with no
 physical device passthrough. The archive cache and exported reports stay on macOS.
 
 ```sh
@@ -582,7 +582,7 @@ just build-headset-kernel
 ```
 
 `build-kernel-tools` installs Debian's native ARM64 Clang/LLVM 14, linker and
-kernel build dependencies inside `localhost/armada-vr:kernel`. This differs from
+kernel build dependencies inside `localhost/reframed-vr:kernel`. This differs from
 [Meta's documented x86 AOSP toolchain](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/README.meta.md).
 A successful build with it is a source compilation baseline, not byte-for-byte
 stock reproduction. The container base is digest-pinned; package repositories

@@ -1,6 +1,6 @@
 {
   "controller_type": "vive_controller",
-  "name": "Armada VR controller acceptance",
+  "name": "Reframed VR controller acceptance",
   "bindings": {
     "/actions/probe": {
       "sources": [

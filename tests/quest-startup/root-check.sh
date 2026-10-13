@@ -5,26 +5,26 @@ IFS= read -r -d '' model < /sys/firmware/devicetree/base/compatible
 [[ $model == linux,dummy-virt && ! -e /etc/initrd-release ]]
 [[ $(stat -f -c %t /) == 794c7630 ]]
 before=$(< /run/quest-before-pid)
-after=$(systemctl show -p MainPID --value armada-quest-boot.service)
+after=$(systemctl show -p MainPID --value reframed-quest-boot.service)
 [[ $before != 0 && $before == "$after" ]]
-systemctl is-active --quiet armada-quest-boot.service
-LD_LIBRARY_PATH=/usr/libexec/armada-quest-fixture /usr/libexec/armada-quest-fixture/qmi-probe
-echo "ARMADA_QUEST_ROOT_HANDOFF_PASS pid=$after"
-if systemctl restart armada-quest-boot.service; then
-    echo ARMADA_QUEST_UNEXPECTED_RESTART >&2
+systemctl is-active --quiet reframed-quest-boot.service
+LD_LIBRARY_PATH=/usr/libexec/reframed-quest-fixture /usr/libexec/reframed-quest-fixture/qmi-probe
+echo "REFRAMED_QUEST_ROOT_HANDOFF_PASS pid=$after"
+if systemctl restart reframed-quest-boot.service; then
+    echo REFRAMED_QUEST_UNEXPECTED_RESTART >&2
     exit 1
 fi
-[[ $(systemctl show -p MainPID --value armada-quest-boot.service) == "$before" ]]
-systemctl is-active --quiet armada-quest-boot.service
-LD_LIBRARY_PATH=/usr/libexec/armada-quest-fixture /usr/libexec/armada-quest-fixture/qmi-probe
-echo ARMADA_QUEST_ROOT_RESTART_REFUSED
+[[ $(systemctl show -p MainPID --value reframed-quest-boot.service) == "$before" ]]
+systemctl is-active --quiet reframed-quest-boot.service
+LD_LIBRARY_PATH=/usr/libexec/reframed-quest-fixture /usr/libexec/reframed-quest-fixture/qmi-probe
+echo REFRAMED_QUEST_ROOT_RESTART_REFUSED
 
-if [[ ${ARMADA_QUEST_CASE:-root} == root-fault ]]; then
+if [[ ${REFRAMED_QUEST_CASE:-root} == root-fault ]]; then
     mapper=$(pgrep -P "$before" -x pd-mapper)
     [[ $mapper =~ ^[0-9]+$ ]]
-    echo "ARMADA_QUEST_MAPPER_FAULT_INJECTED pid=$mapper"
+    echo "REFRAMED_QUEST_MAPPER_FAULT_INJECTED pid=$mapper"
     kill -TERM "$mapper"
     sleep 30
-    echo ARMADA_QUEST_MAPPER_FAULT_NOT_HANDLED
+    echo REFRAMED_QUEST_MAPPER_FAULT_NOT_HANDLED
     exit 1
 fi

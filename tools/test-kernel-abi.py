@@ -39,7 +39,7 @@ def run(kernel, rootfs, output, qemu, accel, timeout):
         raise ValueError("Output exists; choose a new report directory")
     checksums = inputs(kernel, rootfs)
     output.mkdir(parents=True)
-    command = [qemu, "-name", "Armada VR kernel ABI", "-machine", "virt", "-accel", accel,
+    command = [qemu, "-name", "Reframed VR kernel ABI", "-machine", "virt", "-accel", accel,
                "-cpu", "host" if accel in ("hvf", "kvm") else "max", "-smp", "2", "-m", "2048",
                "-nodefaults", "-nographic", "-monitor", "none", "-serial", "stdio", "-no-reboot",
                "-nic", "none", "-kernel", str(kernel / "Image"), "-initrd", str(rootfs / "initramfs.img"),
@@ -63,7 +63,7 @@ def run(kernel, rootfs, output, qemu, accel, timeout):
                     process.wait(timeout=5)
                 raise TimeoutError("Vendor-kernel VM did not finish before the deadline")
         text = (output / "boot.log").read_text(errors="replace")
-        report["acceptance_passed"] = report["returncode"] == 0 and "ARMADA_VR_VM_PASS" in text
+        report["acceptance_passed"] = report["returncode"] == 0 and "REFRAMED_VR_VM_PASS" in text
         report["status"] = "passed" if report["acceptance_passed"] else "failed"
         if not report["acceptance_passed"]:
             raise RuntimeError(f"Kernel ABI test failed; see {output / 'boot.log'}")

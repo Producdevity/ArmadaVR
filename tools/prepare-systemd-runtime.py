@@ -132,7 +132,7 @@ def prepare(args):
     command = [args.zig, 'cc', '-target', 'aarch64-linux-musl', '-static', '-Os', '-Werror', '-Wall',
                '-Wextra', str(code), '-o', str(launcher)]
     if args.scope == 'root':
-        command.insert(2, '-DARMADA_SYSTEMD_NATIVE_LIBRARIES=1')
+        command.insert(2, '-DREFRAMED_SYSTEMD_NATIVE_LIBRARIES=1')
     with tempfile.TemporaryDirectory(prefix='compiler-cache-', dir=output) as cache:
         env = dict(os.environ, ZIG_GLOBAL_CACHE_DIR=cache + '/global', ZIG_LOCAL_CACHE_DIR=cache + '/local')
         with (output / 'compile.log').open('wb') as log:

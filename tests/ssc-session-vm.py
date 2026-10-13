@@ -12,12 +12,12 @@ import time
 import zlib
 
 if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux,dummy-virt' or
-        'armada.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
+        'reframed.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
     raise SystemExit('This test requires the isolated SSC VM')
 
 cases = ['normal', 'immediate', 'no-service', 'clock-failure', 'late', 'silent', 'malformed', 'server-loss']
-os.environ['LD_LIBRARY_PATH'] = '/opt/armada-vr/ssc/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
-assert subprocess.check_output(['/opt/armada-vr/ssc/bin/ssccli', '--version'], text=True).strip() == 'libssc version 0.4.4'
+os.environ['LD_LIBRARY_PATH'] = '/opt/reframed-vr/ssc/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
+assert subprocess.check_output(['/opt/reframed-vr/ssc/bin/ssccli', '--version'], text=True).strip() == 'libssc version 0.4.4'
 print('SSC_BUNDLE_CLI_PASS', flush=True)
 nameserver = subprocess.Popen(['/qrtr-ns', '-f'])
 time.sleep(0.3)

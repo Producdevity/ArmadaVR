@@ -358,7 +358,7 @@ python3 -B output/steamvr-probe/steamvr-session.py \
 ```
 
 The default ICD is the patched Mesa build at
-`/opt/armada-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json`; use `--icd` for
+`/opt/reframed-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json`; use `--icd` for
 another verified build. Use `--virtual-display headless` for Xvfb, or omit
 `--probe` to start the monitor after calibration. Window mode needs Xephyr;
 building needs `patch`, Clang/LLD and the pinned rootfs toolchain. The source
@@ -367,7 +367,7 @@ both licenses in the bundle. It also builds the x86-64 OpenXR resolver and
 includes the Windows OpenXR launcher; see [Windows OpenXR](windows-openxr.md).
 
 The persistent development VM now has the verified bundle installed under
-`/opt/armada-vr/openvr`, and the patched Mesa library at its default location.
+`/opt/reframed-vr/openvr`, and the patched Mesa library at its default location.
 Its **SteamVR** desktop menu uses `tools/desktop-steamvr.sh`. Current installation
 hashes are recorded in `output/steamvr-bundle-v10/install-v7.json`. The previous
 bundle is retained in `/var/tmp/steamvr-before-install-v7` inside the guest. No Steam login
@@ -643,11 +643,11 @@ no OOM events occurred. Driver SHA-256:
 e8cdcfc2fc7b1f743cd7d4c0a7756e99b9ee4a9952afce18b2f7971f55c96737
 ```
 
-The current VM has the driver under `/opt/armada-vr/mesa`, separate from its
+The current VM has the driver under `/opt/reframed-vr/mesa`, separate from its
 system driver. Tests select it per process with:
 
 ```sh
-VK_DRIVER_FILES=/opt/armada-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json
+VK_DRIVER_FILES=/opt/reframed-vr/mesa/share/vulkan/icd.d/lvp_icd.aarch64.json
 LVP_DRM_SYNC=/dev/dri/renderD128
 ```
 
@@ -761,7 +761,7 @@ on its X11 socket, with software-rendering workers idle. This narrows the
 investigation; it does not establish which translated X11 call is responsible.
 FEX's guest debugger socket did not answer GDB's protocol negotiation.
 
-The `armada_virtual` driver supplies two simulated controllers, left/right
+The `reframed_virtual` driver supplies two simulated controllers, left/right
 roles, bounded poses/buttons and a haptic event counter. Discovery, changing
 poses and haptic request delivery passed initially. Before the timing correction,
 the modern OpenVR action probe reported inactive actions and `IsInputAvailable=0`;

@@ -55,7 +55,7 @@ struct Runtime {
 int main(int argc, char **argv) {
 #ifdef _WIN32
     // Wine console output is not reliably inherited across the Proton launcher.
-    if (const char *output = std::getenv("ARMADA_VR_PROBE_OUTPUT")) {
+    if (const char *output = std::getenv("REFRAMED_VR_PROBE_OUTPUT")) {
         if (!std::freopen(output, "w", stdout) || _dup2(_fileno(stdout), _fileno(stderr))) return 2;
         setvbuf(stdout, nullptr, _IOLBF, 0);
     }
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
         const char *extensions[] = {render ? XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME : XR_MND_HEADLESS_EXTENSION_NAME,
                                     timeExtension};
         XrInstanceCreateInfo create{XR_TYPE_INSTANCE_CREATE_INFO};
-        std::strcpy(create.applicationInfo.applicationName, "Armada VR probe");
+        std::strcpy(create.applicationInfo.applicationName, "Reframed VR probe");
         create.applicationInfo.apiVersion = XR_API_VERSION_1_0;
         create.enabledExtensionCount = 2;
         create.enabledExtensionNames = extensions;
@@ -191,7 +191,7 @@ int main(int argc, char **argv) {
                     } else if (state == XR_SESSION_STATE_EXITING || state == XR_SESSION_STATE_LOSS_PENDING) {
                         stopping = true;
                     } else if (state == XR_SESSION_STATE_FOCUSED && remote && !ready) {
-                        std::puts("ARMADA_VR_INPUT_READY");
+                        std::puts("REFRAMED_VR_INPUT_READY");
                         std::fflush(stdout);
                         ready = true;
                     }
@@ -297,15 +297,15 @@ int main(int argc, char **argv) {
                     throw std::runtime_error("Remote controller action acceptance failed");
                 }
             }
-            std::puts("ARMADA_VR_INPUT_PASS (virtual actions; haptic API only, no output device)");
+            std::puts("REFRAMED_VR_INPUT_PASS (virtual actions; haptic API only, no output device)");
         }
         if (render) {
             std::printf("submitted_projection_frames=%u left_pressed_frames=%u right_pressed_frames=%u\n",
                 r.renderer.submitted, r.renderer.pressed_frames[0], r.renderer.pressed_frames[1]);
             if (r.renderer.submitted < requiredSamples - 5 || !r.renderer.pressed_frames[0] ||
                 !r.renderer.pressed_frames[1]) throw std::runtime_error("Rendered input acceptance failed");
-            std::puts("ARMADA_VR_RENDERED_INPUT_SUBMITTED (display captures must also pass)");
-        } else std::puts("ARMADA_VR_OPENXR_PASS (headless tracking; no rendered layers)");
+            std::puts("REFRAMED_VR_RENDERED_INPUT_SUBMITTED (display captures must also pass)");
+        } else std::puts("REFRAMED_VR_OPENXR_PASS (headless tracking; no rendered layers)");
         return 0;
     } catch (const std::exception &error) {
         std::fprintf(stderr, "%s\n", error.what());

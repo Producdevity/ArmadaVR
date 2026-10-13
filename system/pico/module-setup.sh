@@ -14,14 +14,14 @@ depends() {
 
 install() {
     inst_multiple qrtr-ns qrtr-lookup systemd-notify sleep
-    inst_script "$moddir/armada-pico-qrtr" /usr/libexec/armada-pico-qrtr
-    inst_simple "$moddir/armada-pico-qrtr.service" "$systemdsystemunitdir/armada-pico-qrtr.service"
-    $SYSTEMCTL -q --root "$initdir" add-wants initrd.target armada-pico-qrtr.service
+    inst_script "$moddir/reframed-pico-qrtr" /usr/libexec/reframed-pico-qrtr
+    inst_simple "$moddir/reframed-pico-qrtr.service" "$systemdsystemunitdir/reframed-pico-qrtr.service"
+    $SYSTEMCTL -q --root "$initdir" add-wants initrd.target reframed-pico-qrtr.service
     if [[ -f /tmp/pico-service-maps.sha256 ]]; then
         inst_multiple pd-mapper sha256sum
-        inst_simple /tmp/pico-service-maps.sha256 /etc/armada-vr/pico-service-maps.sha256
-        inst_script "$moddir/armada-pico-pd-mapper" /usr/libexec/armada-pico-pd-mapper
-        inst_simple "$moddir/armada-pico-pd-mapper.service" "$systemdsystemunitdir/armada-pico-pd-mapper.service"
-        $SYSTEMCTL -q --root "$initdir" add-wants initrd.target armada-pico-pd-mapper.service
+        inst_simple /tmp/pico-service-maps.sha256 /etc/reframed-vr/pico-service-maps.sha256
+        inst_script "$moddir/reframed-pico-pd-mapper" /usr/libexec/reframed-pico-pd-mapper
+        inst_simple "$moddir/reframed-pico-pd-mapper.service" "$systemdsystemunitdir/reframed-pico-pd-mapper.service"
+        $SYSTEMCTL -q --root "$initdir" add-wants initrd.target reframed-pico-pd-mapper.service
     fi
 }

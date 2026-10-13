@@ -37,7 +37,7 @@ int main(void)
    CHECK(mount("proc", "/proc", "proc", 0, NULL) == 0);
    char cmdline[4096];
    FILE *cmd = fopen("/proc/cmdline", "r"); CHECK(cmd);
-   CHECK(fgets(cmdline, sizeof(cmdline), cmd) && strstr(cmdline, "armada.kgsl_display_test=1"));
+   CHECK(fgets(cmdline, sizeof(cmdline), cmd) && strstr(cmdline, "reframed.kgsl_display_test=1"));
    CHECK(fclose(cmd) == 0);
    signal(SIGALRM, expired); alarm(20);
    CHECK(mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) == 0);

@@ -182,7 +182,7 @@ class RuntimeTests(unittest.TestCase):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_bytes(elf())
             p.chmod(0o755)
-        metadata = self.root / 'usr/share/armada-vr/initramfs-systemd.json'
+        metadata = self.root / 'usr/share/reframed-vr/initramfs-systemd.json'
         metadata.parent.mkdir(parents=True)
         metadata.write_bytes((self.bundle / 'manifest.json').read_bytes())
         runtime.verify_install(self.bundle, self.root)

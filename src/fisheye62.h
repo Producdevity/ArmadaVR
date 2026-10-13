@@ -1,5 +1,5 @@
-#ifndef ARMADA_FISHEYE62_H
-#define ARMADA_FISHEYE62_H
+#ifndef REFRAMED_FISHEYE62_H
+#define REFRAMED_FISHEYE62_H
 
 #include <stdbool.h>
 

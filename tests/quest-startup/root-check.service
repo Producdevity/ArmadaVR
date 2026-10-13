@@ -1,8 +1,8 @@
 [Unit]
 Description=Verify Quest service after QEMU root handoff
-After=armada-quest-boot.service
-Wants=armada-quest-boot.service
-Before=armada-vr-lab.service
+After=reframed-quest-boot.service
+Wants=reframed-quest-boot.service
+Before=reframed-vr-lab.service
 
 [Service]
 Type=oneshot

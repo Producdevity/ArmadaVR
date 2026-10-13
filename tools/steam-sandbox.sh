@@ -2,7 +2,7 @@
 set -euo pipefail
 client="${1:-/client}"
 out="${2:-/output}"
-[[ -f "$client/armada-client-manifest.json" ]] || { echo 'Expected the fetched lab client' >&2; exit 1; }
+[[ -f "$client/reframed-client-manifest.json" ]] || { echo 'Expected the fetched lab client' >&2; exit 1; }
 mkdir -p "$out"
 rm -f "$out/steam-12s.png" "$out/steam-30s.png" "$out/result.txt"
 export HOME XDG_RUNTIME_DIR

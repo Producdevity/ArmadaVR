@@ -31,11 +31,11 @@ class RuntimeAssemblyTests(unittest.TestCase):
         (self.initrd / 'initramfs.img').write_bytes(b'ramdisk fixture')
         (self.initrd / 'contents.json').write_text('{}')
         self.record = dict(common, profile='pico-neo3', target='headset-root-offline',
-                           root_label='armada-vr-root', initramfs_sha256=assembly.digest(self.initrd / 'initramfs.img'))
+                           root_label='reframed-vr-root', initramfs_sha256=assembly.digest(self.initrd / 'initramfs.img'))
         image = bytearray(4096)
         struct.pack_into('<I', image, 1028, 4)
         image[1080:1082] = b'\x53\xef'
-        image[1144:1160] = b'armada-vr-root'.ljust(16, b'\0')
+        image[1144:1160] = b'reframed-vr-root'.ljust(16, b'\0')
         (self.root / 'rootfs.ext4').write_bytes(image)
         (self.root / 'contents.json').write_text('{}')
         (self.root / 'root-profile.json').write_text(json.dumps({'profile': 'pico-neo3', 'pico_services': True}))
@@ -60,7 +60,7 @@ class RuntimeAssemblyTests(unittest.TestCase):
 
     def test_matching_receipts_bind_the_external_root_and_label(self):
         result = self.checked()
-        self.assertEqual(result['root_label'], 'armada-vr-root')
+        self.assertEqual(result['root_label'], 'reframed-vr-root')
         self.assertEqual(result['root_image_sha256'], assembly.digest(self.root / 'rootfs.ext4'))
 
     def test_changed_root_is_rejected(self):

@@ -1,7 +1,7 @@
 [Unit]
 Description=Quest ADSP and USB root prerequisites
 DefaultDependencies=no
-ConditionKernelCommandLine=armada.quest=usb-root
+ConditionKernelCommandLine=reframed.quest=usb-root
 ConditionPathExists=/etc/initrd-release
 After=systemd-udev-trigger.service systemd-modules-load.service
 Wants=systemd-udev-trigger.service systemd-modules-load.service
@@ -14,7 +14,7 @@ FailureAction=poweroff
 [Service]
 Type=notify
 NotifyAccess=all
-ExecStart=/usr/libexec/armada-quest-boot
+ExecStart=/usr/libexec/reframed-quest-boot
 TimeoutStartSec=45
 TimeoutStopSec=5
 KillMode=control-group

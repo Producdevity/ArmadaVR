@@ -12,7 +12,7 @@ import time
 import zlib
 
 if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux,dummy-virt' or
-        'armada.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
+        'reframed.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
     raise SystemExit('This test requires the isolated SSC VM')
 
 config = {'status': 'passed', 'read_only': True, 'device': 'PICOA7H10',
@@ -21,9 +21,9 @@ config = {'status': 'passed', 'read_only': True, 'device': 'PICOA7H10',
 Path('/synthetic-controller.json').write_text(json.dumps(config))
 Path('/controller-phase').write_text('release')
 Path('/tmp/pico-runtime').mkdir(mode=0o700, parents=True)
-env = dict(os.environ, LD_LIBRARY_PATH='/opt/armada-vr/monado/lib64:/opt/armada-vr/ssc/lib64:/usr/lib64',
+env = dict(os.environ, LD_LIBRARY_PATH='/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64:/usr/lib64',
            XDG_RUNTIME_DIR='/tmp/pico-runtime', XDG_CONFIG_HOME='/tmp/pico-config',
-           XR_RUNTIME_JSON='/opt/armada-vr/monado/share/openxr/1/openxr_monado.json',
+           XR_RUNTIME_JSON='/opt/reframed-vr/monado/share/openxr/1/openxr_monado.json',
            VK_ICD_FILENAMES='/usr/share/vulkan/icd.d/lvp_icd.aarch64.json',
            XRT_COMPOSITOR_NULL='1', XRT_NO_STDIN='1', PICO_SSC_CONFIG='/synthetic-controller.json',
            PICO_SSC_COUNTER='1', P_LOG='info', IPC_LOG='info', LP_NUM_THREADS='1',
@@ -48,7 +48,7 @@ try:
             with tempfile.TemporaryFile() as servicelog, tempfile.TemporaryFile() as clientlog:
                 try:
                     Path('/controller-phase').write_text('release')
-                    service = subprocess.Popen(['/opt/armada-vr/monado/bin/monado-service'],
+                    service = subprocess.Popen(['/opt/reframed-vr/monado/bin/monado-service'],
                                                env=env, stdout=servicelog, stderr=subprocess.STDOUT)
                     deadline = time.monotonic() + 15
                     while not Path(env['XDG_RUNTIME_DIR'], 'monado_comp_ipc').exists():

@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_SENSOR_RPC_H
-#define ARMADA_PICO_SENSOR_RPC_H
+#ifndef REFRAMED_PICO_SENSOR_RPC_H
+#define REFRAMED_PICO_SENSOR_RPC_H
 
 #include "sns-low-latency.h"
 

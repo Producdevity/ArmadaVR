@@ -352,11 +352,11 @@ int main(void)
     stream = fopen("/proc/device-tree/compatible", "r");
     CHECK(stream && fgets(compatible, sizeof(compatible), stream)); fclose(stream);
     CHECK(strcmp(compatible, "linux,dummy-virt") == 0);
-    CHECK(strstr(command, "armada.dmabuf_test=1") || strstr(command, "armada.dmabuf_test=unsupported"));
+    CHECK(strstr(command, "reframed.dmabuf_test=1") || strstr(command, "reframed.dmabuf_test=unsupported"));
     CHECK(mount("devtmpfs", "/dev", "devtmpfs", 0, NULL) == 0);
     CHECK(mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL) == 0);
     int buf = buffer();
-    if (strstr(command, "armada.dmabuf_test=unsupported")) {
+    if (strstr(command, "reframed.dmabuf_test=unsupported")) {
         struct dma_buf_export_sync_file e = {.flags = DMA_BUF_SYNC_RW, .fd = -1};
         struct dma_buf_import_sync_file i = {.flags = DMA_BUF_SYNC_RW, .fd = -1};
         CHECK(ioctl(buf, DMA_BUF_IOCTL_EXPORT_SYNC_FILE, &e) == -1 && errno == ENOTTY);

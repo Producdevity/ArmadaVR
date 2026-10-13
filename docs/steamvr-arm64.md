@@ -220,7 +220,7 @@ compositor initialization path in a temporary profile. Controller preflight stay
 in `--native-devices`: running it before presentation can automatically start a
 second compositor and dashboard, so presentation starts its own components
 directly after room setup. Logs are retained in
-`~/.local/state/armada-vr/steamvr-native.log`.
+`~/.local/state/reframed-vr/steamvr-native.log`.
 
 Windows HelloXR now renders both eyes through FEX and Proton while the server,
 compositor and dashboard run directly as ARM64. Separate fresh backends and
@@ -364,9 +364,9 @@ Keep the existing translated runtime and its evidence for comparison.
 
 ## Native virtual device acceptance
 
-The Frame package omits Valve's null-headset driver. Armada VR's existing virtual
+The Frame package omits Valve's null-headset driver. Reframed VR's existing virtual
 controller driver now optionally supplies a fixed simulated HMD when the selected
-driver is `armada_virtual` and `driver_armada_virtual.simulateHeadset` is explicitly
+driver is `reframed_virtual` and `driver_reframed_virtual.simulateHeadset` is explicitly
 true. The original null-HMD/x86 path remains available. Neither simulated path
 has a physical-device transport.
 
@@ -396,7 +396,7 @@ Clang, Vulkan headers/loader and the pinned OpenVR headers:
 just build-steamvr-probe output/openvr-sdk output/steamvr-native-probe aarch64
 ```
 
-The native bundle contains `armada_virtual/bin/linuxarm64/driver_armada_virtual.so`,
+The native bundle contains `reframed_virtual/bin/linuxarm64/driver_reframed_virtual.so`,
 the native virtual profile, session launcher and Vulkan sharing probes. On
 unprivileged AArch64 Linux, select the locally supplied runtime explicitly:
 
@@ -419,7 +419,7 @@ HMD/controller acceptance; it does not launch a compositor or dashboard. Native
 components are invoked directly without FEX or Frame's x86-oriented `vrenv.sh`.
 The session lock is shared with the existing translated launcher. Owned server
 processes and private session files are cleaned up; logs remain in
-`~/.local/state/armada-vr/steamvr-native.log`.
+`~/.local/state/reframed-vr/steamvr-native.log`.
 
 `--native-preflight` queries display, present-id/wait features and semaphore
 capabilities on the same Vulkan device, without launching SteamVR. A successful

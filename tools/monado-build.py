@@ -125,13 +125,13 @@ def build(profile):
         run(['ctest', '--test-dir', str(build_dir), '--output-on-failure', '--output-junit', str(output / 'ctest.xml'), '-j', '1'],
             'ctest.log', timeout=180)
         run(['cmake', '--install', str(build_dir)], 'install.log')
-        prefix = output / 'stage/opt/armada-vr/monado'
+        prefix = output / 'stage/opt/reframed-vr/monado'
         for name in ['bin/monado-service', 'bin/monado-cli', 'lib64/libopenxr_monado.so', 'lib64/libmonado.so']:
             data = (prefix / name).read_bytes()
             if data[:6] != b'\x7fELF\x02\x01' or data[18:20] != b'\xb7\x00':
                 raise ValueError('Expected native ARM64 ELF: ' + name)
         manifest = json.loads((prefix / 'share/openxr/1/openxr_monado.json').read_text())
-        if manifest['runtime']['library_path'] != '/opt/armada-vr/monado/lib64/libopenxr_monado.so':
+        if manifest['runtime']['library_path'] != '/opt/reframed-vr/monado/lib64/libopenxr_monado.so':
             raise ValueError('Unexpected OpenXR runtime path')
         if any((output / 'stage/etc').rglob('*')) or any((output / 'stage/usr').rglob('*')):
             raise ValueError('Monado install escaped its opt prefix')

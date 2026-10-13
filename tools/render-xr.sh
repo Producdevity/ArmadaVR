@@ -48,4 +48,4 @@ import -window root "$out/stereo-2.png"
 printf '\n' >&3
 wait "${pids[2]}"
 exec 3>&-
-python3 /usr/local/libexec/armada-vr/check-render.py "$out/stereo-1.png" "$out/stereo-2.png" | tee "$out/result.txt"
+python3 /usr/local/libexec/reframed-vr/check-render.py "$out/stereo-1.png" "$out/stereo-2.png" | tee "$out/result.txt"

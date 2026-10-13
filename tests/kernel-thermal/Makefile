@@ -1,1 +1,1 @@
-obj-m += armada_thermal_test.o
+obj-m += reframed_thermal_test.o

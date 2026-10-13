@@ -1,5 +1,5 @@
-#ifndef ARMADA_VXR7200_VIDEO_H
-#define ARMADA_VXR7200_VIDEO_H
+#ifndef REFRAMED_VXR7200_VIDEO_H
+#define REFRAMED_VXR7200_VIDEO_H
 
 #include "vxr7200-transport.h"
 

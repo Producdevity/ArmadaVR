@@ -12,9 +12,9 @@ import time
 import zlib
 
 if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux,dummy-virt' or
-        'armada.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
+        'reframed.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
     raise SystemExit('This test requires the isolated SSC VM')
-os.environ['LD_LIBRARY_PATH'] = '/opt/armada-vr/ssc/lib64'
+os.environ['LD_LIBRARY_PATH'] = '/opt/reframed-vr/ssc/lib64'
 os.environ['UBSAN_OPTIONS'] = 'halt_on_error=1'
 taint = Path('/proc/sys/kernel/tainted').read_text()
 cases = ['normal', 'empty', 'duplicate', 'zero', 'too-many', 'wrong-type', 'registry-empty',

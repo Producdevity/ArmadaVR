@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_FASTRPC_H
-#define ARMADA_PICO_FASTRPC_H
+#ifndef REFRAMED_PICO_FASTRPC_H
+#define REFRAMED_PICO_FASTRPC_H
 
 #include <stddef.h>
 #include <stdint.h>

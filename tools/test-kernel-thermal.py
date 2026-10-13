@@ -51,7 +51,7 @@ def initramfs(init, module):
     entry("dev/console", stat.S_IFCHR | 0o600, rdev=(5, 1))
     entry("init", stat.S_IFREG | 0o755, init)
     entry("sbin/poweroff", stat.S_IFLNK | 0o777, b"/init")
-    entry("armada_thermal_test.ko", stat.S_IFREG | 0o600, module)
+    entry("reframed_thermal_test.ko", stat.S_IFREG | 0o600, module)
     entry("TRAILER!!!", 0)
     return bytes(archive)
 
@@ -84,20 +84,20 @@ def run(args):
         report["commands"].append(command)
         with (output / "build.log").open("wb") as log:
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=150)
-        archive = initramfs((output / "init").read_bytes(), (output / "module/armada_thermal_test.ko").read_bytes())
+        archive = initramfs((output / "init").read_bytes(), (output / "module/reframed_thermal_test.ko").read_bytes())
         (output / "initramfs.cpio").write_bytes(archive)
         report["artifacts_sha256"] = {name: digest(output / name) for name in
-                                      ("init", "module/armada_thermal_test.ko", "initramfs.cpio")}
-        command = [args.qemu, "-name", "Armada thermal test", "-machine", "virt", "-accel", args.accel,
+                                      ("init", "module/reframed_thermal_test.ko", "initramfs.cpio")}
+        command = [args.qemu, "-name", "Reframed thermal test", "-machine", "virt", "-accel", args.accel,
                    "-cpu", "host" if args.accel in ("hvf", "kvm") else "max", "-smp", "2", "-m", "1024",
                    "-nodefaults", "-nographic", "-monitor", "none", "-serial", "stdio", "-no-reboot",
                    "-nic", "none", "-kernel", str(kernel / "Image"), "-initrd", str(output / "initramfs.cpio"),
-                   "-append", "console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 armada.thermal_test=1"]
+                   "-append", "console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 reframed.thermal_test=1"]
         report["cases"] = []
         for name in ("orderly", "stalled-helper"):
             boot_command = command.copy()
             if name == "stalled-helper":
-                boot_command[-1] += " armada.thermal_stall=1"
+                boot_command[-1] += " reframed.thermal_stall=1"
             report["commands"].append(boot_command)
             case = {"name": name, "status": "started"}
             report["cases"].append(case)
@@ -137,8 +137,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("kernel", type=Path)
     parser.add_argument("--output", type=Path, default=Path("output/kernel-thermal"))
-    parser.add_argument("--cache-volume", default="armada-vr-quest3-kernel")
-    parser.add_argument("--image", default="localhost/armada-vr:kernel")
+    parser.add_argument("--cache-volume", default="reframed-vr-quest3-kernel")
+    parser.add_argument("--image", default="localhost/reframed-vr:kernel")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--qemu", default="qemu-system-aarch64")
     parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"),

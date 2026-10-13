@@ -187,10 +187,10 @@ static gboolean platform_permitted(const char *board, size_t size, const char *l
     }
     gchar **tokens = g_strsplit_set(line, " \t\r\n", -1);
     for (size_t i = 0; tokens[i]; i++) {
-        pico_keys += g_str_has_prefix(tokens[i], "armada.pico=");
-        test_keys += g_str_has_prefix(tokens[i], "armada.ssc_test=");
-        qrtr |= !strcmp(tokens[i], "armada.pico=qrtr");
-        test |= !strcmp(tokens[i], "armada.ssc_test=1");
+        pico_keys += g_str_has_prefix(tokens[i], "reframed.pico=");
+        test_keys += g_str_has_prefix(tokens[i], "reframed.ssc_test=");
+        qrtr |= !strcmp(tokens[i], "reframed.pico=qrtr");
+        test |= !strcmp(tokens[i], "reframed.ssc_test=1");
     }
     g_strfreev(tokens);
     return (pico && qrtr && !virt && pico_keys == 1 && !test_keys) ||

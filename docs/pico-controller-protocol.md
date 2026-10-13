@@ -394,7 +394,7 @@ input delivery remain open integration work.
 
 [`ssc-build.py`](../tools/ssc-build.py) builds the pinned source archive on native
 ARM64 Linux, runs the source regression tests, and packages the installed library
-and CLI under `/opt/armada-vr/ssc`. Four pinned Fedora runtime dependencies are
+and CLI under `/opt/reframed-vr/ssc`. Four pinned Fedora runtime dependencies are
 included with their licenses; the bundle uses the root's GLib and C library.
 RPM verification checks those dependency files before copying. The original SSC
 source archive, local patches and license accompany the runtime. The builder

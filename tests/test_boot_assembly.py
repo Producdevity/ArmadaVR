@@ -27,8 +27,8 @@ class ArgumentTests(unittest.TestCase):
     def test_final_empty_cmdline_survives_unpack(self):
         args = assembly.parse_arguments(b"--header_version\x004\x00--cmdline\x00\x00")
         self.assertEqual(args, ["--header_version", "4", "--cmdline", ""])
-        assembly.replace(args, "--cmdline", "root=LABEL=armada-vr-root ro")
-        self.assertEqual(args[-1], "root=LABEL=armada-vr-root ro")
+        assembly.replace(args, "--cmdline", "root=LABEL=reframed-vr-root ro")
+        self.assertEqual(args[-1], "root=LABEL=reframed-vr-root ro")
 
     def test_malformed_or_duplicate_option_vectors_are_rejected(self):
         for data in (b"", b"--cmdline\0", b"--cmdline\0root=x", b"--x\0a\0--x\0b\0", b"value\0other\0"):
@@ -44,26 +44,26 @@ class ArgumentTests(unittest.TestCase):
         for label in ("", "x" * 17, "userdata rw", "/dev/block/by-name/userdata", "x\ninit=/bin/sh", "é"):
             with self.subTest(label=label), self.assertRaisesRegex(ValueError, "Root label"):
                 assembly.root_arguments(label)
-        args = assembly.root_arguments("armada-vr-root").split()
-        self.assertIn("root=LABEL=armada-vr-root", args)
+        args = assembly.root_arguments("reframed-vr-root").split()
+        self.assertIn("root=LABEL=reframed-vr-root", args)
         self.assertIn("ro", args)
         self.assertIn("rootflags=noload", args)
         self.assertIn("systemd.volatile=overlay", args)
         self.assertIn("rd.emergency=poweroff", args)
 
     def test_quest_startup_is_opt_in_and_preserves_root_protections(self):
-        plain = assembly.root_arguments("armada-vr-root").split()
-        enabled = assembly.root_arguments("armada-vr-root", quest_services=True).split()
-        self.assertNotIn("armada.quest=usb-root", plain)
-        self.assertEqual(enabled, plain + ["armada.quest=usb-root"])
+        plain = assembly.root_arguments("reframed-vr-root").split()
+        enabled = assembly.root_arguments("reframed-vr-root", quest_services=True).split()
+        self.assertNotIn("reframed.quest=usb-root", plain)
+        self.assertEqual(enabled, plain + ["reframed.quest=usb-root"])
 
     def test_pico_startup_preserves_locator_enablement_and_root_protections(self):
-        plain = assembly.root_arguments("armada-vr-root").split()
-        enabled = assembly.root_arguments("armada-vr-root", pico_services=True).split()
-        self.assertEqual(enabled, plain + ["armada.pico=qrtr", "service_locator.enable=1"])
-        self.assertNotIn("armada.quest=usb-root", enabled)
+        plain = assembly.root_arguments("reframed-vr-root").split()
+        enabled = assembly.root_arguments("reframed-vr-root", pico_services=True).split()
+        self.assertEqual(enabled, plain + ["reframed.pico=qrtr", "service_locator.enable=1"])
+        self.assertNotIn("reframed.quest=usb-root", enabled)
         with self.assertRaisesRegex(ValueError, "one headset"):
-            assembly.root_arguments("armada-vr-root", quest_services=True, pico_services=True)
+            assembly.root_arguments("reframed-vr-root", quest_services=True, pico_services=True)
 
 
 class OverlayTests(unittest.TestCase):

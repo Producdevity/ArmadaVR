@@ -64,7 +64,7 @@ static void tagged_exec_test(void)
         if (!child) {
             char *path = strdup("/proc/self/exe");
             char *argument = strdup("--tagged-exec-child");
-            char *variable = strdup("ARMADA_EXEC_PROBE=ok");
+            char *variable = strdup("REFRAMED_EXEC_PROBE=ok");
             char **args = calloc(3, sizeof(*args));
             char **env = calloc(2, sizeof(*env));
             require(path && argument && variable && args && env, "tagged_exec_allocations");
@@ -375,7 +375,7 @@ static void network_test(void)
         }
         require(bind(receiver, (struct sockaddr *)&address, size) == 0, "loopback_bind");
         require(getsockname(receiver, (struct sockaddr *)&address, &size) == 0, "loopback_address");
-        const char message[] = "armada-network-namespace";
+        const char message[] = "reframed-network-namespace";
         require(sendto(sender, message, sizeof(message), 0, (struct sockaddr *)&address, size) == sizeof(message),
                 "loopback_send");
         struct pollfd ready = {.fd = receiver, .events = POLLIN};
@@ -564,7 +564,7 @@ static void child_test(void)
 int main(int argc, char **argv)
 {
     if (argc == 2 && !strcmp(argv[1], "--tagged-exec-child")) {
-        const char *value = getenv("ARMADA_EXEC_PROBE");
+        const char *value = getenv("REFRAMED_EXEC_PROBE");
         return !value || strcmp(value, "ok") || getuid() != 1000 ||
                prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0) != 0;
     }
@@ -581,7 +581,7 @@ int main(int argc, char **argv)
         return 2;
     fclose(stream);
     stream = fopen("/proc/cmdline", "r");
-    if (!stream || !fgets(command, sizeof(command), stream) || !strstr(command, "armada.android_container_test=1"))
+    if (!stream || !fgets(command, sizeof(command), stream) || !strstr(command, "reframed.android_container_test=1"))
         return 2;
     fclose(stream);
     mkdir("/dev", 0755);

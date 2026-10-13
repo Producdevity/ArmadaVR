@@ -81,12 +81,12 @@ def check_captures(output):
         if positions[required[0]] / counts[required[0]] >= positions[required[1]] / counts[required[1]]:
             raise ValueError(f"Left and right eye output is reversed in {name}")
     (output / "captures.json").write_text(json.dumps(results, indent=2) + "\n")
-    print("ARMADA_VR_RENDERED_INPUT_PASS (captured eye colors follow both real action states)")
+    print("REFRAMED_VR_RENDERED_INPUT_PASS (captured eye colors follow both real action states)")
 
 
 def run(output, probe, windows=False, render=False):
     output.mkdir(parents=True, exist_ok=False)
-    with tempfile.TemporaryDirectory(prefix="armada-input-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="reframed-input-") as temporary:
         root = Path(temporary)
         config = root / "monado"
         config.mkdir()
@@ -110,7 +110,7 @@ def run(output, probe, windows=False, render=False):
                         "VK_DRIVER_FILES": os.environ.get("VK_DRIVER_FILES", "/usr/share/vulkan/icd.d/lvp_icd.aarch64.json")})
         result_file = output / ("probe.log" if windows else "openxr.log")
         if windows:
-            env["ARMADA_VR_PROBE_OUTPUT"] = "Z:" + str(result_file.resolve())
+            env["REFRAMED_VR_PROBE_OUTPUT"] = "Z:" + str(result_file.resolve())
         service = application = None
         try:
             with (output / "monado.log").open("w") as log, (output / "openxr.log").open("w") as app_log:
@@ -149,7 +149,7 @@ def run(output, probe, windows=False, render=False):
                         if elapsed > (90 if windows else 50 if render else 25):
                             raise TimeoutError("OpenXR action probe exceeded its deadline")
                         if (input_started is None and result_file.exists() and
-                                "ARMADA_VR_INPUT_READY" in result_file.read_text()):
+                                "REFRAMED_VR_INPUT_READY" in result_file.read_text()):
                             input_started = time.monotonic()
                         connection.sendall(controls(initial, 0 if input_started is None else
                                                     time.monotonic() - input_started))
@@ -163,11 +163,11 @@ def run(output, probe, windows=False, render=False):
                     if application.returncode:
                         raise RuntimeError("OpenXR action probe failed; see openxr.log")
             result = result_file.read_text()
-            if "ARMADA_VR_INPUT_PASS" not in result:
+            if "REFRAMED_VR_INPUT_PASS" not in result:
                 raise RuntimeError("Missing OpenXR action acceptance result")
             print(result, end="")
             if render:
-                if "ARMADA_VR_RENDERED_INPUT_SUBMITTED" not in result:
+                if "REFRAMED_VR_RENDERED_INPUT_SUBMITTED" not in result:
                     raise RuntimeError("Missing rendered input submission result")
                 check_captures(output)
         finally:
@@ -183,7 +183,7 @@ if __name__ == "__main__":
     parser.add_argument("--render", action="store_true", help="Require rendered stereo output to follow both controller actions")
     args = parser.parse_args()
     try:
-        probe = args.probe or Path("/opt/armada-vr/windows/xr-probe.exe" if args.windows else "/usr/local/bin/xr-probe")
+        probe = args.probe or Path("/opt/reframed-vr/windows/xr-probe.exe" if args.windows else "/usr/local/bin/xr-probe")
         run(args.output, probe, args.windows, args.render)
     except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError) as error:
         parser.exit(1, f"{error}\n")

@@ -58,7 +58,7 @@ def build(archive, output, image):
             report['tests_sha256'] = artifact.digest(output / 'tests/result.json')
             patched = output / 'tests/patched'
             build_dir = work / 'build'
-            run(['meson', 'setup', str(build_dir), str(patched), '--prefix=/opt/armada-vr/ssc',
+            run(['meson', 'setup', str(build_dir), str(patched), '--prefix=/opt/reframed-vr/ssc',
                  '--libdir=lib64', '--buildtype=debugoptimized'], 'configure.log')
             run(['meson', 'compile', '-C', str(build_dir), '-j2'], 'compile.log')
             installed = work / 'install'

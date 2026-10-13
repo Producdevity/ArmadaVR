@@ -11,7 +11,7 @@ hashes in `profiles/qcom-services.json`.
 python3 -B tools/fetch-qcom-services.py SOURCE_DIRECTORY
 docker build --platform linux/arm64 \
   --build-context qcom-sources=SOURCE_DIRECTORY \
-  -f Containerfile.qcom-services -t localhost/armada-vr:qcom-services .
+  -f Containerfile.qcom-services -t localhost/reframed-vr:qcom-services .
 ```
 
 Existing archives are verified and preserved, including when their contents
@@ -39,7 +39,7 @@ The source manifest and separate license are installed with the runtime.
 The Pico initramfs builder includes the service only with `--pico-services`.
 This requires the pinned Pico kernel, a verified Pico firmware bundle and a
 matching private systemd runtime. The installed service additionally requires
-the exact kernel command-line token `armada.pico=qrtr` and a Kona device tree.
+the exact kernel command-line token `reframed.pico=qrtr` and a Kona device tree.
 It refuses an existing name service, waits for successful discovery before
 notifying systemd, and stops its own daemon on exit. Startup failure requests
 power-off. It does not start a DSP or load sensor firmware.
@@ -47,7 +47,7 @@ power-off. It does not start a DSP or load sensor firmware.
 Pico boot arguments must also retain `service_locator.enable=1` from the stock
 boot image. The pinned 4.19 driver's default is zero; its initialization returns
 `ENODEV` while disabled. The shared boot-argument helper's `pico_services=True`
-option emits both this parameter and `armada.pico=qrtr`, preserving the
+option emits both this parameter and `reframed.pico=qrtr`, preserving the
 read-only/volatile-root protections and refusing mixed Quest/Pico startup.
 Two diskless boots of the exact physical-configuration kernel verify the
 service-locator sysfs parameter reads zero without the option and one with it.
@@ -93,7 +93,7 @@ initramfs includes Pico services, the root builder installs the corresponding
 root-stage service, native QRTR binaries, library, source pins and licenses.
 It requires the matching QCOM build image and verifies the installed files and
 service links by reading them back from ext4. The root-stage unit also requires
-`armada.pico=qrtr`, so packaging it does not authorize a physical boot.
+`reframed.pico=qrtr`, so packaging it does not authorize a physical boot.
 
 The packaged daemon and current libqrtr pass all 15 upstream libssc cases in
 seven suites on the exact physical-configuration Pico kernel in diskless QEMU.

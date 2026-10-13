@@ -25,18 +25,18 @@ assembly = load("startup_assembly", "assemble-quest-boot.py")
 
 SCRIPT = r'''
 set -eu
-cmp /profile.json /usr/share/armada-qcom-services/sources.json
-cmp /bounds.patch /usr/share/armada-qcom-services/0001-check-qmi-packet-bounds.patch
-cmp /path.patch /usr/share/armada-qcom-services/0001-report-actual-firmware-path.patch
+cmp /profile.json /usr/share/reframed-qcom-services/sources.json
+cmp /bounds.patch /usr/share/reframed-qcom-services/0001-check-qmi-packet-bounds.patch
+cmp /path.patch /usr/share/reframed-qcom-services/0001-report-actual-firmware-path.patch
 mkdir /tmp/pd-mapper
 tar -xzf /sources/pd-mapper.tar.gz -C /tmp/pd-mapper --strip-components=1
 gcc -O2 -Wall -Wextra -Werror -I/tmp/pd-mapper /probe.c /tmp/pd-mapper/servreg_loc.c -lqrtr -o /output/qmi-probe
-mkdir -p /output/extra/etc/systemd/system/armada-quest-boot.service.d
+mkdir -p /output/extra/etc/systemd/system/reframed-quest-boot.service.d
 cp /fixture/fixture.sh /output/extra/quest-fixture
 cp /output/qmi-probe /output/extra/qmi-probe
 chmod 755 /output/extra/quest-fixture
-cp /fixture/fixture.service /output/extra/etc/systemd/system/armada-quest-fixture.service
-printf '[Unit]\nWants=armada-quest-fixture.service\nAfter=armada-quest-fixture.service\n' > /output/extra/etc/systemd/system/armada-quest-boot.service.d/fixture.conf
+cp /fixture/fixture.service /output/extra/etc/systemd/system/reframed-quest-fixture.service
+printf '[Unit]\nWants=reframed-quest-fixture.service\nAfter=reframed-quest-fixture.service\n' > /output/extra/etc/systemd/system/reframed-quest-boot.service.d/fixture.conf
 python3 - <<'PYLIB'
 import re,shutil,subprocess
 from pathlib import Path
@@ -92,7 +92,7 @@ def run(args):
         if packaged and (manifest.get("status") != "built" or manifest.get("qemu_transports") is not True or
                          manifest.get("kernel_build_sha256") != builder.digest(kernel / "build.json") or
                          manifest.get("initramfs_sha256") != expected or
-                         manifest.get("quest_startup_unit_sha256") != current["system/quest/armada-quest-boot.service"]):
+                         manifest.get("quest_startup_unit_sha256") != current["system/quest/reframed-quest-boot.service"]):
             raise ValueError("Packaged root does not match the QEMU kernel and startup initramfs")
         root_hash = builder.digest(rootfs / "rootfs.ext4")
         if root_hash != manifest["sha256"]["rootfs.ext4"]:
@@ -128,19 +128,19 @@ def run(args):
 
     try:
         container(SCRIPT, output / "build.log")
-        for name, required in [("identity", "requires Quest Eureka device tree"), ("ready", "ARMADA_QUEST_MODEL_QMI_PASS"),
+        for name, required in [("identity", "requires Quest Eureka device tree"), ("ready", "REFRAMED_QUEST_MODEL_QMI_PASS"),
                                ("missing-firmware", "firmware checksum mismatch"), ("repeated-request", "ADSP boot was already requested"),
                                ("missing-mapper", "startup failed: mapper: timed out"), ("missing-host-role", "startup failed: usb-role: timed out"),
-                               ("root", "ARMADA_QUEST_ROOT_RESTART_REFUSED"),
-                               ("root-fault", "ARMADA_QUEST_MAPPER_FAULT_INJECTED")]:
+                               ("root", "REFRAMED_QUEST_ROOT_RESTART_REFUSED"),
+                               ("root-fault", "REFRAMED_QUEST_MAPPER_FAULT_INJECTED")]:
             if args.case and name not in args.case:
                 continue
             root_case = name in ("root", "root-fault")
             case = {"name": name, "status": "started"}; report["cases"].append(case)
             directory = output / name; directory.mkdir()
             if name != "identity":
-                (output / "extra/etc/systemd/system/armada-quest-fixture.service").write_text(
-                    (fixtures / "fixture.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name + "\n")
+                (output / "extra/etc/systemd/system/reframed-quest-fixture.service").write_text(
+                    (fixtures / "fixture.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name + "\n")
                 if root_case:
                     wants = output / "extra/etc/systemd/system/initrd.target.wants"
                     wants.mkdir(exist_ok=True)
@@ -148,10 +148,10 @@ def run(args):
                     if not link.is_symlink():
                         link.symlink_to("/etc/systemd/system/quest-handoff-install.service")
                     (output / "extra/quest-root-check.service").write_text(
-                        (fixtures / "root-check.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name + "\n")
+                        (fixtures / "root-check.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name + "\n")
                     (output / "extra/etc/systemd/system/quest-handoff-install.service").write_text(
-                        (fixtures / "handoff-install.service").read_text() + "\nEnvironment=ARMADA_QUEST_CASE=" + name +
-                        "\nEnvironment=ARMADA_QUEST_PACKAGED_ROOT=" + str(int(packaged)) + "\n")
+                        (fixtures / "handoff-install.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name +
+                        "\nEnvironment=REFRAMED_QUEST_PACKAGED_ROOT=" + str(int(packaged)) + "\n")
                 container("cd /output/extra && find . -print0 | sort -z | cpio --null -o --format=newc --reproducible | gzip -n > /output/" + name + "/extra.cpio.gz", directory / "archive.log")
             boot = directory / "initramfs.img"
             boot.write_bytes(assembly.empty_ramdisk() + (initramfs / "initramfs.img").read_bytes() +
@@ -159,11 +159,11 @@ def run(args):
             command = [args.qemu, "-machine", "virt", "-accel", args.accel, "-cpu", "max" if args.accel == "tcg" else "host",
                        "-smp", "2", "-m", "4096" if root_case else "1024", "-nodefaults", "-nographic", "-monitor", "none",
                        "-serial", "stdio", "-no-reboot", "-nic", "none", "-kernel", str(kernel / "Image"), "-initrd", str(boot)]
-            cmdline = assembly.root_arguments(manifest.get("root_label", "armada-vr-root"), quest_services=True)
+            cmdline = assembly.root_arguments(manifest.get("root_label", "reframed-vr-root"), quest_services=True)
             if root_case:
                 command += ["-drive", f"file={rootfs / 'rootfs.ext4'},if=virtio,format=raw,readonly=on"]
                 if not packaged:
-                    cmdline = cmdline.replace("root=LABEL=armada-vr-root", "root=/dev/vda")
+                    cmdline = cmdline.replace("root=LABEL=reframed-vr-root", "root=/dev/vda")
             command += ["-append", "console=ttyAMA0 earlycon selinux=0 audit=0 " + cmdline]
             case.update(command=command, initramfs_sha256=builder.digest(boot))
             started = time.monotonic()
@@ -181,21 +181,21 @@ def run(args):
             case["elapsed_seconds"] = round(time.monotonic() - started, 3)
             log = (directory / "boot.log").read_text(errors="replace")
             markers = [required, "reboot: Power down"]
-            if name != "identity" and log.count("ARMADA_QUEST_MODULE_PASS=") != 6:
+            if name != "identity" and log.count("REFRAMED_QUEST_MODULE_PASS=") != 6:
                 raise RuntimeError("Vendor module load failed: " + name)
             if name in ("ready", "root", "root-fault"):
-                markers += ["ARMADA_QUEST_MODEL_QMI_PASS", "ARMADA_QMI_PASS requests=96"]
-                if log.count("ARMADA_QUEST_MODEL_BOOT_REQUEST") != 1:
+                markers += ["REFRAMED_QUEST_MODEL_QMI_PASS", "REFRAMED_QMI_PASS requests=96"]
+                if log.count("REFRAMED_QUEST_MODEL_BOOT_REQUEST") != 1:
                     raise RuntimeError("Expected exactly one modeled boot request: " + name)
             elif "startup ready:" in log:
                 raise RuntimeError("Unexpected readiness in failed case: " + name)
             if root_case:
-                markers += ["ARMADA_QUEST_ROOT_PROBE_LINKS_PASS", "ARMADA_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
+                markers += ["REFRAMED_QUEST_ROOT_PROBE_LINKS_PASS", "REFRAMED_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
                 if packaged:
-                    markers += ["ARMADA_QUEST_PACKAGED_ROOT_PASS"]
-                markers += ["ARMADA_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]
+                    markers += ["REFRAMED_QUEST_PACKAGED_ROOT_PASS"]
+                markers += ["REFRAMED_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]
             if (case["returncode"] or not all(m in log for m in markers) or
-                    any(m in log for m in ("ARMADA_QUEST_UNEXPECTED", "ARMADA_QUEST_MAPPER_FAULT_NOT_HANDLED", "QEMU_HANDOFF_FIXTURE_FAIL", "ARMADA_QMI_FAIL", "ARMADA_VR_VM_FAIL"))):
+                    any(m in log for m in ("REFRAMED_QUEST_UNEXPECTED", "REFRAMED_QUEST_MAPPER_FAULT_NOT_HANDLED", "QEMU_HANDOFF_FIXTURE_FAIL", "REFRAMED_QMI_FAIL", "REFRAMED_VR_VM_FAIL"))):
                 raise RuntimeError("Quest startup acceptance failed: " + name)
             case["status"] = "passed"
             print(name, case["elapsed_seconds"], flush=True)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--case", action="append", choices=("identity", "ready", "missing-firmware", "repeated-request",
                                                           "missing-mapper", "missing-host-role", "root", "root-fault"))
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--image", default="localhost/armada-vr:qcom-services")
+    parser.add_argument("--image", default="localhost/reframed-vr:qcom-services")
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
     parser.add_argument("--qemu", default="qemu-system-aarch64")
     parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"), default="hvf" if platform.system() == "Darwin" else "tcg")

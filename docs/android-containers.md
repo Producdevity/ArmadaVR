@@ -1,7 +1,7 @@
 # Android container kernel checks
 
 Lepton is Valve's Android compatibility container. Before integrating its guest
-image, Armada VR tests the relevant Linux interfaces against its actual Quest
+image, Reframed VR tests the relevant Linux interfaces against its actual Quest
 kernel with QEMU transports. The test needs Zig and QEMU, so it can run without
 Docker or a connected headset.
 

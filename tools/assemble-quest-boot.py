@@ -103,8 +103,8 @@ def root_arguments(label, *, quest_services=False, pico_services=False):
     return (f"root=LABEL={label} ro rootfstype=ext4 rootflags=noload systemd.volatile=overlay "
             "rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 systemd.gpt_auto=0 "
             "rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30"
-            + (" armada.quest=usb-root" if quest_services else "")
-            + (" armada.pico=qrtr service_locator.enable=1" if pico_services else ""))
+            + (" reframed.quest=usb-root" if quest_services else "")
+            + (" reframed.pico=qrtr service_locator.enable=1" if pico_services else ""))
 
 
 def checked_kernel_image(path, expected_sha256):
@@ -268,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument("--reference-build", required=True)
     parser.add_argument("--avbtool", type=Path, required=True)
     parser.add_argument("--mkbootimg", type=Path, required=True, help="directory containing pinned AOSP tools")
-    parser.add_argument("--root-label", default="armada-vr-root")
+    parser.add_argument("--root-label", default="reframed-vr-root")
     parser.add_argument("--output", type=Path, required=True)
     try:
         run(parser.parse_args())

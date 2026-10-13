@@ -140,7 +140,7 @@ def capture(args):
     args.output.mkdir(mode=0o700, parents=False, exist_ok=False)
     source = ROOT / 'tools/pico-imu-capture.c'
     binary = args.output / 'pico-imu-capture'
-    remote = '/data/local/tmp/armada-vr-imu-' + uuid.uuid4().hex
+    remote = '/data/local/tmp/reframed-vr-imu-' + uuid.uuid4().hex
     report = {'status': 'started', 'utc': datetime.now(timezone.utc).isoformat(),
               'serial': args.serial, 'source_sha256': digest(source),
               'collector_sha256': digest(Path(__file__)), 'remote_directory': remote,

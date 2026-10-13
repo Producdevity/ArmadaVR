@@ -263,7 +263,7 @@ if __name__ == "__main__":
     parser.add_argument("--reference-build", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
-    parser.add_argument("--image", default="localhost/armada-vr:vm")
+    parser.add_argument("--image", default="localhost/reframed-vr:vm")
     parser.add_argument("--inside-container", action="store_true", help=argparse.SUPPRESS)
     try:
         run(parser.parse_args())

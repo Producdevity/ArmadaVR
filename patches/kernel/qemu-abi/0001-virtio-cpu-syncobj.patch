@@ -1,4 +1,4 @@
-From: Armada VR project
+From: Reframed VR project
 Subject: [QEMU ABI only] Expose DRM core sync objects for CPU-rendered frames
 
 The 5.10 virtio driver predates its GPU submission syncobj support. The

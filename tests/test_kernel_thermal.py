@@ -52,8 +52,8 @@ class KernelThermalTests(unittest.TestCase):
             offset = (start + len(data) + 3) & ~3
             entries[name] = (fields, data)
         self.assertEqual(set(entries), {"dev", "proc", "sys", "sbin", "dev/console", "init",
-                                        "sbin/poweroff", "armada_thermal_test.ko", "TRAILER!!!"})
+                                        "sbin/poweroff", "reframed_thermal_test.ko", "TRAILER!!!"})
         self.assertTrue(stat.S_ISCHR(entries["dev/console"][0][1]))
         self.assertEqual(entries["dev/console"][0][9:11], [5, 1])
         self.assertEqual(entries["sbin/poweroff"][1], b"/init")
-        self.assertEqual(entries["armada_thermal_test.ko"][1], b"module fixture")
+        self.assertEqual(entries["reframed_thermal_test.ko"][1], b"module fixture")

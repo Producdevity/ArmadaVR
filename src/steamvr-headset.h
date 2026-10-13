@@ -13,9 +13,9 @@ public:
         index = device_index;
         auto properties = vr::VRProperties();
         auto container = properties->TrackedDeviceToPropertyContainer(device_index);
-        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "armada_virtual");
-        properties->SetStringProperty(container, vr::Prop_ModelNumber_String, "Armada VR virtual headset");
-        properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Armada VR simulator");
+        properties->SetStringProperty(container, vr::Prop_TrackingSystemName_String, "reframed_virtual");
+        properties->SetStringProperty(container, vr::Prop_ModelNumber_String, "Reframed VR virtual headset");
+        properties->SetStringProperty(container, vr::Prop_ManufacturerName_String, "Reframed VR simulator");
         properties->SetFloatProperty(container, vr::Prop_UserIpdMeters_Float, 0.063f);
         properties->SetFloatProperty(container, vr::Prop_DisplayFrequency_Float, 30.f);
         properties->SetFloatProperty(container, vr::Prop_SecondsFromVsyncToPhotons_Float, 1.f / 30.f);

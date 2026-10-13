@@ -70,7 +70,7 @@ int main(int argc, char **argv)
     const char *display_extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_DISPLAY_EXTENSION_NAME};
     VkApplicationInfo application = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
-        .pApplicationName = "Armada VR semaphore capability check",
+        .pApplicationName = "Reframed VR semaphore capability check",
         .apiVersion = VK_API_VERSION_1_2,
     };
     VkInstanceCreateInfo create = {

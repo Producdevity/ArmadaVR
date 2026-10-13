@@ -37,7 +37,7 @@ static XrResult XRAPI_CALL create_device(XrInstance instance, const XrVulkanDevi
     if (vulkan_gdpa && (void *)copy.pfnGetInstanceProcAddr == vulkan_gdpa) {
         if (!vulkan_gipa) return XR_ERROR_RUNTIME_FAILURE;
         copy.pfnGetInstanceProcAddr = vulkan_gipa;
-        fputs("ARMADA_VR_WINE_OPENXR_INSTANCE_RESOLVER_CORRECTED\n", stderr);
+        fputs("REFRAMED_VR_WINE_OPENXR_INSTANCE_RESOLVER_CORRECTED\n", stderr);
     }
     return original(instance, &copy, device, result);
 }

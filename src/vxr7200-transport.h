@@ -1,5 +1,5 @@
-#ifndef ARMADA_VXR7200_TRANSPORT_H
-#define ARMADA_VXR7200_TRANSPORT_H
+#ifndef REFRAMED_VXR7200_TRANSPORT_H
+#define REFRAMED_VXR7200_TRANSPORT_H
 
 #include <stddef.h>
 #include <stdint.h>

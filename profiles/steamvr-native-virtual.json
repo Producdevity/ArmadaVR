@@ -1,6 +1,6 @@
 {
   "steamvr": {
-    "forcedDriver": "armada_virtual",
+    "forcedDriver": "reframed_virtual",
     "requireHmd": true,
     "activateMultipleDrivers": false,
     "displayDebug": true,
@@ -17,7 +17,7 @@
   "power": {
     "pauseCompositorOnStandby": false
   },
-  "driver_armada_virtual": {
+  "driver_reframed_virtual": {
     "enable": true,
     "simulateHeadset": true
   }

@@ -4,7 +4,7 @@ int main(int argc, char **argv) {
     volatile unsigned sum = 0;
     for (unsigned value = 1; value <= 1000; ++value) sum += value;
     if (sum != 500500) return 1;
-    const char message[] = "ARMADA_VR_WINDOWS_X64_PASS sum=500500\n";
+    const char message[] = "REFRAMED_VR_WINDOWS_X64_PASS sum=500500\n";
     HANDLE output = argc == 2 ? CreateFileA(argv[1], GENERIC_WRITE, 0, NULL, CREATE_NEW,
                                            FILE_ATTRIBUTE_NORMAL, NULL) : GetStdHandle(STD_OUTPUT_HANDLE);
     if (output == INVALID_HANDLE_VALUE) return 2;

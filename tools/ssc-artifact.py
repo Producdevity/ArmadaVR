@@ -8,9 +8,9 @@ import stat
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL_PREFIX = 'opt/armada-vr/ssc'
+INSTALL_PREFIX = 'opt/reframed-vr/ssc'
 PREFIX = 'stage/' + INSTALL_PREFIX
-BUILD_RECORD = 'usr/share/armada-vr/ssc-build.json'
+BUILD_RECORD = 'usr/share/reframed-vr/ssc-build.json'
 
 
 def digest(path):

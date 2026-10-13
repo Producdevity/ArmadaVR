@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     try {
         XrInstance instance = XR_NULL_HANDLE;
         XrInstanceCreateInfo create{XR_TYPE_INSTANCE_CREATE_INFO};
-        std::strcpy(create.applicationInfo.applicationName, "Armada SteamVR OpenXR acceptance");
+        std::strcpy(create.applicationInfo.applicationName, "Reframed SteamVR OpenXR acceptance");
         create.applicationInfo.apiVersion = XR_API_VERSION_1_0;
         const char *extension = XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME;
         create.enabledExtensionCount = 1;

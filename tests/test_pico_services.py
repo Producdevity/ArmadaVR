@@ -37,8 +37,8 @@ class PicoServicesTests(unittest.TestCase):
         result = pico.install(self.source, self.root)
         pico.verify(self.root, result)
         self.assertFalse(result["dsp_startup"])
-        self.assertEqual(result["required_cmdline"], "armada.pico=qrtr")
-        self.assertIn("ConditionPathExists=!/etc/initrd-release", (self.root / "usr/lib/systemd/system/armada-pico-qrtr.service").read_text())
+        self.assertEqual(result["required_cmdline"], "reframed.pico=qrtr")
+        self.assertIn("ConditionPathExists=!/etc/initrd-release", (self.root / "usr/lib/systemd/system/reframed-pico-qrtr.service").read_text())
         with self.assertRaisesRegex(ValueError, "already exists"):
             pico.install(self.source, self.root)
 
@@ -75,7 +75,7 @@ class PicoServicesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not an initramfs"):
             pico.install(self.source, self.root)
         path.unlink()
-        path = self.root / "usr/lib/systemd/system/armada-quest-boot.service"
+        path = self.root / "usr/lib/systemd/system/reframed-quest-boot.service"
         path.parent.mkdir(parents=True)
         path.write_text("quest")
         with self.assertRaisesRegex(ValueError, "Quest startup"):
@@ -120,8 +120,8 @@ class PicoServicesTests(unittest.TestCase):
         self.assertFalse(result["dsp_startup"])
         self.assertEqual((self.root / pico.MAP_CHECKSUMS).read_bytes(), pico.service_maps(firmware))
         self.assertEqual(len((self.root / pico.MAP_CHECKSUMS).read_text().splitlines()), 5)
-        self.assertIn("BindsTo=armada-pico-qrtr.service",
-                      (self.root / "usr/lib/systemd/system/armada-pico-pd-mapper.service").read_text())
+        self.assertIn("BindsTo=reframed-pico-qrtr.service",
+                      (self.root / "usr/lib/systemd/system/reframed-pico-pd-mapper.service").read_text())
         pico.verify(self.root, result)
 
     def test_gpu_only_bundle_does_not_enable_mapper(self):

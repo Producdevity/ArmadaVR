@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 client="$HOME/.local/share/Steam"
-mkdir -p "$HOME/.steam" "$HOME/.local/state/armada-vr"
+mkdir -p "$HOME/.steam" "$HOME/.local/state/reframed-vr"
 ln -sfn "$client" "$HOME/.steam/root"
 ln -sfn "$client" "$HOME/.steam/steam"
 ln -sfn "$client/linux32" "$HOME/.steam/sdk32"
@@ -20,4 +20,4 @@ if [[ -f "$client/steamapps/common/SteamVR/bin/linux64/vrclient.so" &&
 fi
 exec ./steamrtarm64/steam -nobootstrapupdate -skipinitialbootstrap -publicbeta \
     "$@" \
-    >> "$HOME/.local/state/armada-vr/steam.log" 2>&1
+    >> "$HOME/.local/state/reframed-vr/steam.log" 2>&1

@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_CONTROLLER_STREAM_H
-#define ARMADA_PICO_CONTROLLER_STREAM_H
+#ifndef REFRAMED_PICO_CONTROLLER_STREAM_H
+#define REFRAMED_PICO_CONTROLLER_STREAM_H
 
 #include "pico-controller.h"
 #include "ssc-clock.h"

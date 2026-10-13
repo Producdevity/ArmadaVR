@@ -60,7 +60,7 @@ static xcb_window_t display_window(xcb_connection_t *connection, xcb_window_t ro
     xcb_window_t found = 0;
     int n = xcb_query_tree_children_length(tree);
     xcb_window_t *windows = xcb_query_tree_children(tree);
-    const char name[] = "Armada virtual X11 display";
+    const char name[] = "Reframed virtual X11 display";
     for (int i = 0; i < n; i++) {
         xcb_get_property_reply_t *p = xcb_get_property_reply(
             connection,
@@ -319,7 +319,7 @@ int main(int argc, char **argv) {
         clock_display = display.display;
         assert(n == 1 && display.physicalResolution.width == 1024 &&
                display.physicalResolution.height == 512 &&
-               !strcmp(display.displayName, "Armada virtual X11 display"));
+               !strcmp(display.displayName, "Reframed virtual X11 display"));
         n = 0;
         CHECK(vkGetPhysicalDeviceDisplayPlanePropertiesKHR(physical, &n, NULL));
         assert(n == 1);

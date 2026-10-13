@@ -1,4 +1,4 @@
-FROM localhost/armada-vr:vm
+FROM localhost/reframed-vr:vm
 RUN dnf -y --setopt=install_weak_deps=False install \
     mingw64-gcc mingw64-gcc-c++ mingw64-cmake mingw64-vulkan-headers \
     mingw64-vulkan-loader mingw64-jsoncpp \
@@ -13,9 +13,9 @@ RUN mkdir /sdk /windows && tar -xf /tmp/openxr.tar.gz -C /sdk --strip-components
        -DCMAKE_C_FLAGS=-DWINAPI_PARTITION_SYSTEM=0 -DCMAKE_CXX_FLAGS=-DWINAPI_PARTITION_SYSTEM=0 \
        -DCMAKE_DISABLE_FIND_PACKAGE_OpenGL=ON \
        -DBUILD_API_LAYERS=OFF -DBUILD_CONFORMANCE_TESTS=OFF -DBUILD_WITH_SYSTEM_JSONCPP=OFF \
-    && cmake --build /sdk-build --target hello_xr armada_xr_probe --parallel 2 \
+    && cmake --build /sdk-build --target hello_xr reframed_xr_probe --parallel 2 \
     && cp /sdk-build/src/tests/hello_xr/hello_xr.exe /windows/ \
-    && cp /sdk-build/armada_xr_probe.exe /windows/xr-probe.exe \
+    && cp /sdk-build/reframed_xr_probe.exe /windows/xr-probe.exe \
     && cp /usr/x86_64-w64-mingw32/sys-root/mingw/bin/lib{gcc_s_seh-1,stdc++-6,winpthread-1}.dll /windows/ \
     && cp -r /sdk/LICENSE* /windows/ \
     && rm -rf /sdk /sdk-build /tmp/openxr.tar.gz

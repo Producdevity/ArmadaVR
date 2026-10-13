@@ -1,5 +1,5 @@
-#ifndef ARMADA_SSC_IMU_H
-#define ARMADA_SSC_IMU_H
+#ifndef REFRAMED_SSC_IMU_H
+#define REFRAMED_SSC_IMU_H
 
 #include "ssc-clock.h"
 #include <stddef.h>

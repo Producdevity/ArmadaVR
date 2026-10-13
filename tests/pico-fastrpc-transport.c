@@ -98,7 +98,7 @@ int main(void)
     char board[128], command[2048], before[64], after[64];
     if (read_text("/proc/device-tree/compatible", board, sizeof(board)) ||
         strcmp(board, "linux,dummy-virt") || read_text("/proc/cmdline", command, sizeof(command)) ||
-        !strstr(command, "armada.fastrpc_transport_test=1")) {
+        !strstr(command, "reframed.fastrpc_transport_test=1")) {
         puts("PICO_FASTRPC_DRIVER_REFUSED: diskless virtual test fixture required");
         return 2;
     }

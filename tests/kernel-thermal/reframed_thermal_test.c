@@ -77,10 +77,10 @@ static int __init thermal_test_init(void)
 	int ret;
 	if (!of_machine_is_compatible("linux,dummy-virt"))
 		return -ENODEV;
-	fan = thermal_cooling_device_register("armada-virtual-fan", NULL, &fan_ops);
+	fan = thermal_cooling_device_register("reframed-virtual-fan", NULL, &fan_ops);
 	if (IS_ERR(fan))
 		return PTR_ERR(fan);
-	zone = thermal_zone_device_register("armada-test", 2, 0, NULL, &sensor_ops, &params, 100, 100);
+	zone = thermal_zone_device_register("reframed-test", 2, 0, NULL, &sensor_ops, &params, 100, 100);
 	if (IS_ERR(zone)) {
 		thermal_cooling_device_unregister(fan);
 		return PTR_ERR(zone);

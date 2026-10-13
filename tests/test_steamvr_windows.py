@@ -33,8 +33,8 @@ class WindowsTests(unittest.TestCase):
             write(runtime / f'steamxr_{arch}.json', json.dumps({'runtime': {
                 'library_path': f'bin/{arch}/vrclient.so'}}).encode())
         for name in ('steamvr-probe', 'vulkan-interop', 'vulkan-external-sync', 'steamvr-session.py',
-                     'armada_virtual/driver.vrdrivermanifest', 'armada_virtual/bin/linuxarm64/driver_armada_virtual.so',
-                     'armada_virtual/resources/rendermodels/controller/controller.json'):
+                     'reframed_virtual/driver.vrdrivermanifest', 'reframed_virtual/bin/linuxarm64/driver_reframed_virtual.so',
+                     'reframed_virtual/resources/rendermodels/controller/controller.json'):
             write(bundle / name, ARM)
         write(bundle / 'steamvr-virtual.json', (REPO / 'profiles/steamvr-native-virtual.json').read_bytes())
         write(bundle / 'steamvr-presentation.json', json.dumps({'architecture': 'aarch64',
@@ -43,11 +43,11 @@ class WindowsTests(unittest.TestCase):
         hashes = {p.relative_to(bundle).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in bundle.rglob('*') if p.is_file()}
         write(bundle / 'build.json', json.dumps({'target': 'steamvr-virtual-aarch64', 'sha256': hashes}).encode())
-        state = root / '.local/state/armada-vr' / ('native-fixture' if native else 'steamvr-virtual')
+        state = root / '.local/state/reframed-vr' / ('native-fixture' if native else 'steamvr-virtual')
         state.mkdir(parents=True, mode=0o700)
         registry = state / 'openvrpaths.vrpath'
         write(registry, json.dumps({'runtime': [str(runtime)], 'config': [str(state / 'config')],
-            'external_drivers': [str(bundle / 'armada_virtual')]}).encode())
+            'external_drivers': [str(bundle / 'reframed_virtual')]}).encode())
         settings = json.loads((bundle / 'steamvr-virtual.json').read_text())
         settings['steamvr'].update(enableLinuxVulkanAsync=True, startCompositorFromAppLaunch=True)
         if not native:
@@ -83,7 +83,7 @@ class WindowsTests(unittest.TestCase):
                 runtime, bundle, process, state = self.session_fixture(root)
                 if wrong == 'driver':
                     p = state / 'config/steamvr.vrsettings'
-                    s = json.loads(p.read_text()); s['driver_armada_virtual']['simulateHeadset'] = False
+                    s = json.loads(p.read_text()); s['driver_reframed_virtual']['simulateHeadset'] = False
                     p.write_text(json.dumps(s))
                 elif wrong == 'client':
                     (runtime / 'bin/linux64/vrclient.so').write_bytes(X86 + b'different')

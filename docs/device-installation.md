@@ -1,6 +1,6 @@
 # Device installation requirements
 
-Updated October 11, 2026. ArmadaVR has offline kernel and virtual-runtime tests,
+Updated October 11, 2026. Reframed VR has offline kernel and virtual-runtime tests,
 plus physical GPU rendering on both stock headsets. Quest installation and
 independent recovery remain unvalidated.
 

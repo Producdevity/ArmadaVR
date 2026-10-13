@@ -85,11 +85,11 @@ def run(args):
                  '-static', '-O2', '-Wall', '-Wextra', '-Werror', '/test.c', '-o', '/output/init'], 'build.log', 60)
         (output / 'initramfs.cpio').write_bytes(initramfs((output / 'init').read_bytes(), module.read_bytes() if module else None))
         mode = 'unsupported' if args.expect_unsupported else '1'
-        execute([args.qemu, '-name', 'Armada DMA-buffer sync test', '-machine', 'virt', '-accel', args.accel,
+        execute([args.qemu, '-name', 'Reframed DMA-buffer sync test', '-machine', 'virt', '-accel', args.accel,
                  '-cpu', 'host' if args.accel in ('hvf', 'kvm') else 'max', '-smp', '2', '-m', '1024',
                  '-nodefaults', '-nographic', '-monitor', 'none', '-serial', 'stdio', '-no-reboot',
                  '-nic', 'none', '-kernel', str(kernel / 'Image'), '-initrd', str(output / 'initramfs.cpio'),
-                 '-append', f'console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 armada.dmabuf_test={mode}'],
+                 '-append', f'console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 reframed.dmabuf_test={mode}'],
                 'boot.log', 45)
         log = (output / 'boot.log').read_text(errors='replace')
         cases = (['BASELINE_UNSUPPORTED'] if args.expect_unsupported else

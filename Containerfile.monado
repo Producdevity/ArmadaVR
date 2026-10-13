@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=localhost/armada-vr:dev
+ARG BASE_IMAGE=localhost/reframed-vr:dev
 FROM ${BASE_IMAGE}
 RUN dnf -y --setopt=install_weak_deps=False install \
     patch eigen3-devel systemd-devel libbsd-devel glslang SDL2-devel libglvnd-devel \

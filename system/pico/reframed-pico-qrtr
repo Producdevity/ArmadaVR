@@ -4,7 +4,7 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 nameserver=
 
 fail() {
-    echo "Armada Pico QRTR startup failed: $*" >&2
+    echo "Reframed Pico QRTR startup failed: $*" >&2
     exit 1
 }
 
@@ -26,7 +26,7 @@ trap 'exit 0' TERM INT HUP
 
 [[ $EUID == 0 ]] || fail 'requires root'
 case " $(< /proc/cmdline) " in
-    *' armada.pico=qrtr '*) ;;
+    *' reframed.pico=qrtr '*) ;;
     *) fail 'Pico QRTR startup was not requested' ;;
 esac
 platform=
@@ -48,7 +48,7 @@ until qrtr-lookup >/dev/null 2>&1; do
 done
 [[ $(jobs -p) == "$nameserver" ]] || fail 'name service exited'
 systemd-notify --ready --status='Pico QRTR discovery available'
-echo 'Armada Pico QRTR discovery ready'
+echo 'Reframed Pico QRTR discovery ready'
 result=0
 wait "$nameserver" || result=$?
 nameserver=

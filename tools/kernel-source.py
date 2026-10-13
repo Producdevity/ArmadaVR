@@ -243,7 +243,7 @@ def build(profile, source, output, cc="cc"):
         info["inventory"] = inventory_path.name
         report["artifacts"].append(info)
 
-    with tempfile.TemporaryDirectory(prefix="armada-vr-dts-") as temp:
+    with tempfile.TemporaryDirectory(prefix="reframed-vr-dts-") as temp:
         for relative in [profile["base"], *profile["overlays"]]:
             stem = Path(relative).stem
             overlay = relative != profile["base"]

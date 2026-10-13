@@ -9,7 +9,7 @@ import time
 
 build = Path(sys.argv[1]).resolve()
 if (Path("/proc/device-tree/compatible").read_bytes().split(b"\0")[0] != b"linux,dummy-virt" or
-        "armada.ssc_test=1" not in Path("/proc/cmdline").read_text().split()):
+        "reframed.ssc_test=1" not in Path("/proc/cmdline").read_text().split()):
     raise SystemExit("This mock requires the isolated SSC test VM")
 sys.path.insert(0, str(build / "mocking"))
 sys.path.insert(0, str(build / "mocking/ssc_server"))

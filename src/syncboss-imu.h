@@ -1,5 +1,5 @@
-#ifndef ARMADA_SYNCBOSS_IMU_H
-#define ARMADA_SYNCBOSS_IMU_H
+#ifndef REFRAMED_SYNCBOSS_IMU_H
+#define REFRAMED_SYNCBOSS_IMU_H
 
 #include <stdbool.h>
 #include <stddef.h>

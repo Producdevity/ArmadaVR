@@ -23,7 +23,7 @@ diagnostic = load('pico_diagnostic', 'build-pico-diagnostic.py')
 container = load('pico_boot', 'pico-boot.py')
 digest = assembly.builder.digest
 preserve_second_address = container.preserve_second_address
-CMDLINE = 'rdinit=/init armada.pico=diagnostic msm_drm.modeset=0 selinux=1 enforcing=1'
+CMDLINE = 'rdinit=/init reframed.pico=diagnostic msm_drm.modeset=0 selinux=1 enforcing=1'
 
 
 def regular(path, limit):

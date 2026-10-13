@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_MONADO_INPUT_H
-#define ARMADA_PICO_MONADO_INPUT_H
+#ifndef REFRAMED_PICO_MONADO_INPUT_H
+#define REFRAMED_PICO_MONADO_INPUT_H
 
 #include "pico-controller-stream.h"
 #include <xrt/xrt_device.h>

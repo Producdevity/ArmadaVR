@@ -28,7 +28,7 @@ void XrRenderer::initialize(XrInstance instance, XrSystemId system) {
         requirements.maxApiVersionSupported < XR_MAKE_VERSION(1, 1, 0))
         throw std::runtime_error("Vulkan 1.1 is outside the runtime's supported range");
     VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    app.pApplicationName = "Armada VR input rendering";
+    app.pApplicationName = "Reframed VR input rendering";
     app.apiVersion = VK_API_VERSION_1_1;
     VkInstanceCreateInfo instance_info{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pApplicationInfo = &app;

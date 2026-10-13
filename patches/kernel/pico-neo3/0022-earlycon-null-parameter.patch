@@ -1,4 +1,4 @@
-From: ArmadaVR contributors
+From: Reframed VR contributors
 Subject: [PATCH] tty: preserve bare earlycon handling with Pico console switch
 
 The early-parameter parser passes NULL for a bare earlycon option. Pico's

@@ -88,9 +88,9 @@ class MonadoInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'regular SSC prefix'):
             monado.install(self.bundle, self.root, self.record)
         self.assertEqual(list(self.root.iterdir()), [])
-        ssc_prefix = self.root / 'opt/armada-vr/ssc'
+        ssc_prefix = self.root / 'opt/reframed-vr/ssc'
         ssc_prefix.mkdir(parents=True)
-        metadata = self.root / 'usr/share/armada-vr/ssc-build.json'
+        metadata = self.root / 'usr/share/reframed-vr/ssc-build.json'
         metadata.parent.mkdir(parents=True)
         metadata.write_text('different SSC build')
         with self.assertRaisesRegex(ValueError, 'SSC build record'):
@@ -101,7 +101,7 @@ class MonadoInstallTests(unittest.TestCase):
         monado.verify_install(self.root, self.record)
 
     def test_pico_runtime_refuses_modified_ssc_before_copying(self):
-        ssc_prefix = self.root / 'opt/armada-vr/ssc'
+        ssc_prefix = self.root / 'opt/reframed-vr/ssc'
         ssc_prefix.mkdir(parents=True)
         (ssc_prefix / 'unexpected').write_text('changed dependency')
         self.record['ssc_dependency'] = {'build_sha256': '0' * 64,

@@ -50,14 +50,14 @@ def command(directory, qemu, accel, desktop=False, network=False, kernel=None, d
                "-chardev", f"socket,path={directory / 'agent.sock'},server=on,wait=off,id=agent",
                "-device", "virtserialport,chardev=agent,name=org.qemu.guest_agent.0",
                "-qmp", f"unix:{directory / 'qmp.sock'},server=on,wait=off"] if desktop else ["-nographic"]
-    boot = "root=LABEL=armada-vr-vm rw console=ttyAMA0 selinux=0 audit=0 systemd.show_status=error"
+    boot = "root=LABEL=reframed-vr-vm rw console=ttyAMA0 selinux=0 audit=0 systemd.show_status=error"
     if disable_sme is True or (disable_sme is None and accel == "hvf"):
         boot += " arm64.nosme"
     drive = f"file={directory / 'rootfs.ext4'},if=virtio,format=raw,snapshot=on"
     if desktop:
-        boot += " armada.desktop=1"
+        boot += " reframed.desktop=1"
         drive = f"file={directory / 'desktop.qcow2'},if=virtio,format=qcow2"
-    return [qemu, "-name", "Armada VR", "-machine", "virt", "-accel", accel, "-cpu", cpu,
+    return [qemu, "-name", "Reframed VR", "-machine", "virt", "-accel", accel, "-cpu", cpu,
             "-smp", "2", "-m", "6144" if desktop else "2048", "-nodefaults", *display, "-monitor", "none",
             "-serial", "stdio", "-no-reboot", "-nic", "user,model=virtio-net-pci" if network else "none",
             "-kernel", str(abi_kernel(kernel) if kernel else directory / "Image"),
@@ -141,9 +141,9 @@ def main():
         parser.exit(1, f"{error}\n")
     output = (args.directory / "boot.log").read_text(errors="replace")
     for line in output.splitlines():
-        if "ARMADA_VR_" in line or "samples=" in line:
+        if "REFRAMED_VR_" in line or "samples=" in line:
             print(line)
-    if result.returncode or "ARMADA_VR_VM_PASS" not in output:
+    if result.returncode or "REFRAMED_VR_VM_PASS" not in output:
         parser.exit(1, f"VM acceptance failed; see {args.directory / 'boot.log'}\n")
 
 

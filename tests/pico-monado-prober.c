@@ -84,7 +84,7 @@ static void probe(unsigned expected)
 
 int main(void)
 {
-    char directory[] = "/tmp/armada-pico-prober-XXXXXX";
+    char directory[] = "/tmp/reframed-pico-prober-XXXXXX";
     assert(mkdtemp(directory));
     char path[256];
     snprintf(path, sizeof(path), "%s/config.json", directory);

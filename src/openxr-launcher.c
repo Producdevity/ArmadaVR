@@ -44,7 +44,7 @@ static BOOL initialize_runtime(HKEY key) {
 
 int wmain(int argc, wchar_t **argv) {
     wchar_t enabled[2];
-    if (GetEnvironmentVariableW(L"ARMADA_VR_OPENXR_ONLY", enabled, 2) != 1 || enabled[0] != L'1') {
+    if (GetEnvironmentVariableW(L"REFRAMED_VR_OPENXR_ONLY", enabled, 2) != 1 || enabled[0] != L'1') {
         fputs("Use run-proton-openxr with its separate OpenXR prefix.\n", stderr);
         return 2;
     }
@@ -61,7 +61,7 @@ int wmain(int argc, wchar_t **argv) {
         fputs("Usage: openxr-launcher [--test-quit-after 1..60] PROGRAM [ARGS...]\n", stderr);
         return 2;
     }
-    HANDLE lock = CreateMutexW(NULL, TRUE, L"Local\\ArmadaVROpenXRLauncher");
+    HANDLE lock = CreateMutexW(NULL, TRUE, L"Local\\ReframedVROpenXRLauncher");
     if (!lock || GetLastError() == ERROR_ALREADY_EXISTS) {
         fputs("An OpenXR prefix session is already active.\n", stderr);
         if (lock) CloseHandle(lock);

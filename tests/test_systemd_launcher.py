@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
         cls.native_binary = root / 'test-native'
         subprocess.run([compiler, '-Wall', '-Wextra', '-Werror', str(root / 'test.c'),
                         '-o', str(cls.binary)], capture_output=True, text=True, check=True, timeout=30)
-        subprocess.run([compiler, '-Wall', '-Wextra', '-Werror', '-DARMADA_SYSTEMD_NATIVE_LIBRARIES=1',
+        subprocess.run([compiler, '-Wall', '-Wextra', '-Werror', '-DREFRAMED_SYSTEMD_NATIVE_LIBRARIES=1',
                         str(root / 'test.c'), '-o', str(cls.native_binary)],
                        capture_output=True, text=True, check=True, timeout=30)
 
@@ -64,16 +64,16 @@ int main(int argc, char **argv) {
 
     def test_pid_one_startup_before_proc_mount(self):
         lines = self.invoke('init-no-proc', '/init')
-        self.assertEqual(lines[-2:], ['/opt/armada-vr/systemd/usr/lib/systemd/systemd', 'poweroff'])
+        self.assertEqual(lines[-2:], ['/opt/reframed-vr/systemd/usr/lib/systemd/systemd', 'poweroff'])
         self.assertIn('/init', lines)
 
     def test_pid_one_selects_shutdown_helper_after_proc_is_mounted(self):
         lines = self.invoke('shutdown-proc', '/usr/lib/systemd/systemd-shutdown')
-        self.assertEqual(lines[-2:], ['/opt/armada-vr/systemd/usr/lib/systemd/systemd-shutdown', 'poweroff'])
+        self.assertEqual(lines[-2:], ['/opt/reframed-vr/systemd/usr/lib/systemd/systemd-shutdown', 'poweroff'])
 
     def test_pid_one_shutdown_without_proc(self):
         lines = self.invoke('shutdown-no-proc', '/usr/lib/systemd/systemd-shutdown')
-        self.assertEqual(lines[-2:], ['/opt/armada-vr/systemd/usr/lib/systemd/systemd-shutdown', 'poweroff'])
+        self.assertEqual(lines[-2:], ['/opt/reframed-vr/systemd/usr/lib/systemd/systemd-shutdown', 'poweroff'])
 
     def test_unknown_pid_one_and_unresolved_child_are_refused(self):
         self.assertEqual(self.invoke('init-no-proc', '/unexpected'), [])
@@ -85,5 +85,5 @@ int main(int argc, char **argv) {
         self.assertEqual(result.returncode, 126)
         lines = result.stdout.splitlines()
         self.assertEqual(lines[0], '/lib/ld-linux-aarch64.so.1')
-        self.assertIn('/usr/lib64:/opt/armada-vr/systemd/usr/lib:/opt/armada-vr/systemd/usr/lib/systemd', lines)
-        self.assertEqual(lines[-1], '/opt/armada-vr/systemd/usr/lib/systemd/systemd')
+        self.assertIn('/usr/lib64:/opt/reframed-vr/systemd/usr/lib:/opt/reframed-vr/systemd/usr/lib/systemd', lines)
+        self.assertEqual(lines[-1], '/opt/reframed-vr/systemd/usr/lib/systemd/systemd')

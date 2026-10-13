@@ -11,11 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('ssc', Path(__file__).with_name('ssc-artifact.py'))
 ssc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ssc)
-PREFIX = 'opt/armada-vr/ssc-inventory'
-BUILD_RECORD = 'usr/share/armada-vr/ssc-inventory-build.json'
+PREFIX = 'opt/reframed-vr/ssc-inventory'
+BUILD_RECORD = 'usr/share/reframed-vr/ssc-inventory-build.json'
 INPUTS = ('tools/ssc-inventory.c', 'tools/build-ssc-inventory.py', 'tests/ssc-inventory.c')
 LAUNCHER = '''#!/bin/sh
-exec /lib/ld-linux-aarch64.so.1 --library-path /opt/armada-vr/ssc/lib64:/usr/lib64 /opt/armada-vr/ssc-inventory/libexec/ssc-inventory "$@"
+exec /lib/ld-linux-aarch64.so.1 --library-path /opt/reframed-vr/ssc/lib64:/usr/lib64 /opt/reframed-vr/ssc-inventory/libexec/ssc-inventory "$@"
 '''
 
 
@@ -134,13 +134,13 @@ def check_loader(root):
         os.chdir('/')
 
     result = subprocess.run(['/lib/ld-linux-aarch64.so.1', '--library-path',
-                             '/opt/armada-vr/ssc/lib64:/usr/lib64', '/' + PREFIX + '/libexec/ssc-inventory'],
+                             '/opt/reframed-vr/ssc/lib64:/usr/lib64', '/' + PREFIX + '/libexec/ssc-inventory'],
                             preexec_fn=enter_root, env={'LC_ALL': 'C', 'LD_TRACE_LOADED_OBJECTS': '1',
                             'LD_WARN': 'yes', 'LD_BIND_NOW': 'yes', 'LD_VERBOSE': 'yes'},
                             capture_output=True, text=True, timeout=15)
     trace = result.stdout + result.stderr
     if (result.returncode or 'not found' in trace or 'undefined symbol' in trace
-            or '/opt/armada-vr/ssc/lib64/libqmi-glib.so.' not in trace):
+            or '/opt/reframed-vr/ssc/lib64/libqmi-glib.so.' not in trace):
         raise ValueError('Inventory root loader or relocations failed: ' + trace)
     return {'status': 'passed', 'trace': trace, 'physical_sensor_access': False}
 

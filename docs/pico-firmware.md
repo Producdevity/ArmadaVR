@@ -17,7 +17,7 @@ The October 10 [GPU tests](turnip.md#physical-android-gpu-acceptance) now verify
 32 buffer/fence checks and 16 offscreen shader-rendered frames with a source-built
 Turnip driver on this Pro Eye's stock Android system. API 29 tracing compatibility
 is required to load the driver. DRM render-node access remains denied to the
-ordinary shell. These tests do not boot the Armada kernel or validate its panel,
+ordinary shell. These tests do not boot the Reframed kernel or validate its panel,
 tracking, audio, controller or eye-tracking drivers.
 
 The exact [global b1977 stock OTA](https://static.us-pui.picovr.com/5.8.4.0-202310092224-RELEASE-user-neo3-b1977-e4688d78c8.zip)
@@ -420,7 +420,7 @@ restored without opening it.
 
 Reuse the documented protocol and backup lessons after verifying their exact
 device assumptions. Do not import its Windows automation or bundled firmware
-into ArmadaVR's installer, or run its rollback flow merely to test access.
+into Reframed VR's installer, or run its rollback flow merely to test access.
 
 Offline analysis of the exact b1977 ABL finds 15 registered fastboot commands
 and 14 additional OEM commands. Neither table contains `boot`. The dispatcher

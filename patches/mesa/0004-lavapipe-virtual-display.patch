@@ -203,7 +203,7 @@
 +   vk_outarray_append_typed(VkDisplayPropertiesKHR, &out, p) {
 +      *p = (VkDisplayPropertiesKHR) {
 +         .display = lvp_virtual_display_to_handle(display),
-+         .displayName = "Armada virtual X11 display",
++         .displayName = "Reframed virtual X11 display",
 +         .physicalDimensions = {160, 80},
 +         .physicalResolution = {1024, 512},
 +         .supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
@@ -339,7 +339,7 @@
 +      }
 +      display->window = window;
 +      created_window = true;
-+      const char title[] = "Armada virtual X11 display";
++      const char title[] = "Reframed virtual X11 display";
 +      xcb_change_property(display->connection, XCB_PROP_MODE_REPLACE, window,
 +         XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, sizeof(title)-1, title);
 +      error = xcb_request_check(display->connection, xcb_map_window_checked(display->connection, window));

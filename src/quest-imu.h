@@ -1,5 +1,5 @@
-#ifndef ARMADA_QUEST_IMU_H
-#define ARMADA_QUEST_IMU_H
+#ifndef REFRAMED_QUEST_IMU_H
+#define REFRAMED_QUEST_IMU_H
 
 #include "imu-calibration.h"
 #include "imu-time-align.h"

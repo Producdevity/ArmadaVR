@@ -13,7 +13,7 @@
      req->eventMask = event_mask;
      UnlockDisplay (dpy);
      SyncHandle();
-+    const char *bootstrap = getenv("ARMADA_VR_XPRESENT_BOOTSTRAP");
++    const char *bootstrap = getenv("REFRAMED_VR_XPRESENT_BOOTSTRAP");
 +    if ((event_mask & PresentCompleteNotifyMask) && bootstrap &&
 +        strcmp(bootstrap, "1337") == 0) {
 +        /* SteamVR 2.16.7 waits for serial 1337 before requesting its first MSC. */

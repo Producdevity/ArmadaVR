@@ -4,7 +4,7 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 mapper=
 
 fail() {
-    echo "Armada Pico PD mapper startup failed: $*" >&2
+    echo "Reframed Pico PD mapper startup failed: $*" >&2
     exit 1
 }
 
@@ -26,7 +26,7 @@ trap 'exit 0' TERM INT HUP
 
 [[ $EUID == 0 ]] || fail 'requires root'
 case " $(< /proc/cmdline) " in
-    *' armada.pico=qrtr '*) ;;
+    *' reframed.pico=qrtr '*) ;;
     *) fail 'Pico services were not requested' ;;
 esac
 platform=
@@ -36,7 +36,7 @@ done < /sys/firmware/devicetree/base/compatible
 [[ $platform == yes ]] || fail 'requires Kona device tree'
 [[ $(< /sys/module/service_locator/parameters/enable) == 1 ]] || fail 'kernel service locator is disabled'
 
-manifest=/etc/armada-vr/pico-service-maps.sha256
+manifest=/etc/reframed-vr/pico-service-maps.sha256
 [[ -f $manifest && ! -L $manifest ]] || fail 'missing service map checksums'
 mapfile -t checksums < "$manifest"
 names=(adspr.jsn adspua.jsn cdspr.jsn slpir.jsn slpius.jsn)
@@ -82,7 +82,7 @@ while :; do
 done
 [[ $(jobs -p) == "$mapper" ]] || fail 'service mapper exited'
 systemd-notify --ready --status='Pico DSP service maps available'
-echo 'Armada Pico PD mapper ready'
+echo 'Reframed Pico PD mapper ready'
 result=0
 wait "$mapper" || result=$?
 mapper=

@@ -86,12 +86,12 @@ def run(args):
                    "gcc -static -O2 -Wall -Wextra -Werror /init.c -o /output/root/sbin/init"]
         report["commands"].append(command)
         subprocess.run(command, check=True, timeout=60)
-        (output / "root/etc/os-release").write_text("ID=armada-vr-test\nNAME=Armada\n")
-        (output / "root/root-identity").write_text("armada-root-fixture\n")
+        (output / "root/etc/os-release").write_text("ID=reframed-vr-test\nNAME=Reframed\n")
+        (output / "root/root-identity").write_text("reframed-root-fixture\n")
         command = [args.engine, "run", "--rm", "--init", "--network", "none", "--memory", "256m",
                    "--pids-limit", "64", "--entrypoint", "sh", "-v", f"{output}:/output", initrd["container_image"], "-c",
                    "set -eu; truncate -s 32M /output/root.ext4; "
-                   "mkfs.ext4 -q -F -L armada-vr-root -d /output/root /output/root.ext4; "
+                   "mkfs.ext4 -q -F -L reframed-vr-root -d /output/root /output/root.ext4; "
                    "for unit in dracut-initqueue dracut-emergency emergency rescue; do "
                    "directory=/output/console/etc/systemd/system/$unit.service.d; mkdir -p \"$directory\"; "
                    "cp /output/console.conf \"$directory/console.conf\"; done; "
@@ -105,7 +105,7 @@ def run(args):
         boot_initrd = test_initrd
         report["test_initramfs_sha256"] = builder.digest(boot_initrd)
         report["root_sha256"] = builder.digest(output / "root.ext4")
-        for name, label, device_timeout in (("overlay", "armada-vr-root", 10),
+        for name, label, device_timeout in (("overlay", "reframed-vr-root", 10),
                                             ("missing-root", "absent-root", 30),
                                             ("missing-root-device", "absent-root", 2)):
             disk = output / (name + ".ext4")
@@ -119,7 +119,7 @@ def run(args):
                        f"console=ttyAMA0 earlycon selinux=0 audit=0 root=LABEL={label} ro rootfstype=ext4 rootflags=noload "
                        "systemd.volatile=overlay rd.fstab=0 rd.luks=0 rd.lvm=0 rd.md=0 rd.systemd.gpt_auto=0 "
                        f"systemd.gpt_auto=0 rd.shell=0 rd.emergency=poweroff rd.retry=5 rd.timeout={device_timeout} "
-                       "init=/sbin/init armada.root_test=1" + (" initcall_blacklist=hwinfo_init" if pico else "")]
+                       "init=/sbin/init reframed.root_test=1" + (" initcall_blacklist=hwinfo_init" if pico else "")]
             report["commands"].append(command)
             case = {"name": name, "status": "started"}
             report["cases"].append(case)
@@ -142,10 +142,10 @@ def run(args):
             case["service_failures"] = service_failures(log)
             if case["service_failures"]:
                 raise RuntimeError(f"Root handoff {name} has failed services: {', '.join(case['service_failures'])}")
-            passed = "ARMADA_ROOT_OVERLAY_PASS" in log
+            passed = "REFRAMED_ROOT_OVERLAY_PASS" in log
             expected = passed if name == "overlay" else (
                 not passed and missing_root_failure(log) and "Powering off." in log)
-            if (case["returncode"] or not expected or "ARMADA_ROOT_FAIL" in log or
+            if (case["returncode"] or not expected or "REFRAMED_ROOT_FAIL" in log or
                     "reboot: Power down" not in log or not case["backing_image_unchanged"]):
                 raise RuntimeError(f"Root handoff {name} failed; inspect its log")
             case["status"] = "passed"
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("initramfs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--engine", default=os.environ.get("CONTAINER_ENGINE", "docker"))
-    parser.add_argument("--compiler-image", default="localhost/armada-vr:kernel")
+    parser.add_argument("--compiler-image", default="localhost/reframed-vr:kernel")
     parser.add_argument("--vendor-ramdisk", type=Path)
     parser.add_argument("--qemu", default="qemu-system-aarch64")
     parser.add_argument("--accel", choices=("hvf", "kvm", "tcg"), help="Defaults to TCG for Pico, otherwise the host default")

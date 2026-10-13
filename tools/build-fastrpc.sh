@@ -16,10 +16,10 @@ with p.open('rb') as stream:
 print(p)
 PY
 )
-image=$("$engine" image inspect --format '{{.Id}}' "${FASTRPC_BUILD_IMAGE_ID:-localhost/armada-vr:fastrpc-tools}")
+image=$("$engine" image inspect --format '{{.Id}}' "${FASTRPC_BUILD_IMAGE_ID:-localhost/reframed-vr:fastrpc-tools}")
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-"$engine" run --rm --name armada-vr-fastrpc-builder --platform linux/arm64 \
+"$engine" run --rm --name reframed-vr-fastrpc-builder --platform linux/arm64 \
     --network none --read-only --memory 1g --memory-swap 1g --cpus 2 --pids-limit 256 \
     --tmpfs /tmp:rw,exec,nosuid,size=512m --entrypoint python3 \
     --mount "type=bind,src=$PWD/tools,dst=/project/tools,readonly" \

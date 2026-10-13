@@ -1,5 +1,5 @@
-#ifndef ARMADA_PICO_SSC_SESSION_H
-#define ARMADA_PICO_SSC_SESSION_H
+#ifndef REFRAMED_PICO_SSC_SESSION_H
+#define REFRAMED_PICO_SSC_SESSION_H
 
 #include "pico-monado-device.h"
 

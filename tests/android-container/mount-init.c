@@ -20,7 +20,7 @@ static int check_board(void)
         return 0;
     fclose(file);
     for (char *token = strtok(cmdline, " \n"); token; token = strtok(NULL, " \n")) {
-        if (!strcmp(token, "armada.lepton_mount_test=1"))
+        if (!strcmp(token, "reframed.lepton_mount_test=1"))
             return 1;
     }
     return 0;

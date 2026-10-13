@@ -85,7 +85,7 @@ checks the extracted files from the finished ext4 image. See
 ICD or enable an automatic headset session.
 
 Use `--monado VERIFIED_MONADO_BUILD` to install the native service, client libraries,
-tools and OpenXR manifest under `/opt/armada-vr/monado`. The builder validates
+tools and OpenXR manifest under `/opt/reframed-vr/monado`. The builder validates
 source/build/test identities, native ELF architecture, exact file inventories,
 permissions and relative library links. It refuses an existing bundle at that
 prefix and preserves the distribution's current runtime selection. No Monado
@@ -149,8 +149,8 @@ this checksum validation does not authenticate a manufacturer signature or grant
 redistribution rights. These files provide the shader-capture dependency, not
 a complete Android graphics overlay.
 
-The execution bundle is installed under `/opt/armada-vr/lepton`, with its build
-record under `/usr/share/armada-vr`. The builder verifies extraction from the
+The execution bundle is installed under `/opt/reframed-vr/lepton`, with its build
+record under `/usr/share/reframed-vr`. The builder verifies extraction from the
 finished ext4 image, including regular-file timestamps used by APK baking. The
 archive preparer retains extended attributes; root-image packaging currently
 refuses bundles containing them until their extraction verification is supported.
@@ -206,12 +206,12 @@ The builder removes the exported distribution kernel modules and VM boot images,
 known QEMU-specific display/network configuration and guest-agent enablement
 when present, and the
 automatic lab-test and virtual-desktop enable links. It clears the container
-machine identity, selects `multi-user.target`, and uses hostname `armada-vr`.
+machine identity, selects `multi-user.target`, and uses hostname `reframed-vr`.
 The existing VR programs and acceptance tools remain available. There is no
 automatic physical VR session yet; headset display, tracking and runtime
 integration are still required.
 
-The default label is `armada-vr-root`; `--root-label` must agree with the offline
+The default label is `reframed-vr-root`; `--root-label` must agree with the offline
 boot assembler's label. The default size is 8 GiB (`--size-gib` accepts 6–32).
 The boot command line mounts ext4 read-only with journal replay disabled and an
 OverlayFS upper layer in RAM. The root fstab introduces no other device mounts.

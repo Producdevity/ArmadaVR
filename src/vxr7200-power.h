@@ -1,5 +1,5 @@
-#ifndef ARMADA_VXR7200_POWER_H
-#define ARMADA_VXR7200_POWER_H
+#ifndef REFRAMED_VXR7200_POWER_H
+#define REFRAMED_VXR7200_POWER_H
 
 #include <stdbool.h>
 

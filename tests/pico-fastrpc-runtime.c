@@ -34,7 +34,7 @@ int main(void) {
     char board[128], command[2048];
     if (read_text("/proc/device-tree/compatible", board, sizeof(board)) ||
         strcmp(board, "linux,dummy-virt") || read_text("/proc/cmdline", command, sizeof(command)) ||
-        !strstr(command, "armada.fastrpc_transport_test=1")) {
+        !strstr(command, "reframed.fastrpc_transport_test=1")) {
         puts("PICO_RPCMEM_RUNTIME_REFUSED");
         return 2;
     }
