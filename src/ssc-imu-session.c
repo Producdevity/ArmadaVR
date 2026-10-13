@@ -283,6 +283,10 @@ static gpointer worker(gpointer data)
             !(spec->flags & G_PARAM_CONSTRUCT_ONLY) || !(spec->flags & G_PARAM_WRITABLE))
             stop_worker(s, "SSC library lacks exact sensor selection");
     }
+    GParamSpec *rate_spec = g_object_class_find_property(sensor_class, "requested-sample-rate");
+    if (!rate_spec || G_PARAM_SPEC_VALUE_TYPE(rate_spec) != G_TYPE_FLOAT ||
+        !(rate_spec->flags & G_PARAM_CONSTRUCT_ONLY) || !(rate_spec->flags & G_PARAM_WRITABLE))
+        stop_worker(s, "SSC library lacks supported rate selection");
     g_type_class_unref(sensor_class);
     if (g_cancellable_is_cancelled(s->cancel)) stop_worker(s, NULL);
     else if (!s->stopping) {
@@ -293,7 +297,8 @@ static gpointer worker(gpointer data)
             guint64 low = i < 2 ? s->config.suid_low[i] : s->config.bias.suid_low[i - 2];
             g_async_initable_new_async(SSC_TYPE_SENSOR, G_PRIORITY_DEFAULT, s->cancel,
                 discovered, &s->channels[i], SSC_SENSOR_DATA_TYPE, types[i],
-                "requested-uid-high", high, "requested-uid-low", low, NULL);
+                "requested-uid-high", high, "requested-uid-low", low,
+                "requested-sample-rate", i < 2 ? (double)s->config.sample_rate[i] : 0.0, NULL);
         }
     }
     for (;;) {

@@ -1,0 +1,98 @@
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -17,6 +17,7 @@
+  */
+ 
+ #include "libssc-client-private.h"
++#include <math.h>
+ #include "libssc-common-private.h"
+ #include "ssc-common.pb-c.h"
+ #include "ssc-sensor-suid.pb-c.h"
+@@ -40,6 +41,7 @@
+ 	PROP_RIGID_BODY = 12,
+ 	PROP_REQUESTED_UID_HIGH = 13,
+ 	PROP_REQUESTED_UID_LOW = 14,
++	PROP_REQUESTED_SAMPLE_RATE = 15,
+ 	N_PROPERTIES
+ };
+ static GParamSpec *properties[N_PROPERTIES];
+@@ -63,6 +65,7 @@
+ 	guint stream_type;
+ 	gboolean available;
+ 	gfloat sample_rate;
++	gfloat requested_sample_rate;
+ 	gfloat mount_matrix[3][3];
+ 	gint rigid_body;
+ 
+@@ -363,6 +366,7 @@
+ 	gboolean attributes_populated = FALSE;
+ 	gboolean mount_matrix_attribute_populated = FALSE;
+ 	gboolean rigid_body_seen = FALSE;
++	gboolean sample_rate_seen = FALSE;
+ 	GError *error = NULL;
+ 
+ 	priv = ssc_sensor_get_instance_private (ctx->sensor);
+@@ -470,6 +474,7 @@
+ 		}
+ 
+ 		priv->rigid_body = -1;
++		priv->sample_rate = 0.0f;
+ 		for (gsize i = 0; i < attr_msg->n_attr; i++) {
+ 			switch (attr_msg->attr[i]->id) {
+ 		       		case SSC_ATTRIBUTE_NAME:
+@@ -485,6 +490,22 @@
+ 						priv->available = attr_msg->attr[i]->value_array->v[0]->b;
+ 					break;
+ 				case SSC_ATTRIBUTE_SAMPLE_RATE:
++					if (priv->requested_sample_rate != 0.0f) {
++						SscAttrArrayValue *values = attr_msg->attr[i]->value_array;
++						gboolean valid = !sample_rate_seen && values->n_v > 0;
++						gboolean supported = FALSE;
++						for (gsize j = 0; j < values->n_v; j++) {
++							SscAttrValue *value = values->v[j];
++							if (!value->has_f || !isfinite (value->f) || value->f <= 0.0f ||
++							    value->has_i || value->has_b || value->s || value->a)
++								valid = FALSE;
++							if (value->has_f && value->f == priv->requested_sample_rate)
++								supported = TRUE;
++						}
++						priv->sample_rate = valid && supported ? priv->requested_sample_rate : 0.0f;
++						sample_rate_seen = TRUE;
++						break;
++					}
+ 					/* Only a single sample rate is supported for now. */
+ 					for (gsize j = 0; j < attr_msg->attr[i]->value_array->n_v; j++) {
+ 						if (attr_msg->attr[i]->value_array->v[j]->has_f
+@@ -790,6 +811,9 @@
+ 		case PROP_REQUESTED_UID_LOW:
+ 			priv->requested_uid_low = g_value_get_uint64 (value);
+ 			break;
++		case PROP_REQUESTED_SAMPLE_RATE:
++			priv->requested_sample_rate = g_value_get_float (value);
++			break;
+ 		case PROP_UID_LOW:
+ 			priv->uid_low = g_value_get_uint64 (value);
+ 			break;
+@@ -821,6 +845,9 @@
+ 			break;
+ 		case PROP_REQUESTED_UID_LOW:
+ 			g_value_set_uint64 (value, priv->requested_uid_low);
++			break;
++		case PROP_REQUESTED_SAMPLE_RATE:
++			g_value_set_float (value, priv->requested_sample_rate);
+ 			break;
+ 		case PROP_UID_LOW:
+ 			g_value_set_uint64 (value, priv->uid_low);
+@@ -978,6 +1005,12 @@
+ 		                     0, G_MAXUINT64, 0, G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
+ 	g_object_class_install_property (object_class, PROP_REQUESTED_UID_LOW, properties[PROP_REQUESTED_UID_LOW]);
+ 
++	properties[PROP_REQUESTED_SAMPLE_RATE] =
++		g_param_spec_float ("requested-sample-rate", "Requested sample rate",
++		                    "Exact advertised rate in Hz, or zero for the default rate.",
++		                    0.0f, G_MAXFLOAT, 0.0f, G_PARAM_READWRITE | G_PARAM_CONSTRUCT_ONLY);
++	g_object_class_install_property (object_class, PROP_REQUESTED_SAMPLE_RATE, properties[PROP_REQUESTED_SAMPLE_RATE]);
++
+ 	properties[PROP_RIGID_BODY] =
+ 		g_param_spec_int ("rigid-body",
+ 		                  "Rigid body",

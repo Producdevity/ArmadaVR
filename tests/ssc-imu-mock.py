@@ -17,7 +17,8 @@ fault = sys.argv[2] if len(sys.argv) == 3 else None
 assert fault in (None, 'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'calibration',
                  'bias-normal', 'bias-single', 'bias-wrong-body', 'bias-missing-body',
                  'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall',
-                 'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid')
+                 'multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid',
+                 'rates', 'bias-rates', 'rate-missing', 'rate-malformed', 'bias-rate-malformed')
 calibration = fault == 'calibration'
 paired = fault is not None and fault.startswith('bias-')
 data = [item for item in ssc._read_data() if item['sensor']['data_type'] not in ('accel', 'gyro')]
@@ -35,7 +36,31 @@ for index, name in enumerate(names):
                                 'stream_type': {'id': 16, 'value': 1 if is_calibration else 0}}, 'measurements': []})
     if index == 3 and fault == 'bias-missing-body':
         del data[-1]['attributes']['rigid_body']
+    if index < 2 and fault in ('rates', 'bias-rates', 'rate-missing', 'rate-malformed', 'bias-rate-malformed'):
+        data[-1]['attributes']['sample_rate']['value'] = [5.0, 1000.0, 2000.0]
+        if index == 1:
+            if fault == 'rate-missing':
+                del data[-1]['attributes']['sample_rate']
+            if fault.endswith('rate-malformed'):
+                data[-1]['attributes']['sample_rate']['value'] = [5.0, float('nan'), 1000.0]
 ssc._read_data = staticmethod(lambda: data)
+
+original_client_request = ssc.parse_protobuf_client_request
+
+
+def client_request(message):
+    result = original_client_request(message)
+    if result[0] == 513:
+        envelope = common.SscClientRequest()
+        envelope.ParseFromString(message)
+        config = common.SscEnableConfigRequest()
+        config.ParseFromString(envelope.request.msg)
+        assert config.sample_rate == 1000.0
+        print('SSC_TEST_RATE', result[1], result[2], config.sample_rate, flush=True)
+    return result
+
+
+ssc.parse_protobuf_client_request = staticmethod(client_request)
 
 selection_faults = ('multi', 'bias-multi', 'duplicate-uid', 'bias-duplicate-uid', 'empty-uid', 'bias-empty-uid')
 if fault in selection_faults:

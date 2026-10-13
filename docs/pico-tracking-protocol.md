@@ -311,9 +311,10 @@ rate before starting physical streams.
 
 [`ssc-imu-session`](../src/ssc-imu-session.h) owns accelerometer and gyroscope
 discovery, subscriptions and shutdown on a private GLib worker context. Before
-opening either stream, it requires the caller's exact SUIDs and advertised rates,
-continuous reporting and availability. It then requests a fresh clock mapping
-from the caller. The advertised rate check does not measure actual delivery.
+opening either stream, it requires the caller's exact SUIDs, requested rates
+present in the advertised lists, continuous reporting and availability. It then
+requests a fresh clock mapping from the caller. Rate selection does not measure
+actual delivery.
 
 Reports reach the caller only after both subscriptions open. Each sensor has
 independent timestamp ordering and a deadline for valid reports. Startup failure,
@@ -465,3 +466,24 @@ its temporary binary and verified the unchanged boot identity. This rules out
 direct SSC discovery from that shell context; it does not establish whether
 either transport works under the custom kernel. The receipt is retained under
 `output/pico-native-sensors-20261013-v1/socket-probe-v1/`.
+
+The [rate-selection patch](../patches/libssc/0011-select-supported-sample-rate.patch)
+adds the construct-only float property `requested-sample-rate`. A positive request
+must exactly match an advertised rate. Missing, duplicate or malformed rate
+attributes leave the selected rate unavailable; stale metadata cannot preserve
+an earlier match. A zero request retains first-advertised-rate selection for
+existing libssc callers. The IMU session requests its two configured rates and
+refuses libraries lacking this capability. Calibration subscriptions remain
+on-change and request no sample rate.
+
+The source regression reproduces first-rate-only selection in 128 cases, then
+checks 2,048 selection, metadata replacement and refusal cases under ASan/UBSan.
+It decodes actual outgoing configuration messages to verify the selected rate
+and requires no send when selection fails. This establishes request behavior;
+it does not establish physical sampling frequency or timing accuracy.
+
+All 37 QRTR session scenarios pass with UBSan, including requests for 1,000 Hz
+from an advertised list of 5, 1,000 and 2,000 Hz in both raw and calibrated
+sessions. The mock checks every outgoing continuous-rate request and confirms
+that malformed or missing rate metadata prevents enabling any subscription.
+Native ASan/UBSan cancellation tests and the 429 host checks also pass.

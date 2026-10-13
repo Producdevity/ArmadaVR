@@ -82,7 +82,8 @@ int main(int argc, char **argv)
                            "bias-missing-body", "bias-malformed", "bias-unreliable", "bias-silent",
                            "bias-stall", "bias-server-loss", "bias-callback-stop", "bias-immediate",
                            "bias-clock-failure", "bias-no-service", "multi", "bias-multi",
-                           "duplicate-uid", "bias-duplicate-uid", "empty-uid", "bias-empty-uid"};
+                           "duplicate-uid", "bias-duplicate-uid", "empty-uid", "bias-empty-uid",
+                           "rates", "bias-rates", "rate-missing", "rate-malformed", "bias-rate-malformed"};
     bool known = false;
     for (unsigned i = 0; i < G_N_ELEMENTS(modes); i++) known |= !strcmp(argv[1], modes[i]);
     if (!known) return 2;
@@ -103,7 +104,8 @@ int main(int argc, char **argv)
     g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
     bool bias_mode = g_str_has_prefix(argv[1], "bias-");
     bool normal = !strcmp(argv[1], "normal") || !strcmp(argv[1], "bias-normal") || !strcmp(argv[1], "bias-single") ||
-                  !strcmp(argv[1], "multi") || !strcmp(argv[1], "bias-multi");
+                  !strcmp(argv[1], "multi") || !strcmp(argv[1], "bias-multi") ||
+                  !strcmp(argv[1], "rates") || !strcmp(argv[1], "bias-rates");
     unsigned cycles = offline ? 100 : normal ? 3 : 1;
     for (unsigned cycle = 0; cycle < cycles; cycle++) {
         struct callbacks callbacks = {.mode = argv[1]};
@@ -194,8 +196,11 @@ int main(int argc, char **argv)
             g_assert_cmpuint(status.accepted[0] + status.accepted[1], ==, 0);
         }
         if (!strcmp(argv[1], "bias-clock-failure")) g_assert_nonnull(strstr(status.error, "clock"));
-        if (!strcmp(argv[1], "wrong-rate"))
+        if (!strcmp(argv[1], "wrong-rate") || !strcmp(argv[1], "rate-missing") || g_str_has_suffix(argv[1], "rate-malformed")) {
             g_assert_nonnull(strstr(status.error, "metadata"));
+            g_assert_cmpuint(status.accepted[0] + status.accepted[1], ==, 0);
+            g_assert_cmpuint(status.calibration_accepted[0] + status.calibration_accepted[1], ==, 0);
+        }
         if (!strcmp(argv[1], "clock-failure")) g_assert_nonnull(strstr(status.error, "clock"));
         if (!strcmp(argv[1], "gyro-silent")) {
             g_assert_nonnull(strstr(status.error, "Gyroscope report stream stopped"));

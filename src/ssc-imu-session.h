@@ -31,7 +31,9 @@ struct ssc_imu_session_status {
 };
 
 /* Discover and select the supplied SUIDs on one private worker, then require
- * available streaming sensors and exact advertised rates before opening either.
+ * available streaming sensors and exact supported rates before opening either.
+ * Each requested rate must be explicitly advertised by its sensor. The request
+ * does not prove the physical delivery rate.
  * Callbacks run on that worker; data must remain alive until destroy succeeds.
  * report receives a borrowed event only while both streams are open. invalidate
  * runs once when stopping, including failed startup. No retries or pose output.

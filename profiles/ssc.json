@@ -16,7 +16,8 @@
     "patches/libssc/0007-correct-sensor-property-types.patch",
     "patches/libssc/0008-complete-calibration-sensor-startup.patch",
     "patches/libssc/0009-expose-rigid-body-identity.patch",
-    "patches/libssc/0010-select-requested-sensor-uid.patch"
+    "patches/libssc/0010-select-requested-sensor-uid.patch",
+    "patches/libssc/0011-select-supported-sample-rate.patch"
   ],
   "hardware_verified": false,
   "test_source_sha256": {
@@ -29,7 +30,7 @@
     "src/libssc-sensor.c": "c7f11b65cf30c67d3bcd91b4aad8fae3893d3832aac997204d7d58abf583c885",
     "data/ssc-sensor-suid.proto": "e7237d39dffa248ca84bf65bacf255cbae3176cf67f05c1068947cd77fe34e76"
   },
-  "patched_sensor_source_sha256": "5fc6c8f2066b5f11d606dc13d4ca9adf46fc75cdde73300656f29debaa1f8558",
+  "patched_sensor_source_sha256": "d6a04fdf1e0a76d4fef094263d1b52c805673002fba8bb3d196de8c8e73daba7",
   "runtime_dependencies": {
     "libqmi": {
       "nevra": "libqmi-1.36.0-3.fc44.aarch64",
