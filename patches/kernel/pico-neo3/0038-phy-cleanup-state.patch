@@ -1,0 +1,44 @@
+Subject: drm/msm: require PHY cleanup before acknowledging power-on
+
+Do not use the cached PHY power state after a regulator cleanup failure.
+Reject power-on while cleanup is pending and allow power-off to retry even
+when the previous completed state was already off.
+
+---
+--- a/techpack/display/msm/dsi/dsi_phy.c
++++ b/techpack/display/msm/dsi/dsi_phy.c
+@@ -665,6 +665,7 @@
+ int dsi_phy_set_power_state(struct msm_dsi_phy *dsi_phy, bool enable)
+ {
+ 	int rc = 0;
++	bool cleanup_pending;
+ 
+ 	if (!dsi_phy) {
+ 		DSI_PHY_ERR(dsi_phy, "Invalid params\n");
+@@ -673,7 +674,13 @@
+ 
+ 	mutex_lock(&dsi_phy->phy_lock);
+ 
+-	if (enable == dsi_phy->power_state) {
++	cleanup_pending = dsi_phy->pwr_info.digital.cleanup_pending ||
++			  dsi_phy->pwr_info.phy_pwr.cleanup_pending;
++	if (enable && cleanup_pending) {
++		rc = -EBUSY;
++		goto error;
++	}
++	if (enable == dsi_phy->power_state && !cleanup_pending) {
+ 		DSI_PHY_ERR(dsi_phy, "No state change\n");
+ 		goto error;
+ 	}
+@@ -697,8 +704,9 @@
+ 			}
+ 		}
+ 	} else {
+-		if (dsi_phy->dsi_phy_state == DSI_PHY_ENGINE_OFF &&
+-				dsi_phy->regulator_required) {
++		if ((dsi_phy->dsi_phy_state == DSI_PHY_ENGINE_OFF &&
++				dsi_phy->regulator_required) ||
++				dsi_phy->pwr_info.phy_pwr.cleanup_pending) {
+ 			rc = dsi_pwr_enable_regulator(
+ 				&dsi_phy->pwr_info.phy_pwr, false);
+ 			if (rc) {

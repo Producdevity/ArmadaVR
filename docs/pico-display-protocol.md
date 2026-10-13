@@ -369,6 +369,17 @@ always-on regulator is electrically off. The vendor regulator core also ignores
 upstream-supply shutdown errors. Physical rail behavior and the separately
 disabled panel-reset rollback still require hardware validation.
 
+Patch `0038-phy-cleanup-state.patch` carries that pending state through the PHY
+caller. A cached power state cannot acknowledge power-on while cleanup remains;
+power-off can retry even when the last completed state was already off. Cleanup
+of the PHY regulator group remains reachable if the engine's current state no
+longer requires that group. Normal state transitions are unchanged.
+
+The PHY regression invokes the actual regulator helper and PHY function across
+39 sequences: the previous caller produces 78 failed invariants, the patched
+caller none under macOS and ARM64 Linux sanitizers. Controller state validation
+already rejects repeated-state requests; this patch does not change it.
+
 The complete kernel through `0030` passes all 18 artifact hashes, 38 module
 signatures, 2,715 imported symbol versions, dependency closure and modified
 signature rejection. Its exact physical configuration passes the diskless ABI
