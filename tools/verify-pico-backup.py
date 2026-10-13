@@ -96,13 +96,20 @@ def audit(directory, manifest_sha256, required):
     if unknown:
         raise ValueError("Requested partitions absent from GPT: " + ", ".join(unknown))
     missing = sorted(set(required) - acquired.keys())
+    missing_partitions = []
+    for name in missing:
+        item = inventory[name]
+        sector_size = tables[item["lun"]]["sector_size"]
+        missing_partitions.append({**item, "sector_size": sector_size,
+                                   "byte_offset": item["first_lba"] * sector_size})
     return {"schema_version": 1, "scope": "offline partition backup integrity and coverage",
             "status": "incomplete" if missing else "verified",
             "device_accessed": False, "restore_verified": False, "flash_ready": False,
             "live_device_identity_verified": False, "cold_recovery_verified": False,
             "luns": tables, "partition_count": len(inventory), "backup_count": len(acquired),
             "backup_bytes": total, "requested_partitions": required,
-            "missing_backups": missing, "covered_partitions": [acquired[name] for name in required if name in acquired],
+            "missing_backups": missing, "missing_partitions": missing_partitions,
+            "covered_partitions": [acquired[name] for name in required if name in acquired],
             "not_backed_up": sorted(inventory.keys() - acquired.keys()), "inputs": evidence}
 
 

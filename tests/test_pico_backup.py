@@ -51,6 +51,7 @@ class PicoBackupTests(unittest.TestCase):
                 digest = self.fixture(root, size)
                 result = backup.audit(root, digest, ["boot", "persist"])
                 self.assertEqual(result["status"], "verified")
+                self.assertEqual(result["missing_partitions"], [])
                 self.assertEqual(result["partition_count"], 12)
                 self.assertEqual(result["backup_count"], 2)
                 self.assertEqual(len(result["not_backed_up"]), 10)
@@ -61,6 +62,17 @@ class PicoBackupTests(unittest.TestCase):
                 result = backup.audit(root, digest, ["boot", "part1_0"])
                 self.assertEqual(result["status"], "incomplete")
                 self.assertEqual(result["missing_backups"], ["part1_0"])
+                self.assertEqual(len(result["missing_partitions"]), 1)
+                missing = result["missing_partitions"][0]
+                self.assertEqual(missing["name"], "part1_0")
+                self.assertEqual(missing["lun"], 1)
+                first = 38 if size == 512 else 10
+                self.assertEqual((missing["first_lba"], missing["last_lba"]), (first, first + 19))
+                self.assertEqual((missing["sectors"], missing["bytes"]), (20, 20 * size))
+                self.assertEqual((missing["sector_size"], missing["byte_offset"]), (size, first * size))
+                self.assertEqual(missing["partition_guid"], "00000000-0000-0000-0000-000000000001")
+                self.assertNotIn("sha256", missing)
+                self.assertNotIn("file", missing)
                 with self.assertRaisesRegex(ValueError, "absent"):
                     backup.audit(root, digest, ["missing"])
 

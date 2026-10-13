@@ -54,6 +54,21 @@ set and acquire any affected originals before proceeding. The existing
 `bootbak`/`vbmetabak` mismatch remains preserved; those partitions are not a
 verified fallback.
 
+`tools/verify-pico-backup.py` reports missing partitions with their independently
+checked LUN, GUIDs, sector size, LBA range and byte offset. Missing entries have
+no backup path or content hash. This supports preparing a bounded acquisition
+without treating a known partition layout as an acquired backup.
+
+The missing `misc` read is prepared privately in
+`output/pico-state-backup-20261013-v1/`, using the revalidated stock GPT extent.
+The compiled helper permits only UFS configuration, six geometry queries,
+bounded GPT reads, the single `misc` extent after host confirmation, and reset.
+Its sanitizer fixture passes 532 allowed and 315 rejected commands without USB
+access. The device reader has not run and is stored without execute permission;
+no new `misc` original has been acquired. Recheck live ROM identity, geometry
+and both GPT copies before using it. A successful reset after failed acquisition
+must still report acquisition failure.
+
 The community unlock flow expects a factory reset. File/application exports
 and encryption implications need resolution before that step; raw userdata
 alone is not a proven way to restore usable data after key changes. There is
