@@ -18,7 +18,9 @@ spec = importlib.util.spec_from_file_location("initramfs", ROOT / "tools/build-h
 kernel_tools = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(kernel_tools)
 REQUIRED = ("DEVTMPFS", "PROC_FS", "SYSFS", "TMPFS", "CONFIGFS_FS", "USB_DWC3_MSM",
-            "USB_CONFIGFS", "USB_CONFIGFS_SERIAL", "USB_F_SERIAL", "USB_U_SERIAL")
+            "USB_CONFIGFS", "USB_CONFIGFS_SERIAL", "USB_F_SERIAL", "USB_U_SERIAL",
+            "USB_DWC3", "MSM_HSUSB_PHY", "USB_MSM_SSPHY_QMP", "USB_PD_POLICY",
+            "QPNP_USB_PDPHY", "QPNP_SMB5", "MSM_GCC_KONA", "QCOM_EUD")
 
 
 def serial(value):

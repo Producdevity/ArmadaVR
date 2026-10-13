@@ -119,8 +119,12 @@ python3 -B tools/build-pico-diagnostic.py PHYSICAL_PICO_KERNEL_DIRECTORY \
   --boot-serial BOOT_SERIAL --output NEW_DIAGNOSTIC_DIRECTORY
 ```
 
-It configures the kernel's existing `gser` USB function, waits for one UDC,
-and transmits bounded kernel/system diagnostics. It accepts no host commands.
+It configures the kernel's existing `gser` USB function, waits for the primary
+`a600000.dwc3` UDC, and verifies its device-tree compatible, register extent and
+USB core ID before binding. Stock firmware selects this controller for the
+primary port; the enabled secondary `a800000.dwc3` controller may also register
+a UDC. The diagnostic ignores that secondary controller and refuses mismatched
+primary metadata. It transmits bounded kernel/system diagnostics. It accepts no host commands.
 A 90-second alarm attempts power-off if the accepted physical diagnostic stalls;
 this cannot recover a hung kernel or replace independent recovery. The
 `1d6b:0104` Linux gadget identifier is for this development diagnostic only.
@@ -142,15 +146,19 @@ claim of userspace policy enforcement.
 October 13 offline verification uses the unchanged physical Pico kernel
 `913b4a013bcd35900e104aca29ec0ccf3e356c2d77581af699c115dda9223f08`.
 The same init binary creates the real configfs serial function in diskless
-QEMU, observes no UDC, and powers off normally in 5.56 seconds. ARM64 sanitizer
-checks cover PID refusal, exact/conflicting command-line identities and bounded
-report storage; host sanitizer checks cover log identity and truncation.
+QEMU, observes no UDC, and powers off normally; the complete harness finishes in 5.77 seconds. ARM64
+sanitizer checks reproduce the previous refusal with two UDCs and verify primary
+selection, missing or mismatched controller properties, PID refusal,
+exact/conflicting command-line identities and bounded report storage; host sanitizer checks cover log identity and truncation.
 These tests do not exercise physical USB enumeration or log transfer.
 
 The diagnostic Android-v2 container is assembled and unpacked with matching
 kernel, initramfs and unmodified stock DTB hashes. Its initramfs is about 1.4 MiB,
 instead of the full runtime's 35 MiB. Private build, assembly and VM receipts
-are in `output/pico-diagnostic-20261013-v1/`. No diagnostic has been booted on
+are in `output/pico-usb-20261013-v1/`. That build supersedes the earlier
+`output/pico-diagnostic-20261013-v1/` images. The builder also requires the
+primary controller, PHY, charger/PD, clock and EUD drivers to be built in,
+because the diagnostic contains no modules. No diagnostic has been booted on
 the headset.
 
 The exact older ABL's default ARM64 placement also passes an offline size

@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 #define GADGET "/sys/kernel/config/usb_gadget/armada_diagnostic"
+#define PRIMARY_UDC "a600000.dwc3"
 static char report[128 * 1024];
 static size_t used;
 static int kernel_log = -1;
@@ -113,19 +114,35 @@ static int gadget(const char *serial)
         symlink(GADGET "/functions/gser.usb0", GADGET "/configs/c.1/gser.usb0");
 }
 
-static int udc(char *name, size_t size)
+static int udc(const char *directory_path, char *name, size_t size)
 {
-    DIR *directory = opendir("/sys/class/udc");
+    if (size <= strlen(PRIMARY_UDC)) return -1;
+    name[0] = 0;
+    DIR *directory = opendir(directory_path);
     if (!directory) return -1;
     struct dirent *entry;
-    int count = 0;
+    int found = 0;
     while ((entry = readdir(directory))) {
-        if (entry->d_name[0] == '.') continue;
-        if (++count > 1 || strlen(entry->d_name) >= size) { count = -1; break; }
-        strcpy(name, entry->d_name);
+        if (!strcmp(entry->d_name, PRIMARY_UDC)) { found = 1; break; }
     }
     closedir(directory);
-    return count;
+    if (!found) return 0;
+    /* Stock init selects the primary port; the secondary UDC can also exist. */
+    const char *properties[] = {"compatible", "reg", "usb-core-id"};
+    const char compatible[] = "snps,dwc3";
+    const unsigned char reg[] = {0x0a, 0x60, 0, 0, 0, 0, 0xd9, 0x3c};
+    const unsigned char core[] = {0, 0, 0, 0};
+    const void *expected[] = {compatible, reg, core};
+    const size_t lengths[] = {sizeof(compatible), sizeof(reg), sizeof(core)};
+    for (size_t i = 0; i < sizeof(properties) / sizeof(*properties); ++i) {
+        char path[512], value[64];
+        if (snprintf(path, sizeof(path), "%s/%s/device/of_node/%s", directory_path,
+                     PRIMARY_UDC, properties[i]) >= (int)sizeof(path)) return -1;
+        ssize_t count = read_file(path, value, sizeof(value));
+        if (count != (ssize_t)lengths[i] || memcmp(value, expected[i], lengths[i])) return -1;
+    }
+    strcpy(name, PRIMARY_UDC);
+    return 1;
 }
 
 static void snapshot(const char *path)
@@ -235,7 +252,7 @@ int main(void)
     record("DIAGNOSTIC_GSER_CONFIGURED\n");
     char controller[256];
     int found;
-    while ((found = udc(controller, sizeof(controller))) == 0 && seconds() < deadline) usleep(100000);
+    while ((found = udc("/sys/class/udc", controller, sizeof(controller))) == 0 && seconds() < deadline) usleep(100000);
     if (found != 1) {
         record("DIAGNOSTIC_UDC_UNAVAILABLE count=%d\nDIAGNOSTIC_POWEROFF\n", found);
         poweroff(0);
