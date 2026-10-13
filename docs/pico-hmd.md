@@ -74,3 +74,30 @@ orientation and invalid orientation after reports stop. Controller input remains
 available after head tracking is lost. Two fresh service starts must exit
 cleanly. The test uses the null compositor and synthetic calibration; it does
 not validate display output, optics, controller poses or positional tracking.
+
+## Stock optical data
+
+`tools/inspect-pico-optics.py` reads an explicitly selected, saved
+`A7H10_0.ini` or `A7H10_1.ini` and `axisOffset.txt`. Both files require their
+independently retained SHA-256. The output is private metadata, created without
+replacing an existing file; it is not a runtime HMD configuration.
+
+Analysis of the stock 5.8.4.0 HMD service establishes these contracts:
+
+- The display configuration depends on product and glasses-holder selection.
+  Its fallback to `A7H10_0.ini` does not prove that file is correct for a unit.
+- The lens record contains an equation selector, 20 coefficient slots and four
+  chromatic parameters. Slots 14–17 are overwritten with the four adjusted lens
+  offsets on the FalconCV3 path. They must not be interpreted as 20 radial
+  polynomial coefficients.
+- Pro Eye consumes the first offset row. The non-eye Pro requires three rows:
+  IPD state 3 selects the first, state 2 the second, and state 1 the third.
+  The inspector rejects the wrong row count rather than substituting a model.
+- The service applies IPD correction, four per-axis property corrections and
+  clamping. It also adjusts lens separation for screen gap and permits a FOV
+  override. The inspector preserves raw values and does not invent those inputs.
+
+The stock screen-to-texture equation, active configuration and physical alignment
+still need verification before generating the driver's RGB distortion grids.
+Camera calibration XML describes a separate camera system; its coefficients are
+not display-lens calibration.
