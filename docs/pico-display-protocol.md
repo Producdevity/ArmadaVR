@@ -401,6 +401,20 @@ require implementation and physical verification. The unrelated AYN reference
 driver has different GPIO bindings and unsafe probe cleanup; it is not a drop-in
 replacement.
 
+## Continuous splash startup failures
+
+Kernel patch `0039-splash-startup-errors.patch` balances the runtime power
+reference when resuming the display power domain fails. Panel-regulator
+failures retain their original error through clock cleanup; a cleanup failure
+is logged separately. The SDE caller now returns a failed display handoff to
+the existing DRM initialization failure path before importing plane state.
+
+The exact DSI and SDE functions pass 7,680 injected startup/cleanup cases under
+macOS and ARM64 Linux sanitizers, including pre-existing power references and
+two-display startup. The original functions fail 24,120 checked invariants.
+These checks do not establish physical splash handoff, complete hardware
+rollback, panel timing or suspend behavior.
+
 ## Verification and remaining work
 
 The transport and chip-ID probe pass **12,581** sanitizer checks on macOS and ARM64 Linux,

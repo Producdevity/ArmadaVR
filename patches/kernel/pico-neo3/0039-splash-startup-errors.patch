@@ -1,0 +1,57 @@
+Subject: drm/msm: propagate continuous splash startup failures
+
+Balance the runtime PM reference on a failed resume, retain the panel
+regulator error through clock cleanup, and return display handoff failures
+to the existing DRM initialization failure path before importing plane state.
+
+---
+--- a/techpack/display/msm/dsi/dsi_display.c
++++ b/techpack/display/msm/dsi/dsi_display.c
+@@ -4890,7 +4890,7 @@
+ int dsi_display_cont_splash_config(void *dsi_display)
+ {
+ 	struct dsi_display *display = dsi_display;
+-	int rc = 0;
++	int rc = 0, cleanup_rc;
+ 
+ 	/* Vote for gdsc required to read register address space */
+ 	if (!display) {
+@@ -4900,6 +4900,7 @@
+ 
+ 	rc = pm_runtime_get_sync(display->drm_dev->dev);
+ 	if (rc < 0) {
++		pm_runtime_put_noidle(display->drm_dev->dev);
+ 		DSI_ERR("failed to vote gdsc for continuous splash, rc=%d\n",
+ 							rc);
+ 		return rc;
+@@ -4944,8 +4945,11 @@
+ 	return rc;
+ 
+ clks_disabled:
+-	rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
++	cleanup_rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
+ 			DSI_ALL_CLKS, DSI_CLK_OFF);
++	if (cleanup_rc)
++		DSI_ERR("[%s] failed to disable DSI clocks, rc=%d\n",
++			display->name, cleanup_rc);
+ 
+ clk_manager_update:
+ 	dsi_display_ctrl_isr_configure(display, false);
+--- a/techpack/display/msm/sde/sde_kms.c
++++ b/techpack/display/msm/sde/sde_kms.c
+@@ -2648,8 +2648,13 @@
+ 		sde_crtc_update_cont_splash_settings(crtc);
+ 
+ 		sde_conn = to_sde_connector(connector);
+-		if (sde_conn && sde_conn->ops.cont_splash_config)
+-			sde_conn->ops.cont_splash_config(sde_conn->display);
++		if (sde_conn && sde_conn->ops.cont_splash_config) {
++			rc = sde_conn->ops.cont_splash_config(sde_conn->display);
++			if (rc) {
++				SDE_ERROR("Failed: display splash handoff rc=%d\n", rc);
++				return rc;
++			}
++		}
+ 
+ 		rc = _sde_kms_update_planes_for_cont_splash(sde_kms,
+ 				splash_display, crtc);
