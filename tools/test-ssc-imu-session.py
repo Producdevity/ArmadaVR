@@ -35,7 +35,8 @@ def run(args):
     if ssc.digest(header) != profile['test_source_sha256']['src/libssc-sensor.h']:
         raise ValueError('SSC header changed')
     sources = ['src/ssc-imu-session.c', 'src/ssc-imu-session.h', 'src/ssc-imu.c',
-               'src/ssc-imu.h', 'src/ssc-clock.c', 'src/ssc-clock.h', 'tests/ssc-imu-session.c']
+               'src/ssc-imu.h', 'src/ssc-clock.c', 'src/ssc-clock.h',
+               'src/ssc-calibration.c', 'src/ssc-calibration.h', 'tests/ssc-imu-session.c']
     report = {'status': 'started', 'ssc_bundle': record, 'hardware_verified': False,
               'inputs_sha256': {n: ssc.digest(ROOT / n) for n in sources},
               'runner_sha256': ssc.digest(Path(__file__)), 'commands': []}

@@ -11,13 +11,13 @@
 struct callbacks {
     const char *mode;
     gpointer session;
-    gint reports[2], invalidations, self_join_refused;
+    gint reports[2], corrected[2], invalidations, self_join_refused;
 };
 
 static bool calibrate(void *data, struct ssc_clock *clock)
 {
     struct callbacks *callbacks = data;
-    if (!strcmp(callbacks->mode, "clock-failure")) return false;
+    if (!strcmp(callbacks->mode, "clock-failure") || !strcmp(callbacks->mode, "bias-clock-failure")) return false;
     int64_t anchor = g_get_monotonic_time() * 1000 - 100000000;
     return ssc_clock_init(clock, UINT64_C(0x123456789abcdef), 19200000, anchor, anchor, 0);
 }
@@ -50,12 +50,38 @@ static void report(void *data, const struct ssc_imu_event *event)
     }
 }
 
+static void bias_report(void *data, const struct ssc_bias_sample *sample)
+{
+    struct callbacks *callbacks = data;
+    g_assert_cmpint(g_atomic_int_get(&callbacks->invalidations), ==, 0);
+    unsigned sensor = sample->raw.sensor;
+    g_assert_cmpuint(sensor, <, 2);
+    g_assert_cmpfloat(sample->corrected[0], ==, sensor ? -0.375f : 9.5f);
+    g_assert_cmpfloat(sample->corrected[1], ==, 1.5f);
+    g_assert_cmpfloat(sample->corrected[2], ==, -2.75f);
+    g_assert_cmpuint(sample->accuracy, ==, 3);
+    g_assert_cmpuint(sample->calibration.ticks, <=, sample->raw.ticks);
+    g_atomic_int_inc(&callbacks->corrected[sensor]);
+    struct ssc_imu_session *session = g_atomic_pointer_get(&callbacks->session);
+    if (session && !strcmp(callbacks->mode, "bias-callback-stop")) {
+        struct ssc_imu_session *copy = session;
+        g_assert_false(ssc_imu_session_destroy(&copy));
+        g_assert_true(copy == session);
+        g_atomic_int_set(&callbacks->self_join_refused, 1);
+        ssc_imu_session_stop(session);
+    }
+}
+
 int main(int argc, char **argv)
 {
     if (argc != 2) return 2;
     const char *modes[] = {"normal", "immediate", "no-service", "no-qrtr", "clock-failure",
                            "wrong-uid", "wrong-rate", "gyro-silent", "gyro-malformed", "gyro-stall",
-                           "gyro-unavailable", "server-loss", "callback-stop"};
+                           "gyro-unavailable", "server-loss", "callback-stop",
+                           "bias-normal", "bias-single", "bias-wrong-uid", "bias-wrong-body",
+                           "bias-missing-body", "bias-malformed", "bias-unreliable", "bias-silent",
+                           "bias-stall", "bias-server-loss", "bias-callback-stop", "bias-immediate",
+                           "bias-clock-failure", "bias-no-service"};
     bool known = false;
     for (unsigned i = 0; i < G_N_ELEMENTS(modes); i++) known |= !strcmp(argv[1], modes[i]);
     if (!known) return 2;
@@ -74,7 +100,9 @@ int main(int argc, char **argv)
         if (!virtual) return 2;
     }
     g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
-    unsigned cycles = offline ? 100 : !strcmp(argv[1], "normal") ? 3 : 1;
+    bool bias_mode = g_str_has_prefix(argv[1], "bias-");
+    bool normal = !strcmp(argv[1], "normal") || !strcmp(argv[1], "bias-normal") || !strcmp(argv[1], "bias-single");
+    unsigned cycles = offline ? 100 : normal ? 3 : 1;
     for (unsigned cycle = 0; cycle < cycles; cycle++) {
         struct callbacks callbacks = {.mode = argv[1]};
         struct ssc_imu_session_config config = {
@@ -84,6 +112,18 @@ int main(int argc, char **argv)
             .calibrate = calibrate, .report = report, .invalidate = invalidate, .data = &callbacks,
         };
         struct ssc_imu_session *session = NULL;
+        struct ssc_imu_session_bias_config bias = {.suid_high = {0xACC10003, 0xACC10004},
+            .suid_low = {0xACC20003, 0xACC20004}, .rigid_body = {0, 0},
+            .max_age_ns = 1000000000, .report = bias_report};
+        for (unsigned invalid = 0; invalid < 5; invalid++) {
+            struct ssc_imu_session_config bad = config; bad.bias = bias;
+            if (invalid == 0) bad.bias.max_age_ns = 0;
+            if (invalid == 1) bad.bias.rigid_body[0] = -1;
+            if (invalid == 2) bad.bias.rigid_body[1] = 3;
+            if (invalid == 3) bad.bias.suid_low[0] = bad.bias.suid_high[0] = 0;
+            if (invalid == 4) { bad.bias.suid_low[0] = bad.suid_low[0]; bad.bias.suid_high[0] = bad.suid_high[0]; }
+            g_assert_false(ssc_imu_session_create(&bad, &session)); g_assert_null(session);
+        }
         for (unsigned invalid = 0; invalid < 9; invalid++) {
             struct ssc_imu_session_config bad = config;
             if (invalid == 0) bad.sample_rate[0] = NAN;
@@ -99,31 +139,58 @@ int main(int argc, char **argv)
         }
         if (!strcmp(argv[1], "wrong-uid")) config.suid_high[1]++;
         if (!strcmp(argv[1], "wrong-rate")) config.sample_rate[1] = 999;
+        if (bias_mode || (offline && cycle % 4 >= 2)) config.bias = bias;
+        if (!strcmp(argv[1], "bias-wrong-uid")) config.bias.suid_high[1]++;
+        if (!strcmp(argv[1], "bias-silent")) config.bias.max_age_ns = 200000;
         g_assert_true(ssc_imu_session_create(&config, &session));
         g_atomic_pointer_set(&callbacks.session, session);
-        bool immediate = !strcmp(argv[1], "immediate") || (offline && cycle % 2 == 0);
+        bool immediate = !strcmp(argv[1], "immediate") || !strcmp(argv[1], "bias-immediate") || (offline && cycle % 2 == 0);
         if (immediate) ssc_imu_session_stop(session);
         int64_t start = g_get_monotonic_time();
         bool stopped = immediate, announced = false;
         struct ssc_imu_session_status status = {0};
         while (!status.finished) {
             ssc_imu_session_get_status(session, &status);
-            if (status.streaming && status.accepted[0] && status.accepted[1] && !announced) {
+            if (status.streaming && status.accepted[0] && status.accepted[1] &&
+                (!bias_mode || (status.corrected[0] && status.corrected[1])) && !announced) {
                 puts("SSC_IMU_SESSION_STREAMING"); fflush(stdout); announced = true;
             }
-            if (!strcmp(argv[1], "normal") && status.accepted[0] >= 4 && status.accepted[1] >= 4 && !stopped) {
+            if (normal && status.accepted[0] >= 4 && status.accepted[1] >= 4 &&
+                (!bias_mode || (status.corrected[0] >= 4 && status.corrected[1] >= 4)) && !stopped) {
                 ssc_imu_session_stop(session); stopped = true;
             }
             g_assert_cmpint(g_get_monotonic_time() - start, <, 20000000);
             g_usleep(1000);
         }
         g_assert_false(status.streaming); g_assert_true(status.stopping);
-        bool success = immediate || !strcmp(argv[1], "normal") || !strcmp(argv[1], "callback-stop");
+        bool success = immediate || normal || !strcmp(argv[1], "callback-stop") || !strcmp(argv[1], "bias-callback-stop");
         g_assert_cmpint(status.failed, ==, !success);
-        if (!strcmp(argv[1], "normal")) {
+        if (normal) {
             g_assert_cmpuint(status.accepted[0], >=, 4); g_assert_cmpuint(status.accepted[1], >=, 4);
             g_assert_cmpuint(status.rejected[0], >, 0); g_assert_cmpuint(status.rejected[1], >, 0);
         }
+        if (normal && bias_mode) {
+            g_assert_cmpuint(status.corrected[0], >=, 4); g_assert_cmpuint(status.corrected[1], >=, 4);
+            if (!strcmp(argv[1], "bias-single")) {
+                g_assert_cmpuint(status.calibration_accepted[0], ==, 1);
+                g_assert_cmpuint(status.calibration_accepted[1], ==, 1);
+            }
+        }
+        if (!strcmp(argv[1], "bias-wrong-uid") || !strcmp(argv[1], "bias-wrong-body") ||
+            !strcmp(argv[1], "bias-missing-body")) {
+            g_assert_nonnull(strstr(status.error, "metadata"));
+            g_assert_cmpuint(status.accepted[0] + status.accepted[1], ==, 0);
+            g_assert_cmpuint(status.calibration_accepted[0] + status.calibration_accepted[1], ==, 0);
+        }
+        if (!strcmp(argv[1], "bias-malformed") || !strcmp(argv[1], "bias-unreliable") || !strcmp(argv[1], "bias-silent"))
+            g_assert_nonnull(strstr(status.error, "Gyroscope calibration unavailable"));
+        if (!strcmp(argv[1], "bias-malformed") || !strcmp(argv[1], "bias-unreliable"))
+            g_assert_cmpuint(status.corrected[1], ==, 0);
+        if (!strcmp(argv[1], "bias-stall")) {
+            g_assert_nonnull(strstr(status.error, "startup deadline"));
+            g_assert_cmpuint(status.accepted[0] + status.accepted[1], ==, 0);
+        }
+        if (!strcmp(argv[1], "bias-clock-failure")) g_assert_nonnull(strstr(status.error, "clock"));
         if (!strcmp(argv[1], "wrong-uid") || !strcmp(argv[1], "wrong-rate"))
             g_assert_nonnull(strstr(status.error, "metadata"));
         if (!strcmp(argv[1], "clock-failure")) g_assert_nonnull(strstr(status.error, "clock"));
@@ -139,11 +206,14 @@ int main(int argc, char **argv)
             g_assert_nonnull(strstr(status.error, "startup deadline"));
             g_assert_cmpuint(status.accepted[0] + status.accepted[1], ==, 0);
         }
-        if (!strcmp(argv[1], "callback-stop")) g_assert_cmpint(g_atomic_int_get(&callbacks.self_join_refused), ==, 1);
+        if (!strcmp(argv[1], "callback-stop") || !strcmp(argv[1], "bias-callback-stop"))
+            g_assert_cmpint(g_atomic_int_get(&callbacks.self_join_refused), ==, 1);
         g_assert_true(ssc_imu_session_destroy(&session)); g_assert_null(session);
         g_assert_cmpint(g_atomic_int_get(&callbacks.invalidations), ==, 1);
-        for (unsigned i = 0; i < 2; i++)
+        for (unsigned i = 0; i < 2; i++) {
             g_assert_cmpuint(status.accepted[i], ==, (unsigned)g_atomic_int_get(&callbacks.reports[i]));
+            g_assert_cmpuint(status.corrected[i], ==, (unsigned)g_atomic_int_get(&callbacks.corrected[i]));
+        }
         printf("SSC_IMU_SESSION_PASS mode=%s cycle=%u samples=%" G_GUINT64_FORMAT "/%" G_GUINT64_FORMAT " failed=%d\n",
                argv[1], cycle, status.accepted[0], status.accepted[1], status.failed);
     }

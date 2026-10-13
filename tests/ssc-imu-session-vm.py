@@ -16,7 +16,10 @@ if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux
     raise SystemExit('This test requires the isolated SSC VM')
 
 cases = ['normal', 'immediate', 'no-service', 'clock-failure', 'wrong-uid', 'wrong-rate',
-         'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'server-loss', 'callback-stop']
+         'gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable', 'server-loss', 'callback-stop',
+         'bias-normal', 'bias-single', 'bias-wrong-uid', 'bias-wrong-body', 'bias-missing-body',
+         'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall', 'bias-server-loss',
+         'bias-callback-stop', 'bias-immediate', 'bias-clock-failure', 'bias-no-service']
 taint = Path('/proc/sys/kernel/tainted').read_text()
 os.environ['LD_LIBRARY_PATH'] = '/opt/armada-vr/ssc/lib64:' + os.environ.get('LD_LIBRARY_PATH', '')
 assert subprocess.check_output(['/opt/armada-vr/ssc/bin/ssccli', '--version'], text=True).strip() == 'libssc version 0.4.4'
@@ -30,10 +33,14 @@ try:
         server = client = None
         with tempfile.TemporaryFile() as mocklog, tempfile.TemporaryFile() as clientlog:
             try:
-                if name != 'no-service':
+                if name not in ('no-service', 'bias-no-service'):
                     command = ['/usr/bin/python3', '/imu-mock.py', '/output/build']
                     if name in ('gyro-silent', 'gyro-malformed', 'gyro-stall', 'gyro-unavailable'):
                         command.append(name)
+                    if name.startswith('bias-'):
+                        faults = ('bias-single', 'bias-wrong-body', 'bias-missing-body',
+                                  'bias-malformed', 'bias-unreliable', 'bias-silent', 'bias-stall')
+                        command.append(name if name in faults else 'bias-normal')
                     server = subprocess.Popen(command, stdout=mocklog, stderr=subprocess.STDOUT, start_new_session=True)
                     deadline = time.monotonic() + 15
                     while True:
@@ -45,7 +52,7 @@ try:
                         assert time.monotonic() < deadline, 'SSC registration timed out'
                         time.sleep(0.1)
                 client = subprocess.Popen(['/imu-session', name], stdout=clientlog, stderr=subprocess.STDOUT)
-                if name == 'server-loss':
+                if name in ('server-loss', 'bias-server-loss'):
                     deadline = time.monotonic() + 10
                     while True:
                         clientlog.seek(0)
@@ -79,7 +86,7 @@ try:
             assert code == 0
     assert Path('/proc/sys/kernel/tainted').read_text() == taint
     print('SSC_IMU_SESSION_TAINT_UNCHANGED', taint.strip(), flush=True)
-    print('SSC_VM_TESTS_PASS suites=12', flush=True)
+    print('SSC_VM_TESTS_PASS suites=26', flush=True)
 finally:
     nameserver.terminate()
     nameserver.wait(timeout=3)

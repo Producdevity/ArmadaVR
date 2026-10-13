@@ -307,7 +307,7 @@ metadata returned by actual QRTR discovery before opening either sensor.
 Applications must still validate the selected SUIDs, stream type and supported
 rate before starting physical streams.
 
-## Native two-sensor session
+## Native IMU session
 
 [`ssc-imu-session`](../src/ssc-imu-session.h) owns accelerometer and gyroscope
 discovery, subscriptions and shutdown on a private GLib worker context. Before
@@ -373,8 +373,8 @@ metadata remain available alongside the bias-subtracted result.
 
 Scale and matrix fields are preserved without application; no axes, units or
 factory-calibration policy are inferred. This component is not automatically
-subscribed or installed into the runtime. Calibration subscriptions and their
-physical pairing must be established before enabling correction.
+started or installed into the runtime. Physical calibration pairing must be
+established before enabling correction.
 
 The optional `tests/ssc-calibration-stock.py` comparison extracts checksum-pinned
 descriptors from a private b1977 `libssc.so`. It checks 8,475 cases against
@@ -410,3 +410,30 @@ The source regression checks actual protobuf attribute parsing and public
 property reads across 128 cycles, including wrong-SUID reports and replacement
 of previously valid metadata by invalid metadata. A physical pairing must check
 this property and the expected SUIDs before enabling bias correction.
+
+Setting `ssc_imu_session_config.bias.report` explicitly enables the paired
+calibration path. Supply two calibration SUIDs, each pair's verified rigid body,
+and a maximum bias age. The session requires four distinct SUIDs, checks metadata
+for all four sensors before enabling any, and owns their discovery, reports,
+cancellation and teardown on the same private worker. Default sessions continue
+to expose raw IMU events only.
+
+Calibration updates are retained during startup: the first on-change report
+may also complete its subscription, and there may be no second update. Raw
+callbacks wait for all four subscriptions to open. Corrected callbacks additionally
+require a reliable, timestamp-appropriate bias. If either corrected stream stops
+for the configured report timeout, the session invalidates both IMUs and disables
+all attempted subscriptions. An expired bias cannot be kept alive by malformed
+calibration traffic or continuing raw samples. Raw callbacks may cancel without
+receiving a subsequent corrected callback. Corrected callbacks may also request
+stop; destruction must still be joined from the owning thread.
+
+The paired session passes 26 QRTR VM scenarios with UBSan, retaining the
+original two-sensor cases and adding four-sensor startup, one-shot calibration,
+wrong SUID/body, missing metadata, malformed/unreliable/expired bias, partial
+startup, service loss and callback cancellation. Native ASan/UBSan with leak
+detection covers 100 cancellation/no-QRTR cycles split between two- and
+four-subscription configurations. These checks exercise the production session
+owner with a synthetic DSP; actual calibration SUIDs, pairing and native physical
+delivery remain unverified. The offline root has not yet been updated with this
+session or the newer SSC bundle.
