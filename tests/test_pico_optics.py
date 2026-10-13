@@ -297,3 +297,133 @@ class PicoGridAuditTests(unittest.TestCase):
                                  ([128, 128], float('nan')), ([128, 128], 17)]:
             with self.assertRaises(ValueError):
                 OPT.audit_grid(self.lens, self.screen, grid, size, threshold)
+
+
+class PicoRuntimeSettingsTests(unittest.TestCase):
+    def setUp(self):
+        self.lens = OPT.lens_parameters(fixture())
+        self.settings = {'schema_version': 1, 'ipd_enabled': True, 'ipd_correction_enabled': True,
+                         'ipd_correction_mm': .25, 'screen_gap_m': 0, 'axis_corrections_mm': [0, 0, 0, 0]}
+        self.axes = OPT.axis_offsets(b'0,0,0,0', 'neo3-pro-eye', 2)
+
+    def test_model_and_state_separation_with_explicit_gap(self):
+        self.settings['screen_gap_m'] = .003
+        # Binary32 results from the saved stock getLensInfo implementation.
+        expected = ['0x1.bda512p-5', '0x1.eecbfcp-5', '0x1.0ff972p-4']
+        for model in ('neo3-pro', 'neo3-pro-eye'):
+            for enabled in (False, True):
+                self.settings['ipd_enabled'] = enabled
+                for state in (1, 2, 3):
+                    result = OPT.resolve_runtime(self.lens, self.axes, self.settings, model, state)
+                    value = expected[1] if model == 'neo3-pro-eye' else expected[state-1] if enabled else '0x1.eb852p-5'
+                    self.assertEqual(result['lens']['lens_separation_m'], float.fromhex(value))
+                    self.assertFalse(result['active_settings_verified'])
+                    self.assertFalse(result['fov_override_resolved'])
+                    self.assertFalse(result['ipd_lookup_verified'])
+                    self.assertFalse(result['runtime_usable'])
+                    self.assertFalse(result['calibration_applied'])
+
+    def test_correction_enable_model_state_and_coefficient_ownership(self):
+        original = copy.deepcopy(self.lens)
+        original_axes = copy.deepcopy(self.axes)
+        for model in ('neo3-pro', 'neo3-pro-eye'):
+            for state in (1, 2, 3):
+                for enabled in (False, True):
+                    self.settings['ipd_correction_enabled'] = enabled
+                    result = OPT.resolve_runtime(self.lens, self.axes, self.settings, model, state)
+                    used = .25 if model == 'neo3-pro' and state != 1 and enabled else 0
+                    self.assertEqual(result['ipd_correction_used_mm'], used)
+                    self.assertEqual(result['optical_offsets_mm'], [-used, 0, used, 0])
+                    self.assertEqual(result['lens']['distortion_coefficients'][14:18], [-used, 0, used, 0])
+                    for i in list(range(14)) + [18, 19]:
+                        self.assertEqual(result['lens']['distortion_coefficients'][i], original['distortion_coefficients'][i])
+        self.assertEqual(self.lens, original)
+        self.assertEqual(self.axes, original_axes)
+        self.settings['axis_corrections_mm'][0] = 1
+        self.assertEqual(result['settings']['axis_corrections_mm'], [0, 0, 0, 0])
+
+    def test_stock_rounding_and_clamping_after_all_adjustments(self):
+        self.axes['selected'] = [.37274909076837837, .6888879121751803,
+                                 .6631746245604446, -.9295314547405724]
+        self.settings.update(ipd_correction_mm=-.5, axis_corrections_mm=[-.25, 0, 2, 0])
+        result = OPT.resolve_runtime(self.lens, self.axes, self.settings, 'neo3-pro', 2)
+        self.assertEqual(result['optical_offsets_mm'],
+                         [float.fromhex(v) for v in ['0x1.3ed8f8p-1', '0x1.60b5eap-1', '0x1p+0', '-0x1.dbeb8cp-1']])
+        self.assertEqual(result['clamped_axes'], [2])
+        self.assertGreater(result['before_clamping_mm'][2], 1)
+        self.settings['axis_corrections_mm'] = [-2, -2, 2, 2]
+        result = OPT.resolve_runtime(self.lens, self.axes, self.settings, 'neo3-pro', 2)
+        self.assertEqual(result['optical_offsets_mm'], [-1, -1, 1, 1])
+        self.assertEqual(result['clamped_axes'], [0, 1, 2, 3])
+
+    def test_rejects_ambiguous_or_unbounded_settings(self):
+        changes = [('schema_version', True), ('schema_version', 2), ('ipd_enabled', 1),
+                   ('ipd_correction_enabled', None), ('ipd_correction_mm', '0'),
+                   ('ipd_correction_mm', True), ('ipd_correction_mm', 11),
+                   ('ipd_correction_mm', float('nan')), ('ipd_correction_mm', float('inf')),
+                   ('screen_gap_m', -.001), ('screen_gap_m', .051), ('screen_gap_m', 10**400),
+                   ('axis_corrections_mm', [0]*3), ('axis_corrections_mm', [0, 0, 0, False]),
+                   ('axis_corrections_mm', [0, 0, 0, float('nan')]),
+                   ('axis_corrections_mm', [0, 0, 0, 10**400])]
+        for key, value in changes:
+            settings = dict(self.settings, **{key: value})
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                OPT.runtime_parameters(json.dumps(settings).encode())
+        for key in self.settings:
+            settings = dict(self.settings); del settings[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                OPT.runtime_parameters(json.dumps(settings).encode())
+        for raw in [b'{}', b'null', b'[]', b' ', b' '*4097, b'{}\0', b'\xff',
+                    json.dumps(dict(self.settings, unknown=0)).encode(),
+                    json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()]:
+            with self.subTest(raw=raw[:40]), self.assertRaises(ValueError):
+                OPT.runtime_parameters(raw)
+        for model, state in [('unknown', 2), ('neo3-pro', 0), ('neo3-pro', True), ('neo3-pro', 2.0)]:
+            with self.assertRaises(ValueError):
+                OPT.resolve_runtime(self.lens, self.axes, self.settings, model, state)
+        self.lens['lens_separation_m'] = .01
+        self.settings.update(ipd_enabled=False, screen_gap_m=.02)
+        with self.assertRaises(ValueError):
+            OPT.resolve_runtime(self.lens, self.axes, self.settings, 'neo3-pro', 2)
+
+    def test_cli_hash_binding_geometry_agreement_and_private_output(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axisOffset.txt'; offsets.write_text('0,0,0,0')
+            settings = d/'runtime.json'; settings.write_text(json.dumps(self.settings))
+            screen = d/'screen.json'
+            output = d/'resolved.json'
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            command = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                       '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                       '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
+            extra = ['--runtime-settings', str(settings), '--runtime-sha256', digest(settings)]
+            link = d/'link'; link.symlink_to(settings)
+            for args in [extra[:2], extra[2:], extra[:3]+['0'*64],
+                         ['--runtime-settings', str(link), '--runtime-sha256', digest(settings)]]:
+                self.assertNotEqual(subprocess.run(command+args, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            geometry = screen_fixture()
+            for gap, offsets_value in [(.08, [0]*4), (.0634, [.1, 0, 0, 0])]:
+                geometry.update(lens_separation_m=gap, optical_offsets_mm=offsets_value)
+                screen.write_text(json.dumps(geometry))
+                screen_args = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+                result = subprocess.run(command+extra+screen_args, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(b'disagrees', result.stderr)
+                self.assertFalse(output.exists())
+            geometry['optical_offsets_mm'] = [0]*4
+            screen.write_text(json.dumps(geometry))
+            screen_args = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            subprocess.run(command+extra+screen_args, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['files']['runtime_settings']['sha256'], digest(settings))
+            self.assertEqual(result['runtime_adjustment']['lens']['distortion_coefficients'][14:18], [0]*4)
+            self.assertEqual(result['screen_grid']['screen_model'], geometry)
+            self.assertEqual(len(result['screen_grid']['views'][0]['distortion']), 9)
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            before = output.read_bytes()
+            self.assertNotEqual(subprocess.run(command+extra+screen_args, capture_output=True, timeout=5).returncode, 0)
+            self.assertEqual(output.read_bytes(), before)

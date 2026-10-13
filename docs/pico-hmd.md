@@ -133,6 +133,44 @@ physical RGB grids. Camera calibration XML describes a
 separate camera system; its coefficients are not display-lens calibration.
 
 
+## IPD and axis adjustments
+
+`--runtime-settings FILE --runtime-sha256 SHA256` resolves the FalconCV3 lens
+separation and axis adjustments from explicit saved inputs. Both options are
+required together. The settings JSON has exactly these fields:
+
+| Field | Contents |
+| --- | --- |
+| `schema_version` | `1` |
+| `ipd_enabled`, `ipd_correction_enabled` | Explicit booleans for the stock enable properties |
+| `ipd_correction_mm` | Resolved stock IPD lookup result, in millimetres; the lookup itself is not implemented |
+| `screen_gap_m` | Screen gap in metres, subtracted from lens separation |
+| `axis_corrections_mm` | Four property corrections in left X/Y, right X/Y order |
+
+Pro Eye starts from 63.4 mm regardless of IPD state. Pro with IPD enabled uses
+57.4, 63.4 or 69.4 mm for states 1, 2 and 3; otherwise it keeps the selected
+lens file's separation. The screen gap is then subtracted. IPD axis correction
+is used only for Pro states 2 and 3 when correction is enabled: subtract it
+from left X and add it to right X. Four independent property corrections follow,
+then each axis is clamped to the stock range of −1 to +1 mm.
+
+The resolver preserves binary32 rounding after each operation. Its report keeps
+raw offsets, adjusted values before clamping, the clamped axis indices and a
+separate resolved lens record with coefficient slots 14–17 replaced. Supplying
+a screen model additionally requires its separation and offsets to agree with
+that result. It does not choose active settings, resolve FOV overrides or
+produce an installable calibration file.
+
+An isolated ARM64 comparison executes the saved stock HMD service's original
+cached `getLensInfo` and `getIPDLensAxisOffset` routines with synthetic model,
+file and property inputs. All 9,600 output components across 1,920 cases agree
+bit-for-bit, including both models, all states, enable combinations, positive
+and negative corrections, screen gaps and clamping. The resolved IPD lookup
+result is supplied at the test boundary. This does not verify that lookup,
+initial profile selection, active hardware settings or physical alignment.
+Evidence is retained under `output/pico-optical-settings-20261014-v1/`.
+
+
 ## Screen-to-texture inspection
 
 The inspector also accepts `--screen-model FILE --screen-sha256 SHA256

@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import struct
 
 
 DECIMAL = r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?'
@@ -296,6 +297,75 @@ def axis_offsets(data, model, ipd_state):
             'property_corrections_applied': False}
 
 
+def runtime_parameters(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate runtime setting')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid runtime settings size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed runtime settings') from error
+    fields = {'schema_version', 'ipd_enabled', 'ipd_correction_enabled',
+              'ipd_correction_mm', 'screen_gap_m', 'axis_corrections_mm'}
+    if not isinstance(settings, dict) or set(settings) != fields:
+        raise ValueError('Missing or unexpected runtime setting')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported runtime settings schema')
+    for name in ('ipd_enabled', 'ipd_correction_enabled'):
+        if type(settings[name]) is not bool:
+            raise ValueError('Expected explicit IPD enable flags')
+    for name, low, high in [('ipd_correction_mm', -10, 10), ('screen_gap_m', 0, .05)]:
+        value = settings[name]
+        if type(value) not in (int, float) or not low <= value <= high or not math.isfinite(value):
+            raise ValueError('Invalid IPD correction or screen gap')
+    values = settings['axis_corrections_mm']
+    if (not isinstance(values, list) or len(values) != 4 or
+            any(type(v) not in (int, float) or abs(v) > 10 or not math.isfinite(v) for v in values)):
+        raise ValueError('Expected four bounded axis corrections in millimetres')
+    return settings
+
+
+def resolve_runtime(lens, axes, settings, model, ipd_state):
+    if model not in ('neo3-pro', 'neo3-pro-eye') or type(ipd_state) is not int or ipd_state not in (1, 2, 3):
+        raise ValueError('Explicit Neo3 model and IPD state required')
+    settings = runtime_parameters(json.dumps(settings).encode())
+
+    def f32(value):
+        return struct.unpack('<f', struct.pack('<f', value))[0]
+
+    separation = lens['lens_separation_m']
+    if model == 'neo3-pro-eye':
+        separation = .0634
+    elif settings['ipd_enabled']:
+        separation = {1: .0574, 2: .0634, 3: .0694}[ipd_state]
+    separation = f32(f32(separation) - f32(settings['screen_gap_m']))
+    if not .001 <= separation < .2:
+        raise ValueError('Resolved lens separation is out of range')
+    correction = 0.0
+    if model == 'neo3-pro' and ipd_state in (2, 3) and settings['ipd_correction_enabled']:
+        correction = f32(settings['ipd_correction_mm'])
+    values = [f32(value) for value in axes['selected']]
+    values[0] = f32(values[0] - correction)
+    values[2] = f32(values[2] + correction)
+    values = [f32(value + f32(adjustment)) for value, adjustment in zip(values, settings['axis_corrections_mm'])]
+    adjusted = [max(-1.0, min(1.0, value)) for value in values]
+    resolved = dict(lens, lens_separation_m=separation,
+                    distortion_coefficients=list(lens['distortion_coefficients']))
+    resolved['distortion_coefficients'][14:18] = adjusted
+    return {'settings': settings, 'lens': resolved, 'optical_offsets_mm': adjusted,
+            'before_clamping_mm': values, 'clamped_axes': [i for i, value in enumerate(values) if value != adjusted[i]],
+            'ipd_correction_used_mm': correction, 'float_precision': 'stock binary32 operation order',
+            'ipd_lookup_verified': False, 'fov_override_resolved': False, 'active_settings_verified': False,
+            'runtime_usable': False, 'calibration_applied': False}
+
+
 def inspect(config, config_sha256, offsets, offsets_sha256, model, ipd_state):
     config, offsets = Path(config), Path(offsets)
     if not re.fullmatch(r'A7H10_[01]\.ini', config.name):
@@ -313,8 +383,8 @@ def inspect(config, config_sha256, offsets, offsets_sha256, model, ipd_state):
             'configuration_selection_verified': False, 'runtime_usable': False,
             'calibration_applied': False,
             'remaining': ['Verify active product and glasses-holder configuration selection',
-                          'Resolve IPD, screen-gap, FOV and per-axis property overrides',
-                          'Verify screen-to-texture mapping, rotations and separate-eye overrides',
+                          'Verify active IPD, screen-gap, FOV and per-axis property inputs',
+                          'Verify active screen geometry, rotations and separate-eye overrides',
                           'Validate physical optical alignment at the selected IPD']}
 
 
@@ -328,6 +398,8 @@ def main():
     parser.add_argument('--ipd-state', type=int, choices=(1, 2, 3), required=True)
     parser.add_argument('--sample-tangent', type=float, nargs=2, action='append', default=[],
                         metavar=('X', 'Y'), help='Inspect an equation sample; does not apply screen/IPD transforms')
+    parser.add_argument('--runtime-settings', type=Path, help='Explicit IPD/gap/axis settings JSON; no property defaults')
+    parser.add_argument('--runtime-sha256', help='Independently retained runtime-settings SHA-256')
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
     parser.add_argument('--screen-sha256', help='Independently retained screen-model SHA-256')
     parser.add_argument('--grid-size', type=int, nargs=2, metavar=('WIDTH', 'HEIGHT'))
@@ -339,19 +411,33 @@ def main():
     try:
         result = inspect(args.config, args.config_sha256, args.offsets, args.offsets_sha256,
                          args.model, args.ipd_state)
+        lens = result['stock_lens']
+        if args.runtime_settings is not None or args.runtime_sha256 is not None:
+            if args.runtime_settings is None or args.runtime_sha256 is None:
+                raise ValueError('Runtime settings and SHA-256 are required together')
+            settings = runtime_parameters(read_file(args.runtime_settings, args.runtime_sha256, 4096))
+            resolved = resolve_runtime(lens, result['axis_offsets'], settings, args.model, args.ipd_state)
+            result['runtime_adjustment'] = resolved
+            lens = resolved['lens']
+            result['files']['runtime_settings'] = {'name': args.runtime_settings.name, 'sha256': args.runtime_sha256}
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
-        result['tangent_samples'] = [sample_tangents(result['stock_lens'], x, y) for x, y in args.sample_tangent]
+        result['tangent_samples'] = [sample_tangents(lens, x, y) for x, y in args.sample_tangent]
         if any(value is not None for value in (args.screen_model, args.screen_sha256, args.grid_size)):
             if any(value is None for value in (args.screen_model, args.screen_sha256, args.grid_size)):
                 raise ValueError('Screen model, SHA-256 and grid size are required together')
             screen = screen_parameters(read_file(args.screen_model, args.screen_sha256, 16384))
-            result['screen_grid'] = screen_grid(result['stock_lens'], screen, *args.grid_size)
+            if 'runtime_adjustment' in result:
+                resolved = result['runtime_adjustment']
+                if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or
+                        any(not math.isclose(a, b, rel_tol=0, abs_tol=1e-6) for a, b in zip(screen['optical_offsets_mm'], resolved['optical_offsets_mm']))):
+                    raise ValueError('Screen model disagrees with resolved IPD/axis adjustments')
+            result['screen_grid'] = screen_grid(lens, screen, *args.grid_size)
             result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
         if args.render_size is not None or args.max_error_pixels is not None:
             if args.render_size is None or args.max_error_pixels is None or 'screen_grid' not in result:
                 raise ValueError('Grid, render size and pixel-error limit are required for the audit')
-            result['grid_audit'] = audit_grid(result['stock_lens'], screen, result['screen_grid'],
+            result['grid_audit'] = audit_grid(lens, screen, result['screen_grid'],
                                               args.render_size, args.max_error_pixels)
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
