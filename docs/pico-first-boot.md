@@ -67,6 +67,52 @@ and power off, without mounting internal filesystems or starting the VR
 runtime. Verify USB controller operation and controlled return before adding
 the external root filesystem, display/mux, DSP and tracking services.
 
+`tools/build-pico-diagnostic.py` now builds that separate initramfs. It packages
+one static ARM64 init executable and an explicit device serial; no shell,
+modules, firmware, root filesystem or disk-mount service is included. Init
+requires PID 1, a RAM root, `qcom,kona`, an exact diagnostic command-line token
+and matching `androidboot.serialno`. Missing or conflicting identity refuses
+USB setup. The virtual test requires a separate `qemu` serial and test token.
+
+```sh
+python3 -B tools/build-pico-diagnostic.py PHYSICAL_PICO_KERNEL_DIRECTORY \
+  --serial HEADSET_SERIAL --output NEW_DIAGNOSTIC_DIRECTORY
+```
+
+It configures the kernel's existing `gser` USB function, waits for one UDC,
+and transmits bounded kernel/system diagnostics. It accepts no host commands.
+A 90-second alarm attempts power-off if the accepted physical diagnostic stalls;
+this cannot recover a hung kernel or replace independent recovery. The
+`1d6b:0104` Linux gadget identifier is for this development diagnostic only.
+The host collector additionally requires the exact manufacturer, product,
+serial and interface descriptors, without detaching a kernel driver:
+
+```sh
+cc -std=c11 -O2 -Wall -Wextra -Werror tools/pico-diagnostic-log.c \
+  $(pkg-config --cflags --libs libusb-1.0) -o NEW_LOG_RECEIVER
+NEW_LOG_RECEIVER --serial HEADSET_SERIAL > NEW_LOG_FILE
+```
+
+The receiver waits up to 90 seconds for enumeration and rejects incomplete or
+wrong-device reports. A received report proves neither physical shutdown nor
+return to stock; those require separate observation. The diagnostic does not
+load an SELinux policy, so the enforcing kernel arguments alone are not a
+claim of userspace policy enforcement.
+
+October 13 offline verification uses the unchanged physical Pico kernel
+`913b4a013bcd35900e104aca29ec0ccf3e356c2d77581af699c115dda9223f08`.
+The same init binary creates the real configfs serial function in diskless
+QEMU, observes no UDC, and powers off normally in 5.57 seconds. ARM64 sanitizer
+checks cover PID refusal, exact/conflicting command-line identities and bounded
+report storage; host sanitizer checks cover log identity and truncation.
+These tests do not exercise physical USB enumeration or log transfer.
+
+The diagnostic Android-v2 container is assembled and unpacked with matching
+kernel, initramfs and unmodified stock DTB hashes. Its initramfs is about 1.4 MiB,
+instead of the full runtime's 35 MiB. Private build, assembly and VM receipts
+are in `output/pico-diagnostic-20261013-v1/`. No diagnostic has been booted on
+the headset.
+
 The current full-root container is assembled and roundtrip-verified offline,
 but its external root transport and physical device-tree compatibility are
 untested. Kernel/VM results do not replace those checks. Native USB diagnostics,
