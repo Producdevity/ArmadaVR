@@ -1,0 +1,23 @@
+--- a/src/xrt/compositor/main/comp_compositor.c
++++ b/src/xrt/compositor/main/comp_compositor.c
+@@ -281,7 +281,8 @@
+ 	}
+ 
+ 	struct comp_layer *layer = &c->base.layer_accum.layers[0];
+-	if (layer->data.flags & XRT_LAYER_COMPOSITION_COLOR_BIAS_SCALE) {
++	// The distortion-only path timewarps world-space poses.
++	if (layer->data.flags & (XRT_LAYER_COMPOSITION_COLOR_BIAS_SCALE | XRT_LAYER_COMPOSITION_VIEW_SPACE_BIT)) {
+ 		return false;
+ 	}
+ 
+--- a/src/xrt/compositor/util/comp_render_cs.c
++++ b/src/xrt/compositor/util/comp_render_cs.c
+@@ -679,7 +679,7 @@
+ 		case XRT_LAYER_PROJECTION: {
+ 			do_cs_projection_layer(       //
+ 			    layer,                    // layer
+-			    world_pose_scanout_begin, // world_pose_scanout_begin
++			    is_layer_view_space(data) ? eye_pose : world_pose_scanout_begin, // target pose
+ 			    view_index,               // view_index
+ 			    cur_layer,                // cur_layer
+ 			    cur_image,                // cur_image

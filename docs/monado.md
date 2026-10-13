@@ -212,3 +212,17 @@ build logs a duplicate-space IPC failure at client teardown; the patched build
 does not. The test retains unsupported virtual haptic-output diagnostics and
 makes no claim about physical haptics, Pico GPU rendering or headset scanout.
 Evidence is under `output/pico-head-tracking-20261013-v1/render-v2/`.
+
+
+A VIEW-space projection layer must use eye-relative poses during composition.
+The pinned compositor used world poses in its single-layer distortion path and
+in the compute layer renderer. With a rotating HMD, a head-locked image moved
+out of view. The patch routes VIEW-space projections through the layer renderer
+and selects the eye pose for compute timewarp. World-space projections retain
+the single-layer fast path. VIEW-space projections incur the extra composition
+pass; physical performance remains unmeasured.
+
+The path-selection regression exercises 72 combinations of projection type,
+layer count, reference space, color adjustment and chroma key using the actual
+compositor function under ASan/UBSan. Separate framebuffer tests exercise the
+installed graphics and compute renderers with the Pico HMD and controllers.

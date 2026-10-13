@@ -56,7 +56,7 @@ def build(profile):
               'identity': {'profile': profile, 'image': image, 'builder_sha256': digest(Path(__file__)),
                            'pico_sources': {name: digest(ROOT / 'src' / name) for name in profile['pico_driver_sources']},
                            'patches': [{'path': str(p.relative_to(ROOT)), 'sha256': digest(p)} for p in patches],
-                           'tests': {p.name: digest(p) for p in (ROOT / 'tests/monado-display-tests.py', ROOT / 'tests/monado-display-tests.c', ROOT / 'tests/monado-space-tests.c')}},
+                           'tests': {p.name: digest(p) for p in (ROOT / 'tests/monado-display-tests.py', ROOT / 'tests/monado-display-tests.c', ROOT / 'tests/monado-space-tests.c', ROOT / 'tests/monado-projection-tests.c')}},
               'commands': [], 'limits': {'jobs': 2, 'memory_bytes': 4 * 1024**3, 'scratch_bytes': 1024**3}}
     source = scratch / profile['full_source']['archive_root']
     build_dir = scratch / 'build'

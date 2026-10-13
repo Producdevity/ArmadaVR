@@ -75,6 +75,18 @@ available after head tracking is lost. Two fresh service starts must exit
 cleanly. The test uses the null compositor and synthetic calibration; it does
 not validate display output, optics, controller poses or positional tracking.
 
+A separate rendering test uses `tests/pico-hmd-render.cpp` and
+`tests/pico-hmd-render-vm.py` with the production OpenXR renderer, Xvfb and
+lavapipe. Four fresh service starts cover graphics and compute composition,
+each with identity and independently altered RGB distortion grids. During
+synthetic head rotation, left/right press and release must produce the expected
+pixels in both eyes for at least four captures spanning 1.5 seconds per phase.
+The service runs as an unprivileged user, matching the target session and
+avoiding real-time scheduling starvation in CPU emulation. This proves the
+calibration-to-framebuffer path with software Vulkan, not Adreno execution or
+physical panel scanout. Test evidence is retained under
+`output/pico-hmd-display-20261013-v1/`.
+
 ## Stock optical data
 
 `tools/inspect-pico-optics.py` reads an explicitly selected, saved

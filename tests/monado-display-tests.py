@@ -80,6 +80,22 @@ def run(source, output, baseline=False):
     if result.returncode != (1 if baseline else 0) or 'MONADO_SPACE_CASES=117649 ' not in (output / 'space-test.log').read_text():
         raise RuntimeError('Unexpected semantic-space ownership result: ' + str(result.returncode))
     results.append({'part': 'space', 'returncode': result.returncode, 'command': command})
+    path = source / 'src/xrt/compositor/main/comp_compositor.c'
+    (output / 'projection-under-test.h').write_text(function(path.read_text(), 'can_do_one_projection_layer_fast_path'))
+    (output / 'xrt').mkdir()
+    (output / 'xrt/xrt_config_have.h').write_text('/* No optional graphics API headers needed by this test. */\n')
+    executable = output / 'monado-projection-tests'
+    command = ['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+               '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+               '-I', str(output), '-isystem', str(source / 'src/xrt/include'),
+               str(Path(__file__).with_name('monado-projection-tests.c')), '-o', str(executable)]
+    with (output / 'projection-compile.log').open('wb') as log:
+        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+    with (output / 'projection-test.log').open('wb') as log:
+        result = subprocess.run([str(executable.resolve())], stdout=log, stderr=subprocess.STDOUT, timeout=20)
+    if result.returncode != (1 if baseline else 0):
+        raise RuntimeError('Unexpected projection path result: ' + str(result.returncode))
+    results.append({'part': 'projection', 'returncode': result.returncode, 'command': command})
     report = {'status': 'regressions-reproduced' if baseline else 'passed', 'results': results,
               'scope': 'actual compositor functions with modeled Vulkan and IPC, real space references; no rendering or hardware timing',
               'source_sha256': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [
@@ -87,7 +103,10 @@ def run(source, output, baseline=False):
                   source / 'src/xrt/compositor/main/comp_window_direct.c',
                   source / 'src/xrt/compositor/main/comp_window_vk_display.c',
                   source / 'src/xrt/ipc/client/ipc_client_space_overseer.c',
-                  source / 'src/xrt/include/xrt/xrt_space.h']}}
+                  source / 'src/xrt/include/xrt/xrt_space.h',
+                  source / 'src/xrt/include/xrt/xrt_compositor.h',
+                  source / 'src/xrt/compositor/main/comp_compositor.c',
+                  source / 'src/xrt/compositor/util/comp_render_cs.c']}}
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(report['status'])
 
