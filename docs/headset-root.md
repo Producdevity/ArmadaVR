@@ -455,3 +455,20 @@ version support through 31, and **zero loaded policies**. The root contains no
 SELinux configuration or targeted policy. Therefore the flag alone does not
 establish mandatory-access-control protection. Earlier small policy-denial
 fixtures remain separate evidence; they do not establish a full root policy.
+
+October 13: `output/headset-root-pico-native-sensors-20261013-v1` updates the
+verified physical-configuration Pico image with the eleven-patch SSC bundle and
+matching rebuilt Monado. Its SHA-256 is
+`0155a197503397b89ea8fb64766a23e73a1827a34e063ed78040119019b60727`.
+The APFS-cloned predecessor remains byte-for-byte unchanged. Nine files change;
+the kernel, all 38 modules, firmware and FastRPC inventory remain intact.
+Exact readback, permissions, filesystem checks, 485 ELF dependency closures,
+service/CLI symbol relocation and immediate OpenXR/client loading pass.
+
+The matching runtime passes 25 upstream tests and two OpenXR service/client
+cycles with both controller hands in the isolated physical-kernel VM. The
+unsigned boot container in `output/pico-boot-container-20261013-v1` passes
+assembly/unpacking checks with 25,415,680 bytes of partition headroom and the
+preserved stock DTB pack. Head IMU sessions remain separate from Monado's HMD
+path. These checks establish an offline artifact set, not physical boot,
+display/tracking operation, damaged-boot recovery or flash readiness.

@@ -436,8 +436,8 @@ startup, service loss and callback cancellation. Native ASan/UBSan with leak
 detection covers 100 cancellation/no-QRTR cycles split between two- and
 four-subscription configurations. These checks exercise the production session
 owner with a synthetic DSP; actual calibration SUIDs, pairing and native physical
-delivery remain unverified. The offline root has not yet been updated with this
-session or the newer SSC bundle.
+delivery remain unverified. This session is not yet integrated into the runtime's
+HMD driver; installing the newer SSC library does not enable head tracking.
 
 The [sensor-selection patch](../patches/libssc/0010-select-requested-sensor-uid.patch)
 adds construct-only uint64 properties `requested-uid-high` and `requested-uid-low`.
@@ -487,3 +487,9 @@ from an advertised list of 5, 1,000 and 2,000 Hz in both raw and calibrated
 sessions. The mock checks every outgoing continuous-rate request and confirms
 that malformed or missing rate metadata prevents enabling any subscription.
 Native ASan/UBSan cancellation tests and the 429 host checks also pass.
+
+The eleven-patch SSC library is installed in the separately verified October 13
+[Pico root](headset-root.md). Monado's existing controller integration passes
+its OpenXR regression against that library. The raw/calibrated IMU session
+remains separately tested source, pending physical identities, clock origin,
+coordinate transforms and integration with the HMD and camera tracking path.

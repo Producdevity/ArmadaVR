@@ -310,16 +310,18 @@ reports. Uncalibrated analog inputs and unimplemented poses remain inactive.
 Two service/client lifecycles pass with clean shutdown. Counter timestamps use
 the virtual CPU counter; this does not establish a physical CPU/DSP clock origin.
 
-The current runtime was rebuilt against the corrected SSC metadata properties.
+The October 13 runtime was rebuilt against the eleven-patch SSC bundle,
+including calibration startup, rigid-body identity, exact SUID selection and
+supported-rate selection. Existing controller discovery keeps its default behavior.
 All 25 upstream test executables and the display regressions pass. The OpenXR
 test also passes both lifecycles on the rebuilt FastRPC kernel; evidence is in
-`output/pico-monado-ssc-properties-20261012-v1/runtime-vm-v1/`.
+`output/pico-native-sensors-20261013-v1/runtime-vm-v1/`.
 
-The derived root `output/headset-root-pico-ssc-properties-20261012-v1/` passes
+The derived root `output/headset-root-pico-native-sensors-20261013-v1/` passes
 exact Monado/SSC readback, permissions, filesystem checks and symbol resolution
 across 485 ELF dependencies. Kernel modules, firmware and FastRPC remain intact;
 its parent remains unchanged. The unsigned boot container in
-`output/pico-boot-container-20261012-v15/` binds that root and passes assembly
+`output/pico-boot-container-20261013-v1/` binds that root and passes assembly
 and unpacking checks. Native head-IMU session code is tested separately and is
 not started by this runtime. None of these tests establish physical boot,
 recovery, panel output, tracking, controller pairing or flash readiness.
