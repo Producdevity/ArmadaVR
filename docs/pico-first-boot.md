@@ -252,12 +252,12 @@ remain unverified. Container header addresses do not describe this dynamic
 placement. The full runtime retains display support and needs a separate,
 verified external root filesystem.
 
-The earlier full-root container was assembled and roundtrip-verified offline,
-but its external root transport and physical device-tree compatibility are
-untested. Kernel/VM results do not replace those checks. Rebuilding its
-userspace under the new project name is also pending
-(see [project naming](project-naming.md)). Native USB diagnostics, stock return
-and the complete recovery sequence remain physical acceptance requirements.
+The current native full-root container is assembled and roundtrip-verified
+offline with the Reframed paths and matched packages. Its QEMU counterpart
+passes read-only startup and package checks. External root transport and
+physical device-tree compatibility are untested; kernel/VM results do not
+replace those checks. Native USB diagnostics, stock return and the complete
+recovery sequence remain physical acceptance requirements.
 
 Private audit and current-source receipts:
 `output/pico-flash-path-20261013-v1/`. No image has been flashed.

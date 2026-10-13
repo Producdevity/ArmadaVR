@@ -184,9 +184,10 @@ The October 13 Reframed builds in `output/pico-compositor-20261013-v2/` and
 `output/pico-turnip-20261013-v1/` pass this combined check against
 `output/pico-head-tracking-20261013-v1/ssc-bundle/`. The compositor passes all 25
 upstream tests plus the two display-selection sanitizer suites. These packages
-use the current `/opt/reframed-vr` paths; the preserved pre-rename complete root
-images still need a coordinated rebuild. Real panel scanout and GPU execution
-under the custom Pico kernel remain unverified.
+use the current `/opt/reframed-vr` paths. The complete native Pico roots have
+since been assembled with matching kernel, startup services and packages.
+Real panel scanout and GPU execution under the custom Pico kernel remain
+unverified.
 
 
 The semantic-space ownership patch shares a client object when multiple roles
@@ -226,3 +227,14 @@ The path-selection regression exercises 72 combinations of projection type,
 layer count, reference space, color adjustment and chroma key using the actual
 compositor function under ASan/UBSan. Separate framebuffer tests exercise the
 installed graphics and compute renderers with the Pico HMD and controllers.
+
+
+The current compositor is `output/pico-hmd-display-20261013-v1/monado-v2/`.
+The physical and QEMU roots in that evidence directory replace Monado in
+copy-on-write clones of the previously verified native images. Full filesystem,
+module, firmware and component readback checks pass; other component receipts
+are unchanged. The updated QEMU root boots read-only, verifies the installed
+package bytes and native loader relocations, starts its user session and shuts
+down normally with zero disk writes. The unsigned boot container is bound to
+the updated physical root receipt. This native development image still omits
+Steam, FEX, Proton and Lepton, and has no calibrated HMD autostart.
