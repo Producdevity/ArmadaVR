@@ -358,7 +358,8 @@ restores the stored load after a failed `regulator_set_load`, whose vendor
 implementation updates that value before attempting the hardware operation.
 
 The source regression runs 11,384 sequences with errors at each rail and
-startup/shutdown operation, persistent cleanup failures, simultaneous errors,+nested references, explicit cleanup retries and direct enable retries. It
+startup/shutdown operation, persistent cleanup failures, simultaneous errors,
+nested references, explicit cleanup retries and direct enable retries. It
 compares the successful voltage/load/enable/disable order and configured delays
 with the original behavior. The original produces 60,324 failed invariants;
 the patched code produces none under macOS and ARM64 Linux sanitizers.
@@ -367,3 +368,51 @@ These states track references owned by this driver, not whether a shared or
 always-on regulator is electrically off. The vendor regulator core also ignores
 upstream-supply shutdown errors. Physical rail behavior and the separately
 disabled panel-reset rollback still require hardware validation.
+
+The complete kernel through `0030` passes all 18 artifact hashes, 38 module
+signatures, 2,715 imported symbol versions, dependency closure and modified
+signature rejection. Its exact physical configuration passes the diskless ABI
+fixture and normal shutdown in 5.733 seconds. The Image SHA-256 is
+`9d00bdde7875eafc6b887257cbe04212dda790e8a62cf84367c97d620f344be5`;
+the build receipt SHA-256 is
+`5d01dfcef0cf953f5727b23c5d4f82702bb08d21797f65eb351eea5dedcc01cb`.
+Artifacts are in `output/kernel/pico-neo3/linux-panel-regulator-20261012-v1/`;
+acceptance is recorded in
+`output/pico-panel-startup-20261012-v1/acceptance.json`. Hardware acceptance
+remains separate.
+
+The published `techpack/display/msm/dsi/dsi_panel.c` already contains
+`dsi_panel_post_enable_vxr7200` and the 72/90/120 Hz panel/backlight calls; its
+control flow agrees with the recovered stock routine at `0xffffff8008db7560`.
+This provides reusable panel code. The missing bridge binding, power/mux
+sequencing, event lifecycle, EDID/video detection and suspend behavior still
+require implementation and physical verification. The unrelated AYN reference
+driver has different GPIO bindings and unsafe probe cleanup; it is not a drop-in
+replacement.
+
+## Verification and remaining work
+
+The transport and chip-ID probe pass **12,581** sanitizer checks on macOS and ARM64 Linux,
+including incomplete transfers, negative errors, output preservation, every
+possible fifth reply byte and register/value encoding. Another **16,384** cases
+compare the exact original stock read/write routines with the new transport.
+Only those two routines run in a private ARM64 process, with their I2C callees
+replaced by in-memory callbacks. All request bytes and returned values agree.
+A separate stock-probe comparison covers all **65,536** possible chip IDs,
+verifying the four-byte reply length and upper-halfword selection. No kernel
+boot, initializers, physical I2C access or firmware update occurs in these tests.
+
+This is a tested transport component, not a bound replacement display driver.
+Kernel/DRM integration, board selection, safe sequencing and physical rendering
+remain open. Evidence, disassembly, stock-function harness and Ghidra project are
+preserved under `output/pico-stock-driver-analysis-20261011-v1/`.
+
+## RTT is diagnostic
+
+The missing `CONFIG_PICO_RTT` component is distinct from tracking. Its probe at
+`0xffffff80081b9f64` allocates a 64 KiB ring per CPU and registers scheduler,
+IRQ and panic callbacks. The callbacks store timestamps and task/IRQ identifiers
+in 16-byte records; panic handling flushes the rings for minidumps. This evidence
+places RTT in crash diagnostics, rather than the essential sensor/pose data path.
+It can be restored later without treating it as an IMU driver. Other boot and
+physical-driver acceptance gates are unchanged.
