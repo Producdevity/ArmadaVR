@@ -42,3 +42,14 @@ class RemoteInputTests(unittest.TestCase):
             with patch.object(inputs.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, reversed_eyes)):
                 with self.assertRaisesRegex(ValueError, "reversed"):
                     inputs.check_captures(Path(directory))
+
+    def test_explicit_runtime_is_used_by_the_service_and_application_environment(self):
+        for runtime in (None, "/opt/reframed-vr/monado/share/openxr/1/openxr_monado.json"):
+            with self.subTest(runtime=runtime), tempfile.TemporaryDirectory() as directory:
+                environment = {} if runtime is None else {"XR_RUNTIME_JSON": runtime}
+                with patch.dict(inputs.os.environ, environment, clear=True), \
+                        patch.object(inputs.subprocess, "Popen", side_effect=RuntimeError("captured")) as launch:
+                    with self.assertRaisesRegex(RuntimeError, "captured"):
+                        inputs.run(Path(directory) / "test", Path("xr-probe"))
+                    self.assertEqual(launch.call_args.kwargs["env"]["XR_RUNTIME_JSON"],
+                                     runtime or "/usr/share/openxr/1/openxr_monado.json")

@@ -100,7 +100,7 @@ def run(output, probe, windows=False, render=False):
                             "DBUS_SESSION_BUS_ADDRESS": "unix:path=/dev/null",
                             "P_OVERRIDE_ACTIVE_CONFIG": "remote", "XRT_NO_STDIN": "1",
                             "XRT_COMPOSITOR_NULL": "1", "REMOTE_LOG": "info",
-                            "XR_RUNTIME_JSON": "/usr/share/openxr/1/openxr_monado.json"}
+                            "XR_RUNTIME_JSON": os.environ.get("XR_RUNTIME_JSON", "/usr/share/openxr/1/openxr_monado.json")}
         if render:
             if not env.get("DISPLAY"):
                 raise ValueError("Rendered input requires a display; run under xvfb-run with a 1280x800x24 screen")

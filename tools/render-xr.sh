@@ -16,7 +16,7 @@ cleanup() {
 trap cleanup EXIT
 export DISPLAY=:99 XRT_NO_STDIN=1
 export SIMULATED_ENABLE=1 SIMULATED_LEFT=simple SIMULATED_RIGHT=simple
-export XR_RUNTIME_JSON=/usr/share/openxr/1/openxr_monado.json
+export XR_RUNTIME_JSON="${XR_RUNTIME_JSON:-/usr/share/openxr/1/openxr_monado.json}"
 export VK_DRIVER_FILES="${VK_DRIVER_FILES:-/usr/share/vulkan/icd.d/lvp_icd.aarch64.json}"
 export XRT_COMPOSITOR_FORCE_XCB=1 XRT_COMPOSITOR_SCALE_PERCENTAGE=40
 export LP_NUM_THREADS=2
