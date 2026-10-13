@@ -472,3 +472,9 @@ assembly/unpacking checks with 25,415,680 bytes of partition headroom and the
 preserved stock DTB pack. Head IMU sessions remain separate from Monado's HMD
 path. These checks establish an offline artifact set, not physical boot,
 display/tracking operation, damaged-boot recovery or flash readiness.
+
+The October 13 root is retained as `rootfs.ext4.zst` to reduce disk use. A full
+decompression reproduced all 7 GiB and the checksum above before the redundant
+raw image was removed. Its directory contains the compression receipt and
+`restore-root.py`, which checks the archive and manifest, requires sufficient
+space, and verifies the restored image before giving it the original filename.
