@@ -19,7 +19,8 @@ extrapolating to the requested display time.
 
 ## Calibration file
 
-Version 1 requires every field below. There are no physical defaults. The file
+Version 1 uses RGB grids. Version 2 uses the analytic lens model described below.
+Both versions require the common fields below. There are no physical defaults. The file
 must be a regular file, at most 2 MiB; final symlinks, embedded NULs, trailing
 JSON, duplicate required fields and malformed numbers are refused. Units and
 coordinates must describe the active sensor and optical configuration, including
@@ -27,7 +28,7 @@ the current IPD. This format does not authenticate the measurements.
 
 | Field | Contents |
 | --- | --- |
-| `schema_version`, `device`, `serial` | `1`, `PICOA7H10`, the unit identifier |
+| `schema_version`, `device`, `serial` | `1` or `2`, `PICOA7H10`, the unit identifier |
 | `screen` | `width`, `height` in native panel pixels; `frame_interval_ns` |
 | `views` | Two objects, left eye then right eye, as described below |
 | `imu.suids` | Four `[high, low]` pairs: accel, gyro, accel calibration, gyro calibration; each half is a 16-digit lowercase hexadecimal string |
@@ -45,7 +46,7 @@ overlap. `fov` contains left, right, up and down angles in radians; `eye_pose`
 contains quaternion x/y/z/w followed by position x/y/z in metres, relative to
 the head origin.
 
-`grid_width` and `grid_height` each range from 2 to 65. `distortion` contains
+For version 1, `grid_width` and `grid_height` each range from 2 to 65. `distortion` contains
 exactly their product in row-major order. Every entry is `[red_u, red_v,
 green_u, green_v, blue_u, blue_v]`: render-texture coordinates sampled for that
 normalized per-eye screen position. The driver interpolates each color channel
@@ -169,7 +170,7 @@ stock OpenGL mesh. Physical panel rotation remains a separate view transform;
 HWC reversal does not establish a panel rotation or viewport arrangement.
 
 The output contains two row-major RGB grids, in-texture vertex counts, and a
-check against the current driver's coordinate limit. Out-of-texture values are
+check against the grid driver's coordinate limit. Out-of-texture values are
 preserved rather than clamped. The inspector does not perform stock triangle
 clipping or certify interpolation accuracy. Output remains explicitly
 `runtime_usable: false` and is not a complete HMD configuration.
@@ -202,5 +203,51 @@ For the saved A7H10 profiles with explicitly synthetic 3664×1920 geometry,
 resolution. The largest grid reaches approximately four pixels of error, and
 some corner coordinates exceed the current grid driver's limit. These grids
 must not be treated as accepted calibration or repaired by silently clamping
-coordinates. An analytic distortion path and compositor sampling checks are
-needed before using this lens model.
+coordinates. The analytic path below avoids this driver-side interpolation.
+
+
+## Analytic distortion
+
+Schema version 2 replaces each view's `grid_width`, `grid_height` and
+`distortion` fields with `analytic_distortion`. Mixing the two representations
+is rejected. Common view geometry, eye pose, FOV and all IMU fields remain
+required. The model object contains:
+
+| Field | Contents |
+| --- | --- |
+| `type` | `pico-radial-2` |
+| `tangent_scale`, `tangent_offset` | Two floats each; `x = scale[0]*u + offset[0]`, `y = scale[1]*v + offset[1]`, with top-left screen input |
+| `radial_coefficients` | Eleven coefficients, constant term first |
+| `chromatic_coefficients` | Six values: stock c0, c1, c2, c3, k18, k19 |
+
+The offline inspector includes this model in each generated view. Its inputs
+still require independent active-setting and physical validation; emitting a
+model does not authorize installing it. The native driver copies the model,
+evaluates RGB tangents directly in double precision and projects through the
+view's explicit FOV. It does not interpolate an input grid or clamp coordinates.
+Creation rejects ambiguous models, non-finite parameters, degenerate scales and
+models whose conservative output bound exceeds one million texture units.
+Out-of-texture coordinates are valid distortion results, not tracked pixels.
+
+The actual native `xrt_device` callback has been compared against all 17,136
+stock mesh vertices. Maximum visible error at 1920-pixel render resolution is
+below 0.00064 pixels for those synthetic configurations. Sanitizer tests also
+cover reversed axes, asymmetric FOVs, all color terms, malformed configuration
+and ownership after the caller releases its configuration.
+
+The compositor still discretizes this callback for rendering. The maintained
+Monado patch uses a 256×256 distortion texture for compute composition and a
+256-cell-per-axis graphics mesh (257×257 vertices per eye). With the synthetic
+geometry above, nine samples per cell give maximum errors below 0.26 pixels for
+bilinear texture sampling and 0.48 pixels for the graphics mesh's triangle
+interpolation. These are sampled numerical results; physical timing and a
+continuous error bound remain unverified. The denser resources consume more
+memory and graphics work than the upstream defaults. `XRT_MESH_SIZE` can still
+override graphics mesh density, so reducing it requires another accuracy audit.
+
+Set `PICO_HMD_TEST_ANALYTIC=1` in the isolated rendering test to exercise schema
+version 2. Four fresh services cover identity and offset radial/RGB models in
+both graphics and compute composition. Independent pixel expectations include
+per-channel texture borders. The recorded run submits 1,775 projection frames;
+all 267,912 sampled eye pixels match across the 16 stable input phases. This
+uses synthetic optics and software Vulkan, without physical panel acceptance.

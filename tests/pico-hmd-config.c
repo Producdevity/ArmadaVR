@@ -49,6 +49,38 @@ static void save(const char *path,cJSON *json)
     char *data=cJSON_PrintUnformatted(json);assert(data);
     FILE *f=fopen(path,"wb");assert(f);assert(fwrite(data,1,strlen(data),f)==strlen(data));assert(!fclose(f));free(data);
 }
+static void analytic_config_tests(const char *path)
+{
+    cJSON *json=fixture();cJSON_ReplaceItemInObjectCaseSensitive(json,"schema_version",cJSON_CreateNumber(2));
+    for(unsigned eye=0;eye<2;eye++) {
+        cJSON *v=cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(json,"views"),(int)eye);
+        cJSON_DeleteItemFromObjectCaseSensitive(v,"grid_width");cJSON_DeleteItemFromObjectCaseSensitive(v,"grid_height");cJSON_DeleteItemFromObjectCaseSensitive(v,"distortion");
+        cJSON *radial=cJSON_Parse("{\"type\":\"pico-radial-2\",\"tangent_scale\":[2,-2],\"tangent_offset\":[-1,1],\"radial_coefficients\":[1,0.1,0,0,0,0,0,0,0,0,0],\"chromatic_coefficients\":[0.01,0,0.02,0,0,0]}");
+        assert(radial);cJSON_AddItemToObject(v,"analytic_distortion",radial);
+    }
+    save(path,json);struct pico_hmd_config *config=NULL;assert(pico_hmd_config_load(path,&config));
+    assert(config->views[0].radial_enabled&&!config->views[0].distortion&&!config->views[0].grid_width);
+    assert(config->views[1].radial.tangent_scale[1]==-2&&config->views[1].radial.radial[1]==.1f);
+    pico_hmd_config_destroy(&config);
+    const char *fields[]={"type","tangent_scale","tangent_offset","radial_coefficients","chromatic_coefficients"};
+    unsigned refused=0;
+    for(unsigned i=0;i<5;i++)for(unsigned duplicate=0;duplicate<2;duplicate++) {
+        cJSON *bad=cJSON_Duplicate(json,true),*view=cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(bad,"views"),1);
+        cJSON *radial=cJSON_GetObjectItemCaseSensitive(view,"analytic_distortion");
+        if(duplicate)cJSON_AddItemToObject(radial,fields[i],cJSON_Duplicate(cJSON_GetObjectItemCaseSensitive(radial,fields[i]),true));
+        else cJSON_DeleteItemFromObjectCaseSensitive(radial,fields[i]);
+        save(path,bad);assert(!pico_hmd_config_load(path,&config));cJSON_Delete(bad);refused++;
+    }
+    const char *conflicts[]={"grid_width","grid_height","distortion"};
+    for(unsigned i=0;i<3;i++) {
+        cJSON *bad=cJSON_Duplicate(json,true),*view=cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(bad,"views"),0);
+        cJSON_AddNullToObject(view,conflicts[i]);save(path,bad);assert(!pico_hmd_config_load(path,&config));cJSON_Delete(bad);refused++;
+    }
+    cJSON_ReplaceItemInObjectCaseSensitive(json,"schema_version",cJSON_CreateNumber(1));save(path,json);
+    assert(!pico_hmd_config_load(path,&config));cJSON_Delete(json);
+    printf("PICO_HMD_ANALYTIC_CONFIG_PASS refusals=%u\n",refused+1);
+}
+
 int main(void)
 {
     char path[]="/tmp/reframed-hmd-config-XXXXXX";int fd=mkstemp(path);assert(fd>=0);close(fd);
@@ -82,6 +114,8 @@ int main(void)
     assert(!pico_hmd_config_load(path,&config));
     fd=open(path,O_WRONLY|O_TRUNC);assert(fd>=0);assert(!ftruncate(fd,2*1024*1024+1));close(fd);
     assert(!pico_hmd_config_load(path,&config));
+    save(path,json);
+    analytic_config_tests(path);
     save(path,json);cJSON_Delete(json);
     char link[128];snprintf(link,sizeof(link),"%s-link",path);assert(!symlink(path,link));
     assert(!pico_hmd_config_load(link,&config));unlink(link);

@@ -16,7 +16,55 @@ struct pico_hmd {
     struct xrt_pose eyes[2];
     unsigned width[2], height[2];
     struct xrt_uv_triplet *grids[2];
+    bool radial_enabled[2];
+    struct pico_hmd_radial radial[2];
 };
+
+static bool radial_valid(const struct pico_hmd_radial *r, const struct xrt_fov *fov)
+{
+    double extent[2];
+    for (unsigned i = 0; i < 2; i++) {
+        if (!isfinite(r->tangent_scale[i]) || !isfinite(r->tangent_offset[i]) ||
+            fabsf(r->tangent_scale[i]) > 32 || fabsf(r->tangent_offset[i]) > 32 ||
+            fabsf(r->tangent_scale[i]) < 0.000001f) return false;
+        extent[i] = fmax(fabs(r->tangent_offset[i]), fabs((double)r->tangent_scale[i] + r->tangent_offset[i]));
+    }
+    double radius_squared = extent[0]*extent[0] + extent[1]*extent[1];
+    double bound = 0;
+    for (int i = 10; i >= 0; i--) {
+        if (!isfinite(r->radial[i]) || fabsf(r->radial[i]) > 1000000) return false;
+        bound = bound * radius_squared + fabs(r->radial[i]);
+    }
+    for (unsigned i = 0; i < 6; i++)
+        if (!isfinite(r->chromatic[i]) || fabsf(r->chromatic[i]) > 1000000) return false;
+    double red = 1 + fabs(r->chromatic[0]) + fabs(r->chromatic[1])*radius_squared + fabs(r->chromatic[4])*sqrt(radius_squared);
+    double blue = 1 + fabs(r->chromatic[2]) + fabs(r->chromatic[3])*radius_squared + fabs(r->chromatic[5])*sqrt(radius_squared);
+    bound *= fmax(1, fmax(red, blue));
+    double left=tan(fov->angle_left), right=tan(fov->angle_right), up=tan(fov->angle_up), down=tan(fov->angle_down);
+    return isfinite(bound) && (extent[0]*bound + fabs(left))/(right-left) <= 1000000 &&
+           (extent[1]*bound + fabs(up))/(up-down) <= 1000000;
+}
+
+static xrt_result_t radial_distortion(const struct pico_hmd_radial *r, const struct xrt_fov *fov,
+                                      float u, float v, struct xrt_uv_triplet *result)
+{
+    double x = (double)r->tangent_scale[0]*u + r->tangent_offset[0];
+    double y = (double)r->tangent_scale[1]*v + r->tangent_offset[1];
+    double radius_squared = x*x+y*y, radius = sqrt(radius_squared), scale = 0;
+    for (int i=10;i>=0;i--) scale=scale*radius_squared+r->radial[i];
+    double factors[] = {1+r->chromatic[0]+radius_squared*r->chromatic[1]+radius*r->chromatic[4],
+                        1, 1+r->chromatic[2]+radius_squared*r->chromatic[3]+radius*r->chromatic[5]};
+    struct xrt_uv_triplet value;
+    struct xrt_vec2 *channels[] = {&value.r,&value.g,&value.b};
+    double left=tan(fov->angle_left), right=tan(fov->angle_right), up=tan(fov->angle_up), down=tan(fov->angle_down);
+    for (unsigned i=0;i<3;i++) {
+        channels[i]->x=(float)((x*scale*factors[i]-left)/(right-left));
+        channels[i]->y=(float)((up-y*scale*factors[i])/(up-down));
+        if (!isfinite(channels[i]->x) || !isfinite(channels[i]->y)) return XRT_ERROR_INVALID_ARGUMENT;
+    }
+    *result=value;
+    return XRT_SUCCESS;
+}
 
 static bool optics_valid(const struct pico_hmd_config *c)
 {
@@ -31,9 +79,7 @@ static bool optics_valid(const struct pico_hmd_config *c)
             d->viewport.x_pixels > c->screen_width - d->viewport.w_pixels ||
             d->viewport.y_pixels > c->screen_height - d->viewport.h_pixels ||
             !d->display.w_pixels || d->display.w_pixels > 16384 ||
-            !d->display.h_pixels || d->display.h_pixels > 16384 ||
-            !v->distortion || v->grid_width < 2 || v->grid_width > 65 ||
-            v->grid_height < 2 || v->grid_height > 65) return false;
+            !d->display.h_pixels || d->display.h_pixels > 16384) return false;
         const float *r = d->rot.v;
         for (unsigned j = 0; j < 4; j++) if (!isfinite(r[j])) return false;
         if (fabsf(r[0]*r[0] + r[1]*r[1] - 1) > 0.0001f ||
@@ -51,6 +97,12 @@ static bool optics_valid(const struct pico_hmd_config *c)
             fabsf(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w - 1) > 0.0001f ||
             !isfinite(p.x) || !isfinite(p.y) || !isfinite(p.z) ||
             fabsf(p.x) > 0.2f || fabsf(p.y) > 0.2f || fabsf(p.z) > 0.2f) return false;
+        if (v->radial_enabled) {
+            if (v->distortion || v->grid_width || v->grid_height || !radial_valid(&v->radial, f)) return false;
+            continue;
+        }
+        if (!v->distortion || v->grid_width < 2 || v->grid_width > 65 ||
+            v->grid_height < 2 || v->grid_height > 65) return false;
         for (unsigned j = 0; j < v->grid_width * v->grid_height; j++) {
             const struct xrt_uv_triplet *t = &v->distortion[j];
             const struct xrt_vec2 channels[] = {t->r, t->g, t->b};
@@ -113,6 +165,8 @@ static xrt_result_t distortion(struct xrt_device *xdev, uint32_t view, float u, 
     if (!result || view >= 2 || !isfinite(u) || !isfinite(v) || u < 0 || u > 1 || v < 0 || v > 1)
         return XRT_ERROR_INVALID_ARGUMENT;
     const struct pico_hmd *hmd = (const struct pico_hmd *)xdev;
+    if (hmd->radial_enabled[view])
+        return radial_distortion(&hmd->radial[view], &hmd->parts.distortion.fov[view], u, v, result);
     float x = u * (hmd->width[view] - 1), y = v * (hmd->height[view] - 1);
     unsigned col = fminf(floorf(x), hmd->width[view] - 2), row = fminf(floorf(y), hmd->height[view] - 2);
     const struct xrt_uv_triplet *a = &hmd->grids[view][row * hmd->width[view] + col];
@@ -166,6 +220,8 @@ bool pico_monado_hmd_create(const struct pico_hmd_config *config, struct xrt_dev
         const struct pico_hmd_view *v = &config->views[i];
         hmd->parts.views[i] = v->display; hmd->parts.distortion.fov[i] = v->fov;
         hmd->eyes[i] = v->eye_pose; hmd->width[i] = v->grid_width; hmd->height[i] = v->grid_height;
+        hmd->radial_enabled[i] = v->radial_enabled; hmd->radial[i] = v->radial;
+        if (v->radial_enabled) continue;
         size_t size = v->grid_width * v->grid_height * sizeof(*v->distortion);
         hmd->grids[i] = malloc(size);
         if (!hmd->grids[i]) { destroy(xdev); return false; }

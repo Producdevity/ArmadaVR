@@ -65,9 +65,9 @@ static bool calibrate(void *data, struct ssc_clock *clock)
 
 static bool parse(const cJSON *json, struct pico_hmd_config *c)
 {
-    int64_t n;
+    int64_t n, version;
     const cJSON *serial = field(json, "serial"), *model = field(json, "device");
-    if (!integer(field(json, "schema_version"), 1, 1, &n) ||
+    if (!integer(field(json, "schema_version"), 1, 2, &version) ||
         !cJSON_IsString(model) || strcmp(model->valuestring, "PICOA7H10") ||
         !cJSON_IsString(serial) || !*serial->valuestring || strlen(serial->valuestring) >= XRT_DEVICE_NAME_LEN) return false;
     c->serial = strdup(serial->valuestring);
@@ -101,6 +101,19 @@ static bool parse(const cJSON *json, struct pico_hmd_config *c)
             !floats(field(item,"fov"),4,f) || !floats(field(item,"eye_pose"),7,p)) return false;
         v->fov = (struct xrt_fov){.angle_left=f[0],.angle_right=f[1],.angle_up=f[2],.angle_down=f[3]};
         v->eye_pose = (struct xrt_pose){.orientation={p[0],p[1],p[2],p[3]},.position={p[4],p[5],p[6]}};
+        if (version == 2) {
+            if (cJSON_GetObjectItemCaseSensitive(item,"grid_width") || cJSON_GetObjectItemCaseSensitive(item,"grid_height") ||
+                cJSON_GetObjectItemCaseSensitive(item,"distortion")) return false;
+            const cJSON *radial = field(item,"analytic_distortion"), *type = field(radial,"type");
+            if (!cJSON_IsString(type) || strcmp(type->valuestring,"pico-radial-2") ||
+                !floats(field(radial,"tangent_scale"),2,v->radial.tangent_scale) ||
+                !floats(field(radial,"tangent_offset"),2,v->radial.tangent_offset) ||
+                !floats(field(radial,"radial_coefficients"),11,v->radial.radial) ||
+                !floats(field(radial,"chromatic_coefficients"),6,v->radial.chromatic)) return false;
+            v->radial_enabled = true;
+            continue;
+        }
+        if (cJSON_GetObjectItemCaseSensitive(item,"analytic_distortion")) return false;
         if (!integer(field(item,"grid_width"),2,65,&n)) return false;
         v->grid_width = (unsigned)n;
         if (!integer(field(item,"grid_height"),2,65,&n)) return false;

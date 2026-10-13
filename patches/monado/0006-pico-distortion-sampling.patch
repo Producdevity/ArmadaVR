@@ -1,0 +1,22 @@
+--- a/src/xrt/auxiliary/render/render_interface.h
++++ b/src/xrt/auxiliary/render/render_interface.h
+@@ -87,7 +87,7 @@
+ #define RENDER_MAX_LAYER_RUNS_COUNT(RENDER_RESOURCES) (RENDER_RESOURCES->view_count)
+ 
+ //! Distortion image dimension in pixels
+-#define RENDER_DISTORTION_IMAGE_DIMENSIONS (128)
++#define RENDER_DISTORTION_IMAGE_DIMENSIONS (256)
+ 
+ //! How many distortion images we have, one for each channel (3 rgb) and per view.
+ #define RENDER_DISTORTION_IMAGES_SIZE (3 * XRT_MAX_VIEWS)
+--- a/src/xrt/auxiliary/util/u_distortion_mesh.c
++++ b/src/xrt/auxiliary/util/u_distortion_mesh.c
+@@ -22,7 +22,7 @@
+ #include <assert.h>
+ 
+ 
+-DEBUG_GET_ONCE_NUM_OPTION(mesh_size, "XRT_MESH_SIZE", 64)
++DEBUG_GET_ONCE_NUM_OPTION(mesh_size, "XRT_MESH_SIZE", 256)
+ 
+ 
+ typedef xrt_result_t (*func_calc)(

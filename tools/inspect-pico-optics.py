@@ -190,6 +190,14 @@ def project_tangents(tangents, fov):
     return result
 
 
+def analytic_parameters(lens, screen, eye):
+    origin = screen_tangents(lens, screen, eye, 0, 0)['input']
+    corner = screen_tangents(lens, screen, eye, 1, 1)['input']
+    return {'type': 'pico-radial-2', 'tangent_scale': [b - a for a, b in zip(origin, corner)],
+            'tangent_offset': origin, 'radial_coefficients': lens['distortion_coefficients'][:11],
+            'chromatic_coefficients': lens['chromatic_aberration'] + lens['distortion_coefficients'][18:20]}
+
+
 def screen_grid(lens, screen, width, height):
     if any(type(n) is not int or not 2 <= n <= 65 for n in (width, height)):
         raise ValueError('Grid dimensions must be integers from 2 to 65')
@@ -205,6 +213,7 @@ def screen_grid(lens, screen, width, height):
                 for color in inside:
                     inside[color] += all(0 <= value <= 1 for value in uv[color])
         views.append({'eye': eye, 'grid_width': width, 'grid_height': height,
+                      'analytic_distortion': analytic_parameters(lens, screen, eye),
                       'distortion': grid, 'in_texture_vertices': inside,
                       'within_driver_coordinate_limit': all(abs(v) <= 4 for point in grid for v in point)})
     return {'screen_model': screen, 'views': views,

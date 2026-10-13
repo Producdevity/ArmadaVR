@@ -152,6 +152,20 @@ class PicoScreenTests(unittest.TestCase):
                         for a, b in zip(uv[channel], expected):
                             self.assertAlmostEqual(a, b)
 
+    def test_analytic_affine_matches_geometry_without_grid_interpolation(self):
+        self.screen['optical_offsets_mm'] = [.2, -.3, -.4, .1]
+        self.screen['horizontal_offset_m'] = .0005
+        for reverse in (0, 180):
+            self.screen['hwc_reverse'] = reverse
+            for eye in (0, 1):
+                model = OPT.analytic_parameters(self.lens, self.screen, eye)
+                self.assertEqual(model['radial_coefficients'], self.lens['distortion_coefficients'][:11])
+                self.assertEqual(model['chromatic_coefficients'], self.lens['chromatic_aberration'] + self.lens['distortion_coefficients'][18:20])
+                for u, v in [(0, 0), (.17, .68), (1, 1)]:
+                    expected = OPT.screen_tangents(self.lens, self.screen, eye, u, v)['input']
+                    for i, coordinate in enumerate((u, v)):
+                        self.assertAlmostEqual(model['tangent_offset'][i] + coordinate * model['tangent_scale'][i], expected[i])
+
     def test_physical_offsets_aspect_and_distinct_eye_fovs(self):
         self.screen.update(lens_separation_m=.084, horizontal_offset_m=.0005,
                            optical_offsets_mm=[.2, -.3, -.4, .1], height_pixels=800)

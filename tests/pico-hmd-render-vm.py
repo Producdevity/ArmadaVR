@@ -2,6 +2,7 @@
 """Exercise the packaged Pico HMD using synthetic calibration and QRTR data."""
 import base64
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,8 @@ import zlib
 if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux,dummy-virt' or
         'reframed.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
     raise SystemExit('This test requires the isolated SSC VM')
+
+analytic = os.environ.get('PICO_HMD_TEST_ANALYTIC') == '1'
 
 config = {'schema_version': 1, 'device': 'PICOA7H10', 'serial': 'synthetic-hmd',
           'screen': {'width': 512, 'height': 256, 'frame_interval_ns': 100000000},
@@ -84,6 +87,18 @@ try:
                 view['distortion'] = [[u * (2 if cycle >= 2 and eye == 0 else 1), v, u, v,
                                        u * (2 if cycle >= 2 and eye == 1 else 1), v]
                                       for v in (0, 1) for u in (0, 1)]
+            if analytic:
+                config['schema_version'] = 2
+                for eye, view in enumerate(config['views']):
+                    view.pop('grid_width', None); view.pop('grid_height', None); view.pop('distortion', None)
+                    left, right, up, down = map(math.tan, view['fov'])
+                    dx, dy = ((-.03, .05) if eye else (.04, -.06)) if cycle >= 2 else (0, 0)
+                    view['analytic_distortion'] = {
+                        'type': 'pico-radial-2', 'tangent_scale': [right-left, down-up],
+                        'tangent_offset': [left+dx, up+dy],
+                        'radial_coefficients': [1, .2 if cycle >= 2 else 0] + [0]*9,
+                        'chromatic_coefficients': [1 if cycle >= 2 and eye == 0 else 0, 0,
+                                                   1 if cycle >= 2 and eye == 1 else 0, 0, 0, 0]}
             Path('/synthetic-hmd.json').write_text(json.dumps(config))
             service = client = None
             with tempfile.TemporaryFile() as servicelog, tempfile.TemporaryFile() as clientlog:
@@ -126,17 +141,33 @@ try:
                                 matched = sampled = 0
                                 for y in range(16, 112):
                                     for x in range(eye * 128 + 16, eye * 128 + 112):
-                                        if cycle >= 2 and 60 <= x % 128 <= 68:
-                                            continue
                                         wanted = list(expected[eye])
-                                        if cycle >= 2 and x % 128 > 64:
-                                            wanted[0 if eye == 0 else 2] = 0
+                                        if analytic:
+                                            u, v = (x % 128 + .5) / 128, (y + .5) / 128
+                                            left, right, up, down = map(math.tan, config['views'][eye]['fov'])
+                                            dx, dy = ((-.03, .05) if eye else (.04, -.06)) if cycle >= 2 else (0, 0)
+                                            tx, ty = left + u*(right-left) + dx, up - v*(up-down) + dy
+                                            radial = 1 + (.2*(tx*tx+ty*ty) if cycle >= 2 else 0)
+                                            near_edge = False
+                                            for color in range(3):
+                                                factor = radial * (2 if cycle >= 2 and color == (2 if eye else 0) else 1)
+                                                su, sv = (tx*factor-left)/(right-left), (up-ty*factor)/(up-down)
+                                                near_edge |= min(abs(su), abs(1-su), abs(sv), abs(1-sv)) < .04
+                                                if not (0 <= su <= 1 and 0 <= sv <= 1):
+                                                    wanted[color] = 0
+                                            if near_edge:
+                                                continue
+                                        else:
+                                            if cycle >= 2 and 60 <= x % 128 <= 68:
+                                                continue
+                                            if cycle >= 2 and x % 128 > 64:
+                                                wanted[0 if eye == 0 else 2] = 0
                                         offset = y * stride + x * 4
                                         rgb = tuple(pixels[offset + c] for c in (2, 1, 0))
                                         matched += all(abs(a - b) <= 3 for a, b in zip(rgb, wanted))
                                         sampled += 1
                                 checks.append({'eye': eye, 'expected_rgb': expected[eye], 'matching_pixels': matched,
-                                               'sampled_pixels': sampled, 'passed': matched >= 0.95 * sampled})
+                                               'sampled_pixels': sampled, 'passed': sampled >= 4000 and matched >= 0.95 * sampled})
                             frames.append({'step': step, 'xwd': base64.b64encode(zlib.compress(raw)).decode(),
                                            'sha256': hashlib.sha256(raw).hexdigest(), 'pixel_checks': checks})
                             if all(check['passed'] for check in checks):
@@ -169,7 +200,7 @@ try:
                     clientlog.seek(0)
                     servicelog.seek(0)
                     mocklog.seek(0)
-                    report = {'mock': mocklog.read().decode(errors='replace')[-20000:], 'frames': frames, 'renderer': 'compute' if cycle % 2 else 'graphics', 'optics': 'rgb-crop' if cycle >= 2 else 'identity', 'cycle': cycle, 'client_exit': client.returncode if client else None,
+                    report = {'mock': mocklog.read().decode(errors='replace')[-20000:], 'frames': frames, 'renderer': 'compute' if cycle % 2 else 'graphics', 'optics': ('analytic-radial-rgb' if cycle >= 2 else 'analytic-identity') if analytic else ('rgb-crop' if cycle >= 2 else 'identity'), 'cycle': cycle, 'client_exit': client.returncode if client else None,
                               'service_exit': service.returncode if service else None,
                               'client': clientlog.read().decode(errors='replace'),
                               'service': servicelog.read().decode(errors='replace')}

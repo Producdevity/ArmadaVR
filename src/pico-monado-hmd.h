@@ -4,12 +4,19 @@
 #include "pico-head-session.h"
 #include <xrt/xrt_device.h>
 
+struct pico_hmd_radial {
+    float tangent_scale[2], tangent_offset[2];
+    float radial[11], chromatic[6];
+};
+
 struct pico_hmd_view {
     struct xrt_view display;
     struct xrt_fov fov;
     struct xrt_pose eye_pose;
     unsigned grid_width, grid_height;
     const struct xrt_uv_triplet *distortion;
+    bool radial_enabled;
+    struct pico_hmd_radial radial;
 };
 
 struct pico_hmd_config {
