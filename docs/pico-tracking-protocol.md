@@ -96,6 +96,47 @@ Inspection of the six selected registry files and preservation checks for all
 337 extracted files are recorded under `output/pico-calibration-20261012-v1/`.
 Unit coefficients and backups remain outside version control.
 
+## Native sensor inventory
+
+The Android names do not establish native SSC sensor IDs. The metadata collector
+queries the registry and then every SUID for one explicit data type, with default
+selection and subscription updates disabled. It requests attributes from each
+candidate without opening sensor streams or applying calibration. Supported
+queries are `accel`, `gyro`, `accel_cal`, `gyro_cal`, `ble_mcu` and `ndi_fpga`.
+
+Build in the existing offline ARM64 SSC compiler environment:
+
+```sh
+python3 -B tools/build-ssc-inventory.py --ssc-bundle VERIFIED_SSC_BUNDLE \
+  --output NEW_INVENTORY_BUILD
+```
+
+The builder verifies the current SSC bundle, extracts checksum-pinned source,
+applies the maintained patches and compiles a separate collector using the same
+QMI/QRTR dependencies. It does not change the SSC runtime or boot image.
+
+After a separately authorized and recoverable native Linux boot, with the Pico
+QRTR services explicitly enabled, `ssc-inventory-release --collect accel` emits
+one JSON document. The existing SSC dependency directory must be in the loader
+search path. Each sensor retains both 64-bit SUID halves and numbered typed
+attributes. Fixed64 attribute values use decimal strings to preserve precision;
+rates and nested arrays remain intact. An empty list means that the requested
+type was not advertised, not that the hardware is absent.
+
+The collector requires a Kona device tree and the exact `armada.pico=qrtr`
+token, or the separately guarded virtual test environment. It refuses duplicate
+or reserved SUIDs, malformed attributes and non-finite values. Each request has
+a three-second deadline; the complete process has a sixty-second deadline.
+It accepts a reply before its QMI acknowledgement but requires both before
+continuing. An incomplete query exits with an error and emits no inventory.
+It does not start a DSP, mount storage, select a sensor for tracking or configure
+the clock, rate, axes or bias. Save inventories with the private unit evidence.
+
+The mock DSP tests require all requests to be discovery or attribute queries;
+any stream command fails the test. Native sanitizer and VM results validate
+the collector and protocol handling only. Actual native SUIDs, attributes and
+their association with the head IMU remain unverified until physical capture.
+
 ## Native record processing
 
 `src/pico-imu.c` accepts stable copied direct-channel records with explicitly
