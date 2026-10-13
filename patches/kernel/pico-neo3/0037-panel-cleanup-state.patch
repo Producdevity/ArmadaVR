@@ -1,0 +1,274 @@
+Subject: drm/msm: retain regulator cleanup state across failed shutdowns
+
+Track owned enable references and pending load/voltage cleanup per rail.
+Preserve normal shutdown and failed-enable ordering, return cleanup errors,
+and finish pending cleanup before acquiring another set of references.
+
+---
+--- a/techpack/display/msm/dsi/dsi_pwr.c
++++ b/techpack/display/msm/dsi/dsi_pwr.c
+@@ -118,115 +118,114 @@
+ 	return rc;
+ }
+ 
+-/**
+- * dsi_pwr_enable_vregs() - enable/disable regulators
+- */
++static int dsi_pwr_cleanup_vregs(struct dsi_regulator_info *regs)
++{
++	int i, rc, first_error = 0;
++	struct dsi_vreg *vreg;
++	bool was_enabled;
++
++	for (i = regs->count - 1; i >= 0; i--) {
++		vreg = &regs->vregs[i];
++		was_enabled = vreg->enabled;
++		if (was_enabled && vreg->pre_off_sleep)
++			usleep_range(vreg->pre_off_sleep * 1000,
++				     vreg->pre_off_sleep * 1000 + 10);
++
++		if (!regs->rollback && (vreg->voltage_pending ||
++				       (vreg->enabled && vreg->off_min_voltage))) {
++			rc = vreg->off_min_voltage ?
++				regulator_set_voltage(vreg->vreg,
++					vreg->off_min_voltage, vreg->max_voltage) : 0;
++			if (!rc)
++				vreg->voltage_pending = false;
++			else {
++				vreg->voltage_pending = true;
++				if (!first_error)
++					first_error = rc;
++			}
++		}
++		if (vreg->load_pending) {
++			rc = regulator_set_load(vreg->vreg, vreg->disable_load);
++			if (rc >= 0)
++				vreg->load_pending = false;
++			else if (!first_error)
++				first_error = rc;
++		}
++		if (regs->rollback && vreg->voltage_pending) {
++			rc = regulator_set_voltage(vreg->vreg, 0,
++						   vreg->max_voltage);
++			if (!rc)
++				vreg->voltage_pending = false;
++			else if (!first_error)
++				first_error = rc;
++		}
++		if (vreg->enabled) {
++			rc = regulator_disable(vreg->vreg);
++			if (!rc)
++				vreg->enabled = false;
++			else if (!first_error)
++				first_error = rc;
++		}
++		if (was_enabled && vreg->post_off_sleep)
++			usleep_range(vreg->post_off_sleep * 1000,
++				     vreg->post_off_sleep * 1000 + 10);
++	}
++	regs->cleanup_pending = first_error != 0;
++	return first_error;
++}
++
+ static int dsi_pwr_enable_vregs(struct dsi_regulator_info *regs, bool enable)
+ {
+-	int rc = 0, i = 0;
++	int rc, i, cleanup_rc;
+ 	struct dsi_vreg *vreg;
+-	int num_of_v = 0;
+-	u32 pre_on_ms, post_on_ms;
+-	u32 pre_off_ms, post_off_ms;
+-
+-	if (enable) {
+-		for (i = 0; i < regs->count; i++) {
+-			vreg = &regs->vregs[i];
+-			pre_on_ms = vreg->pre_on_sleep;
+-			post_on_ms = vreg->post_on_sleep;
+-
+-			if (vreg->pre_on_sleep)
+-				usleep_range((pre_on_ms * 1000),
+-						(pre_on_ms * 1000) + 10);
+-
+-			rc = regulator_set_load(vreg->vreg,
+-						vreg->enable_load);
+-			if (rc < 0) {
+-				DSI_ERR("Setting optimum mode failed for %s\n",
+-				       vreg->vreg_name);
++
++	if (!enable) {
++		if (!regs->cleanup_pending)
++			regs->rollback = false;
++		return dsi_pwr_cleanup_vregs(regs);
++	}
++
++	if (regs->cleanup_pending) {
++		rc = dsi_pwr_cleanup_vregs(regs);
++		if (rc)
++			return rc;
++	}
++
++	regs->rollback = true;
++	for (i = 0; i < regs->count; i++) {
++		vreg = &regs->vregs[i];
++		if (vreg->pre_on_sleep)
++			usleep_range(vreg->pre_on_sleep * 1000,
++				     vreg->pre_on_sleep * 1000 + 10);
++
++		/* The regulator core stores the load even when its update fails. */
++		vreg->load_pending = true;
++		rc = regulator_set_load(vreg->vreg, vreg->enable_load);
++		if (rc < 0)
++			goto error;
++		if (regulator_count_voltages(vreg->vreg) > 0) {
++			vreg->voltage_pending = true;
++			rc = regulator_set_voltage(vreg->vreg,
++					   vreg->min_voltage, vreg->max_voltage);
++			if (rc)
+ 				goto error;
+-			}
+-			num_of_v = regulator_count_voltages(vreg->vreg);
+-			if (num_of_v > 0) {
+-				rc = regulator_set_voltage(vreg->vreg,
+-							   vreg->min_voltage,
+-							   vreg->max_voltage);
+-				if (rc) {
+-					DSI_ERR("Set voltage(%s) fail, rc=%d\n",
+-						 vreg->vreg_name, rc);
+-					goto error_disable_opt_mode;
+-				}
+-			}
+-
+-			rc = regulator_enable(vreg->vreg);
+-			if (rc) {
+-				DSI_ERR("enable failed for %s, rc=%d\n",
+-				       vreg->vreg_name, rc);
+-				goto error_disable_opt_mode;
+-			}
+-
+-			if (vreg->post_on_sleep)
+-				usleep_range((post_on_ms * 1000),
+-						(post_on_ms * 1000) + 10);
+-		}
+-	} else {
+-		for (i = (regs->count - 1); i >= 0; i--) {
+-			vreg = &regs->vregs[i];
+-			pre_off_ms = vreg->pre_off_sleep;
+-			post_off_ms = vreg->post_off_sleep;
+-
+-			if (pre_off_ms)
+-				usleep_range((pre_off_ms * 1000),
+-						(pre_off_ms * 1000) + 10);
+-
+-			if (regs->vregs[i].off_min_voltage)
+-				(void)regulator_set_voltage(regs->vregs[i].vreg,
+-						regs->vregs[i].off_min_voltage,
+-						regs->vregs[i].max_voltage);
+-
+-			(void)regulator_set_load(regs->vregs[i].vreg,
+-						regs->vregs[i].disable_load);
+-			(void)regulator_disable(regs->vregs[i].vreg);
+-
+-			if (post_off_ms)
+-				usleep_range((post_off_ms * 1000),
+-						(post_off_ms * 1000) + 10);
+-		}
+-	}
+-
++		}
++		rc = regulator_enable(vreg->vreg);
++		if (rc)
++			goto error;
++		vreg->enabled = true;
++		if (vreg->post_on_sleep)
++			usleep_range(vreg->post_on_sleep * 1000,
++				     vreg->post_on_sleep * 1000 + 10);
++	}
++	regs->rollback = false;
+ 	return 0;
+-error_disable_opt_mode:
+-	(void)regulator_set_load(regs->vregs[i].vreg,
+-				 regs->vregs[i].disable_load);
+-
+-	if (num_of_v > 0)
+-		(void)regulator_set_voltage(regs->vregs[i].vreg,
+-					    0, regs->vregs[i].max_voltage);
++
+ error:
+-	for (i--; i >= 0; i--) {
+-		vreg = &regs->vregs[i];
+-		pre_off_ms = vreg->pre_off_sleep;
+-		post_off_ms = vreg->post_off_sleep;
+-
+-		if (pre_off_ms)
+-			usleep_range((pre_off_ms * 1000),
+-					(pre_off_ms * 1000) + 10);
+-
+-		(void)regulator_set_load(regs->vregs[i].vreg,
+-					 regs->vregs[i].disable_load);
+-
+-		num_of_v = regulator_count_voltages(regs->vregs[i].vreg);
+-		if (num_of_v > 0)
+-			(void)regulator_set_voltage(regs->vregs[i].vreg,
+-					    0, regs->vregs[i].max_voltage);
+-
+-		(void)regulator_disable(regs->vregs[i].vreg);
+-
+-		if (post_off_ms)
+-			usleep_range((post_off_ms * 1000),
+-					(post_off_ms * 1000) + 10);
+-	}
+-
++	cleanup_rc = dsi_pwr_cleanup_vregs(regs);
++	if (cleanup_rc)
++		DSI_ERR("Regulator rollback remains incomplete, rc=%d\n",
++			cleanup_rc);
+ 	return rc;
+ }
+ 
+@@ -384,6 +383,8 @@
+ 		regs->refcount++;
+ 	} else {
+ 		if (regs->refcount == 0) {
++			if (regs->cleanup_pending)
++				return dsi_pwr_enable_vregs(regs, false);
+ 			DSI_ERR("Unbalanced regulator off:%s\n",
+ 					regs->vregs->vreg_name);
+ 		} else {
+--- a/techpack/display/msm/dsi/dsi_pwr.h
++++ b/techpack/display/msm/dsi/dsi_pwr.h
+@@ -26,6 +26,9 @@
+  * @post_on_sleep:   Sleep, in ms, after enabling the regulator.
+  * @pre_off_sleep:   Sleep, in ms, before disabling the regulator.
+  * @post_off_sleep:  Sleep, in ms, after disabling the regulator.
++ * @enabled:         Outstanding regulator_enable reference.
++ * @load_pending:    Load request still requires cleanup.
++ * @voltage_pending: Voltage request still requires cleanup.
+  */
+ struct dsi_vreg {
+ 	struct regulator *vreg;
+@@ -39,6 +42,9 @@
+ 	u32 post_on_sleep;
+ 	u32 pre_off_sleep;
+ 	u32 post_off_sleep;
++	bool enabled;
++	bool load_pending;
++	bool voltage_pending;
+ };
+ 
+ /**
+@@ -46,11 +52,15 @@
+  * @vregs:       Array of dsi_vreg structures.
+  * @count:       Number of vregs.
+  * @refcount:    Reference counting for enabling.
++ * @cleanup_pending: A failed cleanup must finish before another enable.
++ * @rollback:    Pending cleanup belongs to a failed enable sequence.
+  */
+ struct dsi_regulator_info {
+ 	struct dsi_vreg *vregs;
+ 	u32 count;
+ 	u32 refcount;
++	bool cleanup_pending;
++	bool rollback;
+ };
+ 
+ /**
