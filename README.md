@@ -17,7 +17,9 @@ virtual target for functional tests.
 | Area | Verified | Remaining |
 |---|---|---|
 | Quest kernel | ARM64 kernel, 272 modules and 14 device-tree artifacts compile; QEMU checks userspace interfaces and simulated thermal behavior | Exact-device boot and peripheral operation |
-| Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Missing board/driver support, full userspace, recovery and exact-device boot |
+| Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Physical driver operation, recovery and exact-device boot |
+| Pico userspace | Matched native root and unsigned boot containers assembled; QEMU root boots, starts user sessions, enforces service isolation and powers off without disk writes | Physical root transport, complete application stack and hardware startup |
+| Pico HMD | Calibrated Monado HMD integration; orientation, stereo geometry, both controllers and tracking-loss handling pass through OpenXR with synthetic SSC streams | Device calibration, panel output, controller poses and positional tracking |
 | Graphics | KGSL Turnip and native Monado builds; offline synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
 | SteamVR | Native Frame ARM64 presentation, cached Library navigation/scrolling with both virtual controllers, and Windows OpenXR on fresh native backends pass in QEMU; translated baseline retained | Complete reproducible image, compositor validation/timing, game and sustained runtime acceptance |
@@ -67,7 +69,7 @@ used by the recorded SteamVR tests.
 - [Turnip](docs/turnip.md), [Monado](docs/monado.md), and [DMA-buffer synchronization](docs/dma-buf-sync.md)
 - [SteamVR](docs/steamvr.md), [native ARM64 runtime](docs/steamvr-arm64.md), [Windows OpenXR](docs/windows-openxr.md), and [controller acceptance](docs/controller-tests.md)
 - [VR acceptance milestones](docs/vr-milestones.md), [Steam Frame components](docs/steam-frame.md), and [Android container checks](docs/android-containers.md)
-- [Pico firmware and boot access](docs/pico-firmware.md)
+- [Pico firmware and boot access](docs/pico-firmware.md), [HMD integration and calibration](docs/pico-hmd.md)
 
 Source revisions, archive hashes and build profiles are recorded under
 `profiles/`. Build tooling retains upstream license files. Firmware, calibration,
