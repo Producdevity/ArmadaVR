@@ -109,7 +109,24 @@ Analysis of the stock 5.8.4.0 HMD service establishes these contracts:
   clamping. It also adjusts lens separation for screen gap and permits a FOV
   override. The inspector preserves raw values and does not invent those inputs.
 
-The stock screen-to-texture equation, active configuration and physical alignment
-still need verification before generating the driver's RGB distortion grids.
-Camera calibration XML describes a separate camera system; its coefficients are
-not display-lens calibration.
+The saved ARM64 `libpxrcompositor.so` from stock `XRRuntime.apk` consumes the
+lens record. For equation type 2, slots 0–10 define
+`S(r²) = k0 + k1*r² + ... + k10*(r²)^10`. Given lens-relative coordinates
+`(x, y)`, green tangents are `(x*S, y*S)`. Red multiplies that pair by
+`1 + c0 + c1*r² + k18*r`; blue uses `1 + c2 + c3*r² + k19*r`.
+Here `r = sqrt(x²+y²)` and `c0`–`c3` are the four chromatic parameters.
+Slots 18 and 19 therefore carry additional chromatic terms.
+
+The inspector accepts repeated `--sample-tangent X Y` arguments to evaluate
+this equation. Samples are lens-relative tangents, not normalized texture UVs.
+The scalar radial implementation was compared with 26,637 executions of the
+saved stock ARM64 routine: both A7H10 profiles and each polynomial term in
+isolation. Maximum error, divided by `max(1, abs(stock_result))`, was below
+`2.8e-7`. The stock logger was stubbed in an isolated mapped copy; no Android
+service or device was started. RGB formulas follow the mesh-generator code and
+have separate analytical tests; they have not been compared with physical optics.
+
+The active configuration, screen geometry, IPD/property overrides, view
+rotations, texture mapping and physical alignment still need verification before
+generating the driver's physical RGB grids. Camera calibration XML describes a
+separate camera system; its coefficients are not display-lens calibration.

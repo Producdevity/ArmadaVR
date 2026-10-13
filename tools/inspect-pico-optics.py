@@ -77,6 +77,38 @@ def lens_parameters(data):
             'cylinder': cylinder}
 
 
+
+def radial_scale(coefficients, radius_squared):
+    if (len(coefficients) != 11 or not all(math.isfinite(c) for c in coefficients) or
+            not math.isfinite(radius_squared) or radius_squared < 0):
+        raise ValueError('Expected eleven finite coefficients and a nonnegative squared radius')
+    scale = 0.0
+    for coefficient in reversed(coefficients):
+        scale = scale * radius_squared + coefficient
+    if not math.isfinite(scale):
+        raise ValueError('Radial distortion overflow')
+    return scale
+
+
+def sample_tangents(lens, x, y):
+    if not math.isfinite(x) or not math.isfinite(y) or lens['equation_type'] != 2:
+        raise ValueError('Expected finite lens coordinates and equation type 2')
+    coefficients, chromatic = lens['distortion_coefficients'], lens['chromatic_aberration']
+    if (len(coefficients) != 20 or len(chromatic) != 4 or
+            not all(math.isfinite(c) for c in coefficients + chromatic)):
+        raise ValueError('Invalid stock lens record')
+    radius_squared = x * x + y * y
+    radius = math.sqrt(radius_squared)
+    scale = radial_scale(coefficients[:11], radius_squared)
+    red = scale * (1 + chromatic[0] + radius_squared * chromatic[1] + radius * coefficients[18])
+    blue = scale * (1 + chromatic[2] + radius_squared * chromatic[3] + radius * coefficients[19])
+    result = {'input': [x, y], 'red': [x * red, y * red], 'green': [x * scale, y * scale],
+              'blue': [x * blue, y * blue]}
+    if not all(math.isfinite(value) for channel in result.values() for value in channel):
+        raise ValueError('Chromatic distortion overflow')
+    return result
+
+
 def axis_offsets(data, model, ipd_state):
     if model not in ('neo3-pro', 'neo3-pro-eye') or ipd_state not in (1, 2, 3):
         raise ValueError('Explicit Neo3 model and IPD state required')
@@ -113,11 +145,14 @@ def inspect(config, config_sha256, offsets, offsets_sha256, model, ipd_state):
                       'axis_offsets': {'name': offsets.name, 'sha256': offsets_sha256}},
             'stock_lens': lens, 'axis_offsets': axes,
             'stock_axis_coefficient_indices': [14, 15, 16, 17],
+            'stock_equation': {'radial_coefficient_indices': list(range(11)),
+                               'red_radius_coefficient_index': 18, 'blue_radius_coefficient_index': 19,
+                               'sample_coordinates': 'lens-relative tangents, not texture UVs'},
             'configuration_selection_verified': False, 'runtime_usable': False,
             'calibration_applied': False,
             'remaining': ['Verify active product and glasses-holder configuration selection',
                           'Resolve IPD, screen-gap, FOV and per-axis property overrides',
-                          'Verify the stock equation and screen-to-texture coordinate mapping',
+                          'Verify screen-to-texture mapping, rotations and separate-eye overrides',
                           'Validate physical optical alignment at the selected IPD']}
 
 
@@ -129,11 +164,16 @@ def main():
     parser.add_argument('--offsets-sha256', required=True)
     parser.add_argument('--model', choices=('neo3-pro', 'neo3-pro-eye'), required=True)
     parser.add_argument('--ipd-state', type=int, choices=(1, 2, 3), required=True)
+    parser.add_argument('--sample-tangent', type=float, nargs=2, action='append', default=[],
+                        metavar=('X', 'Y'), help='Inspect an equation sample; does not apply screen/IPD transforms')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
         result = inspect(args.config, args.config_sha256, args.offsets, args.offsets_sha256,
                          args.model, args.ipd_state)
+        if len(args.sample_tangent) > 256:
+            raise ValueError('At most 256 tangent samples are allowed')
+        result['tangent_samples'] = [sample_tangents(result['stock_lens'], x, y) for x, y in args.sample_tangent]
         fd = os.open(args.output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as stream:
             json.dump(result, stream, indent=2)
