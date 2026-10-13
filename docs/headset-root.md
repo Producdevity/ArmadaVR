@@ -479,3 +479,28 @@ than the shared clone. Reconstructing the image from that archive, writing only
 differing 4 KiB blocks into a new parent clone, reproduced the full checksum and
 left the parent unchanged. The redundant archive was then removed. Receipts
 remain alongside the image; apparent file allocation is not exclusive disk use.
+
+## Pico development userspace
+
+`Containerfile.pico` builds the current native diagnostic applications and creates
+a locked `vr` development account on an ARM64 base containing the build
+prerequisites, `systemd-pam` and freshly built Qualcomm services. Select that base explicitly:
+
+```sh
+docker build --platform linux/arm64 --network none --pull=false -f Containerfile.pico \
+  --build-arg BASE_IMAGE=VERIFIED_QCOM_IMAGE -t localhost/reframed-vr:pico-base .
+```
+
+This is a native driver-development userspace. It does not add Steam, FEX, Proton
+or Lepton. Supply separately verified packages when assembling those later
+runtime layers. The root builder still rejects old project paths, installs the
+matching physical or QEMU module set and checks the complete native package
+closure. Neither the base nor the root starts the Pico HMD automatically; see
+[Pico HMD calibration and activation](pico-hmd.md).
+
+For a root without a packaged QEMU agent, `tools/test-pico-root.py --guest-agent
+ARM64_QEMU_AGENT` stages the supplied bounded ARM64 executable in guest RAM. The
+agent hash is recorded. Repeat `--guest-agent-library LIBRARY` for any extra
+agent dependencies; they are hash-recorded and loaded from the agent's private
+RAM directory. This leaves the image's package contents and runtime
+selection intact, and the regular root media remains read-only.

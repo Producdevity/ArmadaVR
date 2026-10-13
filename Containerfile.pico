@@ -1,0 +1,20 @@
+ARG BASE_IMAGE=localhost/reframed-vr:qcom-services
+FROM ${BASE_IMAGE}
+RUN test "$(uname -m)" = aarch64 \
+    && rpm -q systemd systemd-pam dracut e2fsprogs dbus-broker shadow-utils \
+       openxr-devel vulkan-headers gcc-c++ cmake ninja-build \
+    && test -x /usr/bin/qrtr-ns && test -x /usr/bin/pd-mapper
+COPY CMakeLists.txt /tmp/reframed-build/CMakeLists.txt
+COPY src /tmp/reframed-build/src
+RUN cmake -S /tmp/reframed-build -B /tmp/reframed-build/build -G Ninja \
+       -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /tmp/reframed-build/build --parallel 2 \
+    && cmake --install /tmp/reframed-build/build \
+    && rm -rf /tmp/reframed-build
+RUN useradd --create-home --uid 1000 --user-group --shell /bin/bash vr \
+    && mkdir -p /usr/share/reframed-vr \
+    && rpm -qa --qf '%{NAME} %{VERSION}-%{RELEASE} %{ARCH}\n' | sort \
+       > /usr/share/reframed-vr/package-versions.txt
+COPY tools/userspace-layout.py /tmp/userspace-layout.py
+RUN python3 -B /tmp/userspace-layout.py / && rm /tmp/userspace-layout.py
+CMD ["/sbin/init"]

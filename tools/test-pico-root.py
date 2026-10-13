@@ -3,6 +3,8 @@
 import argparse
 import base64
 import gzip
+import hashlib
+import re
 import importlib.util
 import json
 from pathlib import Path
@@ -174,6 +176,26 @@ def root_input(kernel, initramfs, directory):
     return hashes, report, expected, image, initrd_sha
 
 
+def guest_agent(path):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file() or not 64 <= path.stat().st_size <= 8 * 1024**2:
+        raise ValueError("Expected a bounded regular ARM64 guest agent")
+    data = path.read_bytes()
+    if data[:7] != b"\x7fELF\x02\x01\x01" or data[18:20] != b"\xb7\x00":
+        raise ValueError("Expected an ARM64 guest agent")
+    return data
+
+
+def agent_libraries(paths):
+    libraries = {}
+    for path in paths:
+        name = path.name
+        if not re.fullmatch(r"lib[A-Za-z0-9_+.-]+\.so(?:\.[0-9]+)*", name) or name in libraries:
+            raise ValueError("Guest agent libraries require unique shared-library basenames")
+        libraries[name] = guest_agent(path)
+    return libraries
+
+
 def cpio(entries):
     data = bytearray()
     for i, (name, mode, payload) in enumerate([*entries, ("TRAILER!!!", 0, b"")], 1):
@@ -207,6 +229,10 @@ def run(args):
     expected['enforcing_boot'] = args.enforcing_boot
     if shutil.disk_usage(output.parent).free < 1024**3:
         raise ValueError("Requires 1 GiB free for bounded test evidence")
+    agent = guest_agent(args.guest_agent) if args.guest_agent else None
+    libraries = agent_libraries(args.guest_agent_library)
+    if libraries and agent is None:
+        raise ValueError("Guest agent libraries require --guest-agent")
     output.mkdir()
     record = {"status": "started", "hardware_boot_verified": False, "hardware_recovery_verified": False,
               "kernel_sha256": hashes["Image"], "initramfs_sha256": initrd_sha,
@@ -216,8 +242,19 @@ def run(args):
     process = None
     started = time.monotonic()
     try:
-        files = [("pico-handoff", stat.S_IFREG | 0o755, HANDOFF.encode()),
-                 ("pico-agent.service", stat.S_IFREG | 0o644, AGENT_UNIT.encode()),
+        handoff, unit = HANDOFF, AGENT_UNIT
+        if agent is not None:
+            handoff += "mkdir -p /run/reframed-pico-test\ncp /pico-guest-agent /run/reframed-pico-test/qemu-ga\n"
+            unit = unit.replace("/usr/bin/qemu-ga", "/run/reframed-pico-test/qemu-ga")
+            record["guest_agent_sha256"] = hashlib.sha256(agent).hexdigest()
+            record["guest_agent_libraries"] = {name: hashlib.sha256(data).hexdigest() for name, data in libraries.items()}
+            if libraries:
+                handoff += "cp /pico-agent-lib-* /run/reframed-pico-test/\n"
+                for name in libraries:
+                    handoff += f"mv /run/reframed-pico-test/pico-agent-lib-{name} /run/reframed-pico-test/{name}\n"
+                unit += "Environment=LD_LIBRARY_PATH=/run/reframed-pico-test\n"
+        files = [("pico-handoff", stat.S_IFREG | 0o755, handoff.encode()),
+                 ("pico-agent.service", stat.S_IFREG | 0o644, unit.encode()),
                  ("pico-probe.py", stat.S_IFREG | 0o644, PROBE.encode()),
                  ("pico-expected.json", stat.S_IFREG | 0o644, json.dumps(expected).encode()),
                  ("etc/systemd/system/pico-handoff.service", stat.S_IFREG | 0o644, HANDOFF_UNIT.encode()),
@@ -225,6 +262,9 @@ def run(args):
                   b"/etc/systemd/system/pico-handoff.service")]
         for name, _, data in files[:4]:
             (output / name).write_bytes(data)
+        if agent is not None:
+            files.append(("pico-guest-agent", stat.S_IFREG | 0o755, agent))
+            files.extend(("pico-agent-lib-" + name, stat.S_IFREG | 0o644, data) for name, data in libraries.items())
         boot = output / "test-initramfs.img"
         boot.write_bytes((initramfs / "initramfs.img").read_bytes() + gzip.compress(cpio(files), mtime=0))
         record["test_initramfs_sha256"] = builder.digest(boot)
@@ -307,6 +347,9 @@ if __name__ == "__main__":
     parser.add_argument("rootfs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--qemu", default="qemu-system-aarch64")
+    parser.add_argument("--guest-agent", type=Path, help="ARM64 QEMU agent to stage in guest RAM when the root omits it")
+    parser.add_argument("--guest-agent-library", type=Path, action="append", default=[],
+                        help="Additional ARM64 agent library staged only in guest RAM; repeat as needed")
     parser.add_argument("--enforcing-boot", action="store_true", help="Use the physical candidate's SELinux boot flags and report actual policy state")
     try:
         run(parser.parse_args())

@@ -101,3 +101,36 @@ class PicoRootFixtureTests(unittest.TestCase):
 
     def test_guest_probe_is_valid_python(self):
         compile(pico.PROBE, "pico-probe.py", "exec")
+
+
+class GuestAgentTests(unittest.TestCase):
+    def test_native_regular_agent_and_refusals(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "agent"
+            data = bytearray(64)
+            data[:7] = b"\x7fELF\x02\x01\x01"
+            data[18:20] = b"\xb7\x00"
+            path.write_bytes(data)
+            self.assertEqual(pico.guest_agent(path), data)
+            link = Path(directory) / "link"
+            link.symlink_to(path)
+            with self.assertRaises(ValueError):
+                pico.guest_agent(link)
+            for payload in (b"short", b"not ELF" + bytes(57), data[:18] + b"\x3e\x00" + data[20:]):
+                path.write_bytes(payload)
+                with self.assertRaises(ValueError):
+                    pico.guest_agent(path)
+
+    def test_agent_library_names_are_bounded_and_unique(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "libnuma.so.1"
+            data = bytearray(64)
+            data[:7] = b"\x7fELF\x02\x01\x01"
+            data[18:20] = b"\xb7\x00"
+            path.write_bytes(data)
+            self.assertEqual(pico.agent_libraries([path]), {path.name: data})
+            with self.assertRaises(ValueError):
+                pico.agent_libraries([path, path])
+            for name in ("bad name.so", "libx.so;false", "qemu-ga", "libx.so.1\n"):
+                with self.assertRaises(ValueError):
+                    pico.agent_libraries([Path(directory) / name])
