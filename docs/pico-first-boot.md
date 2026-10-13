@@ -134,6 +134,24 @@ python3 -B tools/build-pico-diagnostic.py PHYSICAL_PICO_KERNEL_DIRECTORY \
   --boot-serial BOOT_SERIAL --output NEW_DIAGNOSTIC_DIRECTORY
 ```
 
+Assemble the unsigned Android boot container from that diagnostic and the
+authenticated full stock boot-partition backup:
+
+```sh
+python3 -B tools/assemble-pico-diagnostic.py STOCK_BOOT_BACKUP \
+  PHYSICAL_PICO_KERNEL_DIRECTORY NEW_DIAGNOSTIC_DIRECTORY \
+  --reference-sha256 RETAINED_STOCK_SHA256 --mkbootimg PINNED_AOSP_TOOL_DIRECTORY \
+  --output NEW_CONTAINER_DIRECTORY
+```
+
+The assembler requires the diagnostic's physical serial, current source and
+matching kernel receipt. It reconstructs the ramdisk to reject extra payloads
+or substitution of the virtual test ramdisk, verifies the stock payload
+roundtrip, and checks the new kernel/ramdisk/stock DTB sections after unpacking.
+The reference hash must come from independently retained authentication or
+backup evidence. The output remains unsigned, with boot/recovery and physical
+DTB compatibility explicitly unverified; this command never accesses a device.
+
 It configures the kernel's existing `gser` USB function, waits for the primary
 `a600000.dwc3` UDC, and verifies its device-tree compatible, register extent and
 USB core ID before binding. Stock firmware selects this controller for the
