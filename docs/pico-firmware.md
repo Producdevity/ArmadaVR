@@ -897,3 +897,35 @@ standalone VR system still needs the large display/tracking/controller port.
 Public unlock access alone does not establish that Pico reaches that milestone
 sooner. Estimate further implementation only after actual boot and sensor/display
 access establish which vendor components can run under Linux.
+
+## Sensor loader ownership
+
+Kernel patch `0035` serializes SLPI load, unload and restart requests. Repeated
+loads retain one subsystem reference; an unload cancels the intent of pending
+work. Removal closes the sysfs endpoint and drains the work item before
+releasing driver state. The work item is initialized before publication, and
+later probe failures remove the loader endpoint. Failed firmware acquisitions
+remain retryable and are never stored as owned handles.
+
+The exact-source regression reproduces 640 ownership/order failures in the
+previous driver and passes 4,747 cases after the fix, including concurrent
+load/stop/removal and all 4,095 kernel error-pointer values. macOS and ARM64
+Linux address/undefined-behavior sanitizer runs pass; the fixed lifecycle also
+passes ThreadSanitizer on macOS. Firmware acquisition is still asynchronous;
+acceptance of a sysfs load request does not establish successful DSP startup.
+
+Patch `0036` preserves the dynamic character-device lifetime established by
+`cdev_alloc`, allowing already open files to outlive driver removal. It also
+recognizes error-valued class results and preserves probe errors during
+cleanup. The source regression covers six failure stages and removal with
+zero through 128 open references: 143 defects before the fix, none after it.
+These tests model kernel reference ownership and do not execute DSP firmware.
+
+The rebuilt physical kernel configuration also passes an isolated QEMU test
+of the actual SSC platform driver: 64 unbind/rebind cycles, 512 open descriptors
+used and closed after removal, and 384 malformed-command refusals. The previous
+kernel accepts the first malformed request, confirming the negative control.
+The new kernel retains the expected virtual-board taint without additional
+warnings. All 38 module signatures and 2,715 import versions pass validation,
+and the existing FastRPC/ION VM regression still passes. These results do not
+establish physical SLPI startup, sensor timing, or recovery.

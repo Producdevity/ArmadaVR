@@ -1,0 +1,65 @@
+Subject: sensors: preserve SSC character-device references and probe errors
+
+Keep the dynamic cdev release installed by cdev_alloc so open files can
+outlive driver removal. Check the error-valued class result and return the
+original probe error after unwinding the published loader endpoint.
+
+---
+--- a/drivers/sensors/sensors_ssc.c
++++ b/drivers/sensors/sensors_ssc.c
+@@ -343,7 +343,8 @@
+ 	}
+ 
+ 	sns_ctl.dev_class = class_create(THIS_MODULE, CLASS_NAME);
+-	if (sns_ctl.dev_class == NULL) {
++	if (IS_ERR(sns_ctl.dev_class)) {
++		ret = PTR_ERR(sns_ctl.dev_class);
+ 		pr_err("%s: class_create fail.\n", __func__);
+ 		goto res_err;
+ 	}
+@@ -358,16 +359,18 @@
+ 				     sns_ctl.dev_num,
+ 				     &sns_ctl, DRV_NAME);
+ 	if (IS_ERR(sns_ctl.dev)) {
++		ret = PTR_ERR(sns_ctl.dev);
+ 		pr_err("%s: device_create fail.\n", __func__);
+ 		goto device_create_err;
+ 	}
+ 
+ 	sns_ctl.cdev = cdev_alloc();
+ 	if (sns_ctl.cdev == NULL) {
++		ret = -ENOMEM;
+ 		pr_err("%s: cdev_alloc fail.\n", __func__);
+ 		goto cdev_alloc_err;
+ 	}
+-	cdev_init(sns_ctl.cdev, &sensors_ssc_fops);
++	sns_ctl.cdev->ops = &sensors_ssc_fops;
+ 	sns_ctl.cdev->owner = THIS_MODULE;
+ 
+ 	ret = cdev_add(sns_ctl.cdev, sns_ctl.dev_num, 1);
+@@ -380,7 +383,8 @@
+ 	return 0;
+ 
+ cdev_add_err:
+-	kfree(sns_ctl.cdev);
++	kobject_put(&sns_ctl.cdev->kobj);
++	sns_ctl.cdev = NULL;
+ cdev_alloc_err:
+ 	device_destroy(sns_ctl.dev_class, sns_ctl.dev_num);
+ device_create_err:
+@@ -389,14 +393,13 @@
+ 	class_destroy(sns_ctl.dev_class);
+ res_err:
+ 	slpi_loader_remove(pdev);
+-	return -ENODEV;
++	return ret;
+ }
+ 
+ static int sensors_ssc_remove(struct platform_device *pdev)
+ {
+ 	slpi_loader_remove(pdev);
+ 	cdev_del(sns_ctl.cdev);
+-	kfree(sns_ctl.cdev);
+ 	sns_ctl.cdev = NULL;
+ 	device_destroy(sns_ctl.dev_class, sns_ctl.dev_num);
+ 	unregister_chrdev_region(sns_ctl.dev_num, 1);
