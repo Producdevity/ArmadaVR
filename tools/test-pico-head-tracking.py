@@ -24,6 +24,7 @@ def main():
     parser.add_argument('archive', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--ssc-bundle', type=Path)
+    parser.add_argument('--replay-capture', type=Path, help='Replay a saved stock log in sensor coordinates, without calibration')
     parser.add_argument('--cc', default='cc')
     parser.add_argument('--cxx', default='c++')
     parser.add_argument('--sanitizer', choices=('address,undefined', 'undefined', 'thread', 'none'), default='address,undefined')
@@ -78,6 +79,46 @@ def main():
             raise ValueError('Tracking tests did not complete')
         report['binary_sha256'] = digest(binary)
         print(log, end='')
+        if args.replay_capture:
+            spec = importlib.util.spec_from_file_location('pico_imu', ROOT / 'tools/pico-imu.py')
+            imu = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(imu)
+            capture = args.replay_capture.read_bytes().decode('utf-8')
+            analysis = imu.analyze(capture)
+            (output / 'capture-analysis.json').write_text(json.dumps(analysis, indent=2) + '\n')
+            samples = sorted([(e['sequence'], i, e) for i, kind in enumerate((35, 16))
+                              for e in analysis['samples'][kind]])
+            seen = [set(), set()]
+            pairs, expected = 0, 0
+            rows = []
+            for _, sensor, event in samples:
+                ticks = event['counter_ns']
+                seen[sensor].add(ticks)
+                if ticks in seen[1 - sensor]:
+                    pairs += 1
+                    if pairs > 1:
+                        expected = event['monotonic_ns']
+                rows.append(' '.join(map(str, [sensor, ticks, event['monotonic_ns'],
+                    analysis['mapping_uncertainty_ns'], *event['vector'], expected])))
+            replay_data = output / 'capture-events.txt'
+            replay_data.write_text('\n'.join(rows) + '\n')
+            replay_source = ROOT / 'tests/pico-head-replay.c'
+            replay_object, replay_binary = output / 'replay.o', output / 'pico-head-replay'
+            run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
+                 '-c', str(replay_source), '-o', str(replay_object)], 'replay-compile.log')
+            run([args.cxx, *sanitize, *objects[1:], str(replay_object), '-pthread', '-lm', collect,
+                 '-o', str(replay_binary)], 'replay-link.log')
+            run([str(replay_binary), str(replay_data)], 'replay-test.log',
+                env=dict(os.environ, ASAN_OPTIONS='detect_leaks=1', UBSAN_OPTIONS='halt_on_error=1'))
+            if 'PICO_HEAD_REPLAY_PASS samples=' + str(len(samples)) + ' ' not in (output / 'replay-test.log').read_text():
+                raise ValueError('Saved capture replay did not complete')
+            report['replay'] = {'capture_sha256': hashlib.sha256(capture.encode()).hexdigest(),
+                'source_sha256': digest(replay_source), 'analyzer_sha256': digest(ROOT / 'tools/pico-imu.py'),
+                'events_sha256': digest(replay_data), 'binary_sha256': digest(replay_binary),
+                'samples': len(samples), 'pairs': pairs, 'physical_tracking_verified': False,
+                'scope': 'Raw saved Android vectors; identity axes, unit scales 1, accuracy 3 only for numerical testing. '
+                         'No calibration or vendor auxiliary values applied. Monotonic replay arrival uses the latest capture time seen, '
+                         'not measured latency; counter nanoseconds are replay identifiers, not native SSC ticks.'}
         if args.ssc_bundle:
             spec = importlib.util.spec_from_file_location('ssc', ROOT / 'tools/ssc-artifact.py')
             ssc = importlib.util.module_from_spec(spec)

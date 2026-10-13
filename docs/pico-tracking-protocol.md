@@ -590,3 +590,18 @@ orientation and refusal paths with a synthetic DSP, including a single initial
 bias update and malformed gyro traffic. The fixture sends at 10 Hz and advances
 its synthetic counter accordingly; a requested 1,000 Hz rate is not a measured
 physical rate. These checks do not establish native headset tracking or boot.
+
+
+Add `--replay-capture SAVED_CAPTURE_LOG` to exercise a preserved stock recording.
+The existing parser validates its clock brackets, sequence and sample bounds.
+Replay preserves the sample order and capture timestamps, with a monotonic
+simulated arrival clock. Raw vectors use identity axes, unit scales of one and
+synthetic accuracy for numerical testing only; vendor auxiliary fields and
+calibration are not applied. The original capture is never changed.
+
+The preserved Pico recording passes replay of 3,891 samples and 1,945 exact
+sensor pairs under ASan/UBSan. It includes nine samples delivered behind a newer
+sample from the other stream. Every available orientation is finite and
+normalized at the expected paired capture time; expiry and disconnect clear
+validity. This is recorded-input coverage of the new provider, not a measurement
+of pose accuracy, real delivery latency or native SSC transport.
