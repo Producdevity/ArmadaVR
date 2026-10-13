@@ -37,7 +37,7 @@ def validate(directory):
     if identity.get('pico_sources') != {name: digest(ROOT / 'src' / name)
                                        for name in identity['profile']['pico_driver_sources']}:
         raise ValueError('Pico controller build sources changed')
-    for name in ('monado-display-tests.py', 'monado-display-tests.c'):
+    for name in ('monado-display-tests.py', 'monado-display-tests.c', 'monado-space-tests.c'):
         if identity['tests'][name] != digest(ROOT / 'tests' / name):
             raise ValueError('Monado regression tests changed since compilation')
     files, links = report['files_sha256'], report['symlinks']

@@ -1,0 +1,45 @@
+--- a/src/xrt/ipc/client/ipc_client_space_overseer.c
++++ b/src/xrt/ipc/client/ipc_client_space_overseer.c
+@@ -400,22 +400,26 @@
+ 	icspo->base.destroy = destroy;
+ 	icspo->ipc_c = ipc_c;
+ 
+-#define CREATE(NAME)                                                                                                   \
+-	do {                                                                                                           \
+-		if (NAME##_id == UINT32_MAX) {                                                                         \
+-			break;                                                                                         \
+-		}                                                                                                      \
+-		alloc_space_with_id(icspo, NAME##_id, &icspo->base.semantic.NAME);                                     \
+-	} while (false)
+-
+-	CREATE(root);
+-	CREATE(view);
+-	CREATE(local);
+-	CREATE(local_floor);
+-	CREATE(stage);
+-	CREATE(unbounded);
+-
+-#undef CREATE
++	const uint32_t ids[] = {root_id, view_id, local_id, local_floor_id, stage_id, unbounded_id};
++	struct xrt_space **spaces[] = {
++	    &icspo->base.semantic.root,        &icspo->base.semantic.view,  &icspo->base.semantic.local,
++	    &icspo->base.semantic.local_floor, &icspo->base.semantic.stage, &icspo->base.semantic.unbounded,
++	};
++	for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
++		if (ids[i] == UINT32_MAX) {
++			continue;
++		}
++		// Semantic roles may share a single server-owned space ID.
++		for (size_t j = 0; j < i; j++) {
++			if (ids[i] == ids[j]) {
++				xrt_space_reference(spaces[i], *spaces[j]);
++				break;
++			}
++		}
++		if (*spaces[i] == NULL) {
++			alloc_space_with_id(icspo, ids[i], spaces[i]);
++		}
++	}
+ 
+ 	return &icspo->base;
+ }

@@ -180,10 +180,35 @@ configuration is synthetic; there is no sensor stream or rendered frame. The
 report records commands, environment, bundle identities, log hashes and failures.
 It does not select a default runtime, enable a service or modify a root image.
 
-The October 13 Reframed builds in `output/pico-compositor-20261013-v1/` and
+The October 13 Reframed builds in `output/pico-compositor-20261013-v2/` and
 `output/pico-turnip-20261013-v1/` pass this combined check against
 `output/pico-head-tracking-20261013-v1/ssc-bundle/`. The compositor passes all 25
 upstream tests plus the two display-selection sanitizer suites. These packages
 use the current `/opt/reframed-vr` paths; the preserved pre-rename complete root
 images still need a coordinated rebuild. Real panel scanout and GPU execution
 under the custom Pico kernel remain unverified.
+
+
+The semantic-space ownership patch shares a client object when multiple roles
+refer to the same server ID. The original client allocated separate wrappers
+for those roles, causing repeated destroy requests during teardown. The
+regression exercises the actual client creation/destruction functions and
+Monado reference counting across 117,649 alias/absent-role combinations,
+including a borrowed space retained after overseer destruction. The original
+source produces 508,134 failed invariants; the patch produces none under
+ASan/UBSan and leaves no client allocations live.
+
+Rendering tests accept `XR_RUNTIME_JSON` to select a packaged runtime explicitly;
+without it they retain the distribution's default manifest path. This selection
+must match the `monado-service` selected through `PATH` and its library search
+path. Overwriting the supplied manifest previously made it possible to test the
+system client library against a different packaged service.
+
+
+The rebuilt client/service pair submits 599 stereo projection frames through
+Xvfb and lavapipe. Four captured states follow left/right press and release,
+and both virtual controller disconnect/reconnect transitions pass. The original
+build logs a duplicate-space IPC failure at client teardown; the patched build
+does not. The test retains unsupported virtual haptic-output diagnostics and
+makes no claim about physical haptics, Pico GPU rendering or headset scanout.
+Evidence is under `output/pico-head-tracking-20261013-v1/render-v2/`.

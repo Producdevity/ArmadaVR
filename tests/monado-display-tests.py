@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test the pinned compositor's actual display-selection code with Vulkan failures."""
+"""Test the pinned compositor's actual display selection and semantic-space ownership."""
 import argparse
 import hashlib
 import json
@@ -56,12 +56,38 @@ def run(source, output, baseline=False):
         if (result.returncode == 0) == baseline:
             raise RuntimeError('Unexpected ' + part + ' result: ' + str(result.returncode))
         results.append({'part': part, 'returncode': result.returncode, 'command': command})
+    path = source / 'src/xrt/ipc/client/ipc_client_space_overseer.c'
+    text = path.read_text()
+    structures = []
+    for name in ('ipc_client_space', 'ipc_client_space_overseer'):
+        match = re.search(r'struct ' + name + r'\n\{.*?\n\};', text, re.S)
+        if not match:
+            raise ValueError('Missing IPC space structure: ' + name)
+        structures.append(match.group())
+    names = ['ipc_client_space', 'ipc_client_space_overseer', 'space_destroy',
+             'alloc_space_with_id', 'destroy', 'ipc_client_space_overseer_create']
+    (output / 'space-under-test.h').write_text('\n'.join(structures) + '\n' +
+        '\n'.join(function(text, name) for name in names))
+    executable = output / 'monado-space-tests'
+    command = ['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+               '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+               '-I', str(output), '-isystem', str(source / 'src/xrt/include'),
+               str(Path(__file__).with_name('monado-space-tests.c')), '-o', str(executable)]
+    with (output / 'space-compile.log').open('wb') as log:
+        subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
+    with (output / 'space-test.log').open('wb') as log:
+        result = subprocess.run([str(executable.resolve())], stdout=log, stderr=subprocess.STDOUT, timeout=30)
+    if result.returncode != (1 if baseline else 0) or 'MONADO_SPACE_CASES=117649 ' not in (output / 'space-test.log').read_text():
+        raise RuntimeError('Unexpected semantic-space ownership result: ' + str(result.returncode))
+    results.append({'part': 'space', 'returncode': result.returncode, 'command': command})
     report = {'status': 'regressions-reproduced' if baseline else 'passed', 'results': results,
-              'scope': 'actual compositor functions with modeled Vulkan; no rendering or hardware timing',
+              'scope': 'actual compositor functions with modeled Vulkan and IPC, real space references; no rendering or hardware timing',
               'source_sha256': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [
                   source / 'src/xrt/auxiliary/vk/vk_enumerate.c',
                   source / 'src/xrt/compositor/main/comp_window_direct.c',
-                  source / 'src/xrt/compositor/main/comp_window_vk_display.c']}}
+                  source / 'src/xrt/compositor/main/comp_window_vk_display.c',
+                  source / 'src/xrt/ipc/client/ipc_client_space_overseer.c',
+                  source / 'src/xrt/include/xrt/xrt_space.h']}}
     (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
     print(report['status'])
 
