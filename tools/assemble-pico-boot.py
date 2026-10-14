@@ -80,6 +80,8 @@ def runtime_inputs(kernel, initrd, root, root_manifest_sha256):
         raise ValueError('Root, firmware or Pico startup inputs differ')
     contents = json.loads((root / 'contents.json').read_text())
     components = ('ssc', 'ssc_inventory', 'fastrpc', 'monado', 'turnip')
+    if 'basalt' in contents or 'basalt' in root_record:
+        components += ('basalt',)
     if any(contents.get(name) != root_record.get(name) for name in components):
         raise ValueError('Root component receipts disagree')
     profile = json.loads((root / 'root-profile.json').read_text())

@@ -108,6 +108,20 @@ class RuntimeAssemblyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'component receipts disagree'):
             self.checked()
 
+    def test_optional_tracking_backend_is_bound_and_must_match(self):
+        basalt = {'build_sha256': 'f' * 64}
+        (self.root / 'contents.json').write_text(json.dumps({'basalt': basalt}))
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'component receipts disagree'):
+            self.checked()
+        self.record['basalt'] = basalt
+        self.save()
+        self.assertEqual(self.checked()['components']['basalt'], basalt)
+        self.record['basalt'] = {'build_sha256': 'e' * 64}
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'component receipts disagree'):
+            self.checked()
+
     def test_actual_ext4_label_and_geometry_are_checked(self):
         path = self.root / 'rootfs.ext4'
         original = path.read_bytes()
