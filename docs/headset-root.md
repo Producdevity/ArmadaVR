@@ -525,3 +525,19 @@ shuts down normally with zero disk writes. The unsigned `boot-final` receipt bin
 the updated physical root; its kernel/initramfs bytes are unchanged. This remains
 native development userspace without calibrated HMD autostart or a verified
 physical external-root transport.
+
+
+The later October 14 allocation/PRIME fixes are packaged in
+`output/pico-gpu-lifetime-20261014-v1/{root,qemu-root}`. The physical root derives
+from the import/modifier root above; the virtual root derives from the verified
+USB-root build and retains its matching PCI/xHCI test kernel. Only Turnip, its
+build record and component receipts change. Both parents remain unchanged, and
+full filesystem/component readback passes.
+
+The new virtual root passes a fresh 28.143-second USB-storage boot with exact
+Turnip DSO loading, 40 matched modules, native package relocation checks, zero
+backing-disk writes and normal power-off. Its SELinux flag is set but no policy
+is loaded, so this is not SELinux policy acceptance. The new `boot/` receipt binds
+the physical root; the unsigned container bytes remain unchanged because its
+kernel and initramfs are unchanged. Hardware boot, physical USB transport,
+Adreno/SDE display operation and recovery remain unverified.

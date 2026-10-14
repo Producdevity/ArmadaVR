@@ -284,7 +284,7 @@ remain covered by the sanitizer suite. The original function fails the same
 real-DRM fixture. Both guests power off normally. This uses the retained Quest
 QEMU transport kernel, not the Pico kernel or a physical display.
 
-Current driver and image receipts are under
+The import/modifier driver and image receipts are under
 `output/pico-import-cleanup-20261014-v1/`: `turnip-final/`, `root-final/`,
 `qemu-root-final/` and `boot-final/`. Native loading, full root readback and a
 fresh read-only Pico root VM pass. The exact-mode Monado package is unchanged.
@@ -335,3 +335,11 @@ functions fail the same fixture. Both guests power down normally.
 The virtual framebuffers use XRGB8888; extra plane slots do not establish
 physical multi-plane format support. Adreno/SDE modifier compatibility, UBWC,
 GPU completion and physical scanout remain unverified.
+
+
+The combined allocation/PRIME build is
+`output/pico-gpu-lifetime-20261014-v1/turnip-display/`. Six KGSL sanitizer suites,
+both WSI suites and five Freedreno tests pass. Native loading alongside the
+matched Monado and SSC packages passes, and the [updated roots](headset-root.md)
+contain the same validated driver. Recovery originals were rehashed; the
+missing `misc` backup, cold recovery and stock restoration gates remain open.
