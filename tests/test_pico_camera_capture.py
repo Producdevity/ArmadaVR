@@ -35,6 +35,10 @@ class PicoCameraCaptureTests(unittest.TestCase):
                           ["pico-camera-control.c", "pico-camera-events.c", "pico-camera-isp.c",
                            "pico-camera-stream.c", "pico-camera-capture.c"])
 
+    def test_pipeline_lifecycle(self):
+        self.compile_test("pico-camera-pipeline", "PICO_CAMERA_PIPELINE_PASS",
+                          ["pico-camera-control.c", "pico-camera-events.c"])
+
     def test_buffer_ownership(self):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

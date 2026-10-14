@@ -1098,3 +1098,16 @@ the syscall reports failure. The retained CRM dispatch confirms that copy-back c
 fail after creation. Such handles are recovery information, not proof that an
 operation can be retried safely. Two copy-back fault cases run through the retained
 CRM dispatch; the other native transport tests cover the sync ABI.
+
+### Native camera stream ordering
+
+`pico-camera-pipeline` sequences already configured, explicitly supplied camera
+handles. It activates links, starts the IFEs, then the PHYs, then the sensors.
+Shutdown uses IFE, sensor, PHY order before deactivating links. These distinct
+orders match the retained b1977 CamX ordering tables and ascending list sort.
+The owner records attempted operations before submission, so cleanup includes a
+start that returned an error after changing state. It attempts all required stops
+and retains an uncertain owner on any failure; it never retries a failed stop.
+Successful stop ioctls do not establish DMA quiescence or permit automatic buffer
+release. Initialization packets, sensor pairing, synchronization, calibration and
+physical completion remain separate requirements.
