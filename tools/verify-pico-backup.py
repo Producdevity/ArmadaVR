@@ -113,14 +113,61 @@ def audit(directory, manifest_sha256, required):
             "not_backed_up": sorted(inventory.keys() - acquired.keys()), "inputs": evidence}
 
 
+def audit_replacements(directory, report, replacements):
+    covered = {item["name"]: item for item in report["covered_partitions"]}
+    allowed = {"abl", "ablbak", "boot", "bootbak", "dtbo", "dtbobak", "vbmeta", "vbmetabak"}
+    result, seen = [], set()
+    for name, filename, expected in replacements:
+        if name not in allowed or name in seen:
+            raise ValueError("Unsupported or repeated replacement partition: " + name)
+        if name not in covered:
+            raise ValueError("Replacement needs an explicitly required, verified original: " + name)
+        if not re.fullmatch(r"[0-9a-f]{64}", expected):
+            raise ValueError("Replacement requires an independently retained SHA-256")
+        original = covered[name]
+        data, actual = regular(Path(filename), original["bytes"], True)
+        if actual != {"bytes": original["bytes"], "sha256": expected}:
+            raise ValueError("Replacement must match its hash and the full partition size; no implicit padding")
+        old, old_record = regular(directory / original["file"], original["bytes"], True)
+        if old_record != {"bytes": original["bytes"], "sha256": original["sha256"]}:
+            raise ValueError("Original changed after backup verification: " + name)
+        sector = original["sector_size"]
+        ranges = []
+        for offset in range(0, len(data), sector):
+            if data[offset:offset + sector] == old[offset:offset + sector]:
+                continue
+            lba = original["first_lba"] + offset // sector
+            if ranges and ranges[-1]["last_lba"] + 1 == lba:
+                ranges[-1]["last_lba"] = lba
+                ranges[-1]["sectors"] += 1
+            else:
+                ranges.append({"first_lba": lba, "last_lba": lba, "sectors": 1})
+        result.append({"partition": name, "original": original,
+                       "replacement": {"file": str(Path(filename)), **actual},
+                       "changed_sector_ranges": ranges,
+                       "changed_sectors": sum(item["sectors"] for item in ranges),
+                       "identical_to_original": not ranges})
+        seen.add(name)
+    return {"scope": "offline full-partition replacement and original correspondence",
+            "replacements": result, "image_authentication_verified": False,
+            "rollback_acceptance_verified": False, "restore_verified": False,
+            "live_partition_contents_verified": False, "device_accessed": False,
+            "flash_ready": False}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--manifest-sha256", required=True)
     parser.add_argument("--require", action="append", required=True, metavar="PARTITION")
+    parser.add_argument("--replacement", action="append", nargs=3, default=[],
+                        metavar=("PARTITION", "IMAGE", "SHA256"),
+                        help="Audit an explicitly sized replacement against its required original; never writes storage")
     args = parser.parse_args()
     try:
         result = audit(args.directory, args.manifest_sha256, args.require)
+        if args.replacement:
+            result["replacement_audit"] = audit_replacements(args.directory, result, args.replacement)
     except (OSError, ValueError, KeyError, TypeError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(result, indent=2))

@@ -59,6 +59,20 @@ checked LUN, GUIDs, sector size, LBA range and byte offset. Missing entries have
 no backup path or content hash. This supports preparing a bounded acquisition
 without treating a known partition layout as an acquired backup.
 
+The same auditor accepts `--replacement PARTITION IMAGE SHA256` for an offline
+comparison against a required, verified original. It requires an exact full
+partition image and never guesses padding or a partial-write policy. The report
+binds the proposed bytes and restore original to the checked LUN, GUIDs and
+sector extent, and lists which sectors differ. Only ABL, boot, DTBO and vbmeta
+partitions and their named backups are supported; early boot firmware, GPTs,
+recovery and device/key state are excluded. A replacement of one member does
+not imply that its backup should also change.
+
+This is byte/layout correspondence, not image authentication, rollback
+acceptance or a restoration rehearsal. The report contains no flash commands
+and keeps those physical acceptance flags false. A raw candidate shorter than
+the partition is refused until its exact intended complete bytes are defined.
+
 The missing `misc` read is prepared privately in
 `output/pico-state-backup-20261013-v1/`, using the revalidated stock GPT extent.
 The compiled helper permits only UFS configuration, six geometry queries,

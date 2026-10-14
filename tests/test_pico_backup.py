@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import test_gpt
 
@@ -143,3 +144,100 @@ class PicoBackupTests(unittest.TestCase):
                 backup.audit(root, digest, ["boot"])
             with self.assertRaises(ValueError):
                 backup.regular(Path("/dev/null"), 4096)
+
+
+    def test_full_partition_replacement_tracks_sector_changes_and_restore_original(self):
+        for sector in (512, 4096):
+            with self.subTest(sector=sector), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                manifest = self.fixture(root, sector)
+                report = backup.audit(root, manifest, ["boot"])
+                original = report["covered_partitions"][0]
+                candidate = root / "candidate.bin"
+                data = bytearray((root / "boot.bin").read_bytes())
+                for index in (0, 1, 4, 19):
+                    data[index * sector + 7] ^= 1
+                candidate.write_bytes(data)
+                digest = hashlib.sha256(data).hexdigest()
+                result = backup.audit_replacements(root, report, [("boot", candidate, digest)])
+                entry = result["replacements"][0]
+                first = original["first_lba"]
+                self.assertEqual(entry["changed_sector_ranges"], [
+                    {"first_lba": first, "last_lba": first + 1, "sectors": 2},
+                    {"first_lba": first + 4, "last_lba": first + 4, "sectors": 1},
+                    {"first_lba": first + 19, "last_lba": first + 19, "sectors": 1}])
+                self.assertEqual(entry["changed_sectors"], 4)
+                self.assertEqual(entry["original"], original)
+                self.assertEqual(entry["replacement"]["sha256"], digest)
+                for key in ("device_accessed", "restore_verified", "flash_ready", "image_authentication_verified",
+                            "rollback_acceptance_verified", "live_partition_contents_verified"):
+                    self.assertIs(result[key], False)
+                self.assertEqual(backup.audit(root, manifest, ["boot"]), report)
+                same = backup.audit_replacements(root, report, [("boot", root / "boot.bin", original["sha256"])])
+                self.assertTrue(same["replacements"][0]["identical_to_original"])
+                self.assertEqual(same["replacements"][0]["changed_sector_ranges"], [])
+
+    def test_replacement_refuses_unbacked_unselected_protected_and_duplicate_targets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = self.fixture(root)
+            report = backup.audit(root, manifest, ["boot", "persist"])
+            sha = report["covered_partitions"][0]["sha256"]
+            candidate = ("boot", root / "boot.bin", sha)
+            for name in ("xbl", "xbl_config", "recovery", "persist", "devinfo", "misc", "userdata", "../boot", "abl"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    backup.audit_replacements(root, report, [(name, candidate[1], sha)])
+            with self.assertRaisesRegex(ValueError, "repeated"):
+                backup.audit_replacements(root, report, [candidate, candidate])
+            selected = backup.audit(root, manifest, ["persist"])
+            with self.assertRaisesRegex(ValueError, "explicitly required"):
+                backup.audit_replacements(root, selected, [candidate])
+
+    def test_replacement_refuses_wrong_hash_implicit_padding_symlink_and_changed_original(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = self.fixture(root)
+            report = backup.audit(root, manifest, ["boot"])
+            original = root / "boot.bin"
+            candidate = root / "candidate.bin"
+            data = original.read_bytes()
+            for payload in (data[:-1], data[:4096], data + b"x", b""):
+                candidate.write_bytes(payload)
+                with self.assertRaises(ValueError):
+                    backup.audit_replacements(root, report, [("boot", candidate, hashlib.sha256(payload).hexdigest())])
+            candidate.write_bytes(data)
+            sha = hashlib.sha256(data).hexdigest()
+            for bad in ("0" * 64, "invalid", sha.upper()):
+                with self.assertRaises(ValueError):
+                    backup.audit_replacements(root, report, [("boot", candidate, bad)])
+            link = root / "link"
+            link.symlink_to(candidate)
+            with self.assertRaises(OSError):
+                backup.audit_replacements(root, report, [("boot", link, sha)])
+            with self.assertRaises(ValueError):
+                backup.audit_replacements(root, report, [("boot", Path("/dev/null"), sha)])
+            original.write_bytes(b"x" + data[1:])
+            with self.assertRaisesRegex(ValueError, "Original changed"):
+                backup.audit_replacements(root, report, [("boot", candidate, sha)])
+
+    def test_replacement_hashes_the_same_bytes_it_compares(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = self.fixture(root)
+            report = backup.audit(root, manifest, ["boot"])
+            candidate = root / "candidate.bin"
+            data = (root / "boot.bin").read_bytes()
+            candidate.write_bytes(data)
+            sha = hashlib.sha256(data).hexdigest()
+            read = backup.regular
+            def replace_after_read(path, limit, contents=False):
+                result = read(path, limit, contents)
+                if path == candidate:
+                    candidate.write_bytes(b"z" * len(data))
+                return result
+            with patch.object(backup, "regular", side_effect=replace_after_read):
+                result = backup.audit_replacements(root, report, [("boot", candidate, sha)])
+            self.assertTrue(result["replacements"][0]["identical_to_original"])
+            self.assertEqual(result["replacements"][0]["replacement"]["sha256"], sha)
+            with self.assertRaises(ValueError):
+                backup.audit_replacements(root, report, [("boot", candidate, sha)])
