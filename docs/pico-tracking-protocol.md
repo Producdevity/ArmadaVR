@@ -716,3 +716,37 @@ pixel values matched on macOS and Linux ARM64; sanitizer checks also cover
 truncation, invalid dimensions, extra planes, timestamp overflow and skew
 boundaries. These checks do not establish camera capture, head exposure
 processing, calibration, SLAM accuracy or physical 6DoF tracking.
+
+### Monado SLAM input
+
+`pico-slam-input` copies accepted snapshots into reference-counted Monado
+`xrt_frame` objects. The caller supplies camera IDs, calibrated image dimensions,
+clock offset/error/expiry and calibrated IMU vectors. Camera callbacks can arrive
+in any order; a complete set is submitted in configured order only after IMU
+samples bracket its capture interval. At most one image per camera is pending.
+Images retain their original qtimer timestamp and frame number independently
+of their mapped presentation to the tracker.
+
+After checking skew, the adapter assigns the earliest mapped capture time to
+every image in the set. Basalt's VIT `push_frame` requires ordered camera indices
+and exactly matching timestamps; independently forwarding close timestamps
+would trigger its assertion. The stock Pico tracking service also contains an
+optional earliest-time normalization before its head-SLAM callback. This is a
+bounded synchronization policy, not evidence that physical camera timing matches.
+
+Truncated frames, wrong dimensions/IDs, non-head images, stale or future data,
+nonfinite IMU vectors, duplicate timestamps and older generations are rejected.
+Clock expiry/reversal and excessive per-stream gaps invalidate the generation.
+Stopping discards pending frames. References retained by a downstream sink stay
+valid after input destruction. The caller must serialize calls, keep sinks alive
+and reset or recreate the downstream estimator after a sensor restart.
+
+The adapter passes 39,118 checks on macOS and Linux ARM64 with ASan/UBSan,
+including 4,006 image deliveries, 2,007 IMU deliveries and 1,010 generations.
+The tests use the real pinned Monado interfaces and retaining test sinks, not a
+pose estimator. They do not enable physical cameras or advertise positional
+tracking. Run them with:
+
+```sh
+python3 -B tools/test-pico-slam-input.py PINNED_MONADO_ARCHIVE --output NEW_TEST_DIRECTORY
+```
