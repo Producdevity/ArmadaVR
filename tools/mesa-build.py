@@ -147,6 +147,19 @@ def build(profile, driver="lavapipe"):
                 "executable_sha256": digest(output / "kgsl-import-tests"),
             }
 
+            run([sys.executable, str(ROOT / "tests/kgsl-allocation-tests.py"),
+                 str(source / "src/freedreno/vulkan/tu_knl_kgsl.cc"), str(output)],
+                "kgsl-allocation-tests.log", timeout=120)
+            report["kgsl_allocation_tests"] = {
+                "status": "passed",
+                "scope": "actual allocation functions with modeled GPU ioctls and real CPU mappings",
+                "runner_sha256": digest(ROOT / "tests/kgsl-allocation-tests.py"),
+                "model_sha256": digest(ROOT / "tests/kgsl-allocation-tests.cpp"),
+                "helpers_sha256": digest(output / "kgsl-allocation-under-test.h"),
+                "uapi_sha256": digest(output / "msm_kgsl.h"),
+                "executable_sha256": digest(output / "kgsl-allocation-tests"),
+            }
+
             run([sys.executable, str(ROOT / "tests/mesa-display-format-tests.py"),
                  str(source / "src/vulkan/wsi/wsi_common_display.c"), str(output)],
                 "mesa-display-format-tests.log", timeout=120)

@@ -56,7 +56,7 @@ def validate(directory):
     icd = json.loads((directory / ICD).read_text())
     if icd['ICD']['library_path'] != PREFIX + '/lib64/' + LIBRARY or icd['ICD'].get('library_arch') != '64':
         raise ValueError('Unexpected Turnip ICD library path or architecture')
-    for suite in ('fence', 'wait', 'submit', 'display', 'import'):
+    for suite in ('fence', 'wait', 'submit', 'display', 'import', 'allocation'):
         result = report['kgsl_' + suite + '_tests']
         stem = 'kgsl-' + suite + '-tests'
         if (result.get('status') != 'passed' or result['runner_sha256'] != digest(ROOT / ('tests/' + stem + '.py')) or

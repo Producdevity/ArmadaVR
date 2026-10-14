@@ -290,3 +290,26 @@ Current driver and image receipts are under
 fresh read-only Pico root VM pass. The exact-mode Monado package is unchanged.
 Physical Adreno/SDE interoperability, panel/mux operation and recovery remain
 unverified; these images must not be treated as flash-ready.
+
+
+## Native allocation lifetime
+
+Patch 0009 separates cleanup of an unpublished allocation from destruction of a
+registered BO. A failed sparse binding or virtual-address query now releases the
+GPU object. A rejected capture/replay address releases the returned CPU mapping,
+and destroying a replayable sparse VMA releases its retained mapping. Mapping
+failures no longer remove an unregistered object from the dump list or emit a
+BO destruction event before its allocation event.
+
+The allocation suite executes the actual patched functions with the source's
+KGSL UAPI declarations, modeled GPU ioctls and real file-backed `mmap`/`munmap`.
+It covers ordinary, lazy, sparse and capture/replay allocations, fixed-address
+success and rejection, reference counts, owned descriptor closure, repeated
+allocation/query/binding/mapping failures, and failed release ioctls. All 6,144
+cases pass under ASan/UBSan; the preceding source fails 3,456 cases. When the
+kernel refuses a release, reclamation remains unproven; the original allocation
+error is still returned and no BO is published.
+
+The full builder requires this suite alongside the existing fence, wait,
+submission, display and import suites. These results establish userspace
+lifetime handling, not physical Adreno execution or display acceptance.
