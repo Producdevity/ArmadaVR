@@ -56,7 +56,7 @@ rd.shell=0 rd.emergency=poweroff rd.retry=15 rd.timeout=30
 These arguments are supplied by the boot container, not silently injected into
 an existing root filesystem. This first handoff does not use or decrypt Android
 userdata. The [offline root builder](headset-root.md) packages the matching modules,
-firmware and service unit. External storage still needs its actual Quest USB/UFS hardware path
+firmware and service unit. External storage still needs its actual Quest or Pico USB hardware path
 tested. The module inventory includes UFS, USB and their dependencies; inclusion
 does not prove driver operation or availability of the required firmware.
 
@@ -81,6 +81,22 @@ The test appends a logging-only initramfs fragment to route dracut's output
 directly to the serial console. Forced power-off can otherwise discard queued
 journal messages, hiding the absent-root diagnostic. Both the supplied and
 test initramfs hashes are recorded; the supplied artifact remains unchanged.
+
+Use `--transport usb-storage` to attach the root through QEMU's xHCI controller
+and USB mass-storage device. Pico's QEMU configuration enables the generic PCI
+host needed by that controller; the physical configuration is unchanged. This
+exercises the existing xHCI, USB-storage, SCSI and ext4 drivers, not Pico's DWC3
+controller, PHY, Type-C roles or port power. UAS is not enabled in this kernel;
+the tested transport is USB bulk-only storage.
+
+Both transports test whole-disk and MBR-partitioned roots, a wrong label and an
+absent disk. USB also tests attachment after the initramfs starts waiting for
+its root. The guest resolves the label's block-device identity and checks the
+whole disk's write counter, including when the root is a partition. USB cases
+must have a USB ancestor in sysfs. The OverlayFS lower mount may become hidden
+after switch-root; the receipt reports its visibility rather than claiming an
+unobservable mount check passed. Writable test disks still require zero writes
+and unchanged complete-image hashes.
 
 `--vendor-ramdisk PATH` additionally tests the vendor-prefix/generic-initramfs
 concatenation used by the Android v4 container contract. This exercises Linux's
