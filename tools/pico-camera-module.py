@@ -181,6 +181,19 @@ class Module:
                            'mipi_flags': flags})
         return result
 
+    def resolution_information(self, symbol):
+        if symbol.version != 0 or symbol.mode != 0xffffffff or len(symbol.data) % 32:
+            raise ValueError('Invalid resolution-information table')
+        result = []
+        for offset in range(0, len(symbol.data), 32):
+            flag, version_id, count, mode_id = (integer(symbol.data, offset + i * 8) for i in range(4))
+            version = self.array(version_id, 'sensorVersion', int(flag != 0))
+            self.reference(mode_id, 'resolutionData', count, 288)
+            result.append({'index': offset // 32, 'sensor_version_flag': flag,
+                           'sensor_version': version[0] if version else None,
+                           'modes': {'symbol': mode_id, 'count': count}})
+        return result
+
     def inspect(self):
         drivers = [s for s in self.symbols.values() if s.name == 'sensorDriverData']
         if len(drivers) != 1 or drivers[0].version != 1 or len(drivers[0].data) != 808:
@@ -189,6 +202,10 @@ class Module:
         name = self.sensor_name(integer(driver, 24), integer(driver, 32))
         registers = {str(s.identifier): self.registers(s) for s in self.symbols.values() if s.name == 'regSetting'}
         resolutions = {str(s.identifier): self.resolutions(s) for s in self.symbols.values() if s.name == 'resolutionData'}
+        resolution_information = {str(s.identifier): self.resolution_information(s)
+                                  for s in self.symbols.values() if s.name == 'resolutionInfo'}
+        resolution_count, resolution_symbol = integer(driver, 352), integer(driver, 360)
+        self.reference(resolution_symbol, 'resolutionInfo', resolution_count, 32)
         initialization = {}
         for symbol in self.symbols.values():
             if symbol.name != 'initSettings':
@@ -221,6 +238,8 @@ class Module:
                 'slave_address': integer(driver, 40), 'sensor_id_register': integer(driver, 64),
                 'sensor_id': integer(driver, 72), 'sensor_id_mask': integer(driver, 80),
                 'symbols': len(self.symbols), 'resolutions': resolutions,
+                'resolution_information': resolution_information,
+                'resolution_information_reference': {'symbol': resolution_symbol, 'count': resolution_count},
                 'stream_settings': stream_settings,
                 'initialization_reference': {'symbol': init_symbol, 'count': init_count},
                 'initialization': initialization, 'register_tables': registers}

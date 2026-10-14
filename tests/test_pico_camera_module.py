@@ -20,7 +20,7 @@ def fixture():
     driver = bytearray(808)
     for offset, value in ((24, 8), (32, 2), (40, 0xe0), (64, 0x300a), (72, 0x1234), (80, 0xffff), (48, 2), (56, 2), (88, 1),
                           (96, 2), (104, 12), (112, 1), (120, 13), (720, 1), (728, 20),
-                          (488, 1), (496, 5), (504, 1), (512, 5), (560, 26), (576, 27), (584, 1), (592, 11)):
+                          (488, 1), (496, 5), (504, 1), (512, 5), (560, 26), (576, 27), (584, 1), (592, 11), (352, 1), (360, 28)):
         struct.pack_into('<Q', driver, offset, value)
     resolution = bytearray(288)
     values = {1: 1, 2: 4, 3: 800, 4: 500, 7: 24000000, 8: 1, 9: 1,
@@ -59,6 +59,8 @@ def fixture():
         [24, 'frameLengthLines', 0, 0xffffffff, b''],
         [26, 'masterSettings', 0, 0xffffffff, b''],
         [27, 'slaveSettings', 0, 0xffffffff, b''],
+        [28, 'resolutionInfo', 0, 0xffffffff, words(1, 29, 1, 3)],
+        [29, 'sensorVersion', 0, 0xffffffff, words(7)],
     ]
 
 
@@ -90,6 +92,43 @@ class CameraModuleTests(unittest.TestCase):
         self.assertEqual(result['initialization']['11'], [{'selector': 0, 'settings': {'symbol': 5, 'count': 1}}])
         self.assertEqual(result['register_tables']['5'], [{'slave_address': None, 'address': 0x100,
             'values': [128], 'address_type': 2, 'data_type': 1, 'operation': 0, 'delay_us': 1000}])
+
+    def test_resolution_information_reference_and_optional_version(self):
+        for flag in (0, 1, 2, 0xffffffff):
+            symbols = fixture()
+            symbols[-2][4] = words(flag, 29, 1, 3)
+            symbols[-1][4] = words(7) if flag else b''
+            result = camera.Module(encode(symbols)).inspect()
+            self.assertEqual(result['resolution_information_reference'], {'symbol': 28, 'count': 1})
+            self.assertEqual(result['resolution_information']['28'], [
+                {'index': 0, 'sensor_version_flag': flag, 'sensor_version': 7 if flag else None,
+                 'modes': {'symbol': 3, 'count': 1}}])
+        symbols = fixture()
+        struct.pack_into('<Q', symbols[0][4], 352, 2)
+        symbols[-2][4] += words(0, 30, 0, 31)
+        symbols += [[30, 'sensorVersion', 0, 0xffffffff, b''],
+                    [31, 'resolutionData', 0, 0xffffffff, b'']]
+        result = camera.Module(encode(symbols)).inspect()
+        self.assertEqual(result['resolution_information']['28'][1], {
+            'index': 1, 'sensor_version_flag': 0, 'sensor_version': None,
+            'modes': {'symbol': 31, 'count': 0}})
+        self.assertEqual(result['resolution_information_reference']['count'], 2)
+
+    def test_invalid_resolution_information_references(self):
+        for field, offset, value in ((0, 352, 2), (0, 360, 3), (-2, 8, 3),
+                                     (-2, 0, 0), (-2, 16, 2), (-2, 24, 5), (-2, 24, 99999)):
+            symbols = fixture()
+            data = bytearray(symbols[field][4])
+            struct.pack_into('<Q', data, offset, value)
+            symbols[field][4] = data
+            with self.subTest(field=field, offset=offset), self.assertRaises(ValueError):
+                camera.Module(encode(symbols)).inspect()
+        for version, mode, data in ((1, 0xffffffff, words(1, 29, 1, 3)),
+                                    (0, 0, words(1, 29, 1, 3)), (0, 0xffffffff, words(1, 29, 1))):
+            symbols = fixture()
+            symbols[-2][2:] = [version, mode, data]
+            with self.subTest(version=version, mode=mode), self.assertRaises(ValueError):
+                camera.Module(encode(symbols)).inspect()
 
     def test_color_filter_pattern_is_not_csi_data_type(self):
         for color, pattern in enumerate((2, 3, 1, 0, 0, 6, None, None)):

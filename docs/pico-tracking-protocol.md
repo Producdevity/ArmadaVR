@@ -823,6 +823,14 @@ a separate synthetic module exercises nonempty optional synchronization tables.
 The eight stock modules contain no separate optional master/slave tables. That
 absence does not establish whether synchronization is embedded in other writes.
 
+Resolution groups are resolved through the driver's `resolutionInfo` reference,
+including their sensor-version field and exact mode-table reference. The raw
+version-presence value is retained: stock OV6211 modules use `2`, which the
+original parser treats as present. It is not an array length. Missing versions
+stay absent; no first-group or first-mode choice is inferred. All eight retained
+modules and six synthetic cases (absent/nonzero versions, multiple groups and
+an empty group list) match the original ARM64 loader.
+
 The decoded fields match the original ARM64 CamX parsers for eight retained
 modules containing 32 modes and 7,217 register settings. The comparison also
 covers initialization selectors and register counts. The saved firmware includes
