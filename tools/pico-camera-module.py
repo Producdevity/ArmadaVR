@@ -148,6 +148,12 @@ class Module:
         data = self.reference(identifier, 'regSetting', count, 80)
         return {'symbol': identifier, 'count': len(data) // 80}
 
+    def optional_settings(self, present, identifier, name):
+        if present not in (0, 1):
+            raise ValueError('Invalid optional ' + name)
+        data = self.reference(identifier, name, present, 16)
+        return self.settings(integer(data, 0), integer(data, 8)) if present else None
+
     def resolutions(self, symbol):
         if symbol.version != 0 or symbol.mode != 0xffffffff or len(symbol.data) % 288:
             raise ValueError('Invalid resolution table')
@@ -191,6 +197,14 @@ class Module:
                 {'selector': integer(symbol.data, i),
                  'settings': self.settings(integer(symbol.data, i + 8), integer(symbol.data, i + 16))}
                 for i in range(0, len(symbol.data), 24)]
+        stream_settings = {
+            'stream_on': self.settings(integer(driver, 488), integer(driver, 496)),
+            'stream_off': self.settings(integer(driver, 504), integer(driver, 512)),
+            'master': self.optional_settings(integer(driver, 552), integer(driver, 560), 'masterSettings'),
+            'slave': self.optional_settings(integer(driver, 568), integer(driver, 576), 'slaveSettings'),
+        }
+        init_count, init_symbol = integer(driver, 584), integer(driver, 592)
+        self.reference(init_symbol, 'initSettings', init_count, 24)
         delays = self.delays(integer(driver, 720), integer(driver, 728))
         selected = next((row for row in reversed(delays) if row['type'] == 0),
                         delays[0] if delays else None)
@@ -205,6 +219,8 @@ class Module:
                 'slave_address': integer(driver, 40), 'sensor_id_register': integer(driver, 64),
                 'sensor_id': integer(driver, 72), 'sensor_id_mask': integer(driver, 80),
                 'symbols': len(self.symbols), 'resolutions': resolutions,
+                'stream_settings': stream_settings,
+                'initialization_reference': {'symbol': init_symbol, 'count': init_count},
                 'initialization': initialization, 'register_tables': registers}
 
 

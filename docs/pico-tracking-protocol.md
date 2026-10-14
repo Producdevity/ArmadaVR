@@ -815,6 +815,14 @@ slave addresses, value arrays and delays are preserved. The decoder handles this
 subset of the b1977 schema; its output is an inventory, not a complete executable
 camera configuration. It does not open a device or distribute the firmware data.
 
+Stream-on and stream-off settings are named references rather than unclassified
+register tables. Optional master/slave settings retain their presence state, and
+the driver-selected initialization table is validated separately from other
+initialization symbols. All eight saved modules match the actual ARM64 parser;
+a separate synthetic module exercises nonempty optional synchronization tables.
+The eight stock modules contain no separate optional master/slave tables. That
+absence does not establish whether synchronization is embedded in other writes.
+
 The decoded fields match the original ARM64 CamX parsers for eight retained
 modules containing 32 modes and 7,217 register settings. The comparison also
 covers initialization selectors and register counts. The saved firmware includes

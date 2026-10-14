@@ -19,7 +19,8 @@ def words(*values):
 def fixture():
     driver = bytearray(808)
     for offset, value in ((24, 8), (32, 2), (40, 0xe0), (64, 0x300a), (72, 0x1234), (80, 0xffff), (48, 2), (56, 2), (88, 1),
-                          (96, 2), (104, 12), (112, 1), (120, 13), (720, 1), (728, 20)):
+                          (96, 2), (104, 12), (112, 1), (120, 13), (720, 1), (728, 20),
+                          (488, 1), (496, 5), (504, 1), (512, 5), (560, 26), (576, 27), (584, 1), (592, 11)):
         struct.pack_into('<Q', driver, offset, value)
     resolution = bytearray(288)
     values = {1: 1, 2: 4, 3: 800, 4: 500, 7: 24000000, 8: 1, 9: 1,
@@ -56,6 +57,8 @@ def fixture():
         [22, 'linecount', 0, 0xffffffff, words(0)],
         [23, 'gain', 0, 0xffffffff, words(0)],
         [24, 'frameLengthLines', 0, 0xffffffff, b''],
+        [26, 'masterSettings', 0, 0xffffffff, b''],
+        [27, 'slaveSettings', 0, 0xffffffff, b''],
     ]
 
 
@@ -87,6 +90,28 @@ class CameraModuleTests(unittest.TestCase):
         self.assertEqual(result['initialization']['11'], [{'selector': 0, 'settings': {'symbol': 5, 'count': 1}}])
         self.assertEqual(result['register_tables']['5'], [{'slave_address': None, 'address': 0x100,
             'values': [128], 'address_type': 2, 'data_type': 1, 'operation': 0, 'delay_us': 1000}])
+
+    def test_stream_tables_and_initialization_reference(self):
+        symbols = fixture()
+        result = camera.Module(encode(symbols)).inspect()
+        self.assertEqual(result['stream_settings'], {
+            'stream_on': {'symbol': 5, 'count': 1}, 'stream_off': {'symbol': 5, 'count': 1},
+            'master': None, 'slave': None})
+        self.assertEqual(result['initialization_reference'], {'symbol': 11, 'count': 1})
+        for offset, symbol_index in ((552, 24), (568, 25)):
+            struct.pack_into('<Q', symbols[0][4], offset, 1)
+            symbols[symbol_index][4] = words(1, 5)
+        result = camera.Module(encode(symbols)).inspect()
+        self.assertEqual(result['stream_settings']['master'], {'symbol': 5, 'count': 1})
+        self.assertEqual(result['stream_settings']['slave'], {'symbol': 5, 'count': 1})
+
+    def test_invalid_stream_and_initialization_references(self):
+        for offset, value in ((488, 2), (496, 4), (504, 0), (512, 99999),
+                              (552, 2), (560, 27), (568, 1), (584, 2), (592, 5)):
+            symbols = fixture()
+            struct.pack_into('<Q', symbols[0][4], offset, value)
+            with self.subTest(offset=offset), self.assertRaises(ValueError):
+                camera.Module(encode(symbols)).inspect()
 
     def test_power_and_csi_configuration(self):
         result = camera.Module(encode(fixture())).inspect()
