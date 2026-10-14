@@ -73,6 +73,15 @@ acceptance or a restoration rehearsal. The report contains no flash commands
 and keeps those physical acceptance flags false. A raw candidate shorter than
 the partition is refused until its exact intended complete bytes are defined.
 
+For the retained Pro Eye originals, an offline candidate copies the 37-sector
+older ABL payload and retains the original bytes through the end of the 1 MiB
+partition. The comparison finds 36 differing sectors; ABL backup is untouched.
+This defines one candidate's complete bytes, not the accepted device write
+policy. The raw shorter payload is refused by the auditor. The candidate and
+comparison are private in `output/pico-display-recovery-20261014-v1/`; missing
+`misc`, secure-key reset effects, rollback acceptance and physical restoration
+remain unresolved. No bootloader transition has been performed.
+
 The missing `misc` read is prepared privately in
 `output/pico-state-backup-20261013-v1/`, using the revalidated stock GPT extent.
 The compiled helper permits only UFS configuration, six geometry queries,

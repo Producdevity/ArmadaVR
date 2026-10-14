@@ -229,7 +229,7 @@ compositor function under ASan/UBSan. Separate framebuffer tests exercise the
 installed graphics and compute renderers with the Pico HMD and controllers.
 
 
-The current compositor is `output/pico-hmd-display-20261013-v1/monado-v2/`.
+The current compositor is `output/pico-display-recovery-20261014-v1/monado/`.
 The physical and QEMU roots in that evidence directory replace Monado in
 copy-on-write clones of the previously verified native images. Full filesystem,
 module, firmware and component readback checks pass; other component receipts
@@ -238,3 +238,18 @@ package bytes and native loader relocations, starts its user session and shuts
 down normally with zero disk writes. The unsigned boot container is bound to
 the updated physical root receipt. This native development image still omits
 Steam, FEX, Proton and Lepton, and has no calibrated HMD autostart.
+
+
+The October 14 rebuild includes exact direct-display mode selection and passes
+all 25 upstream tests. The installed client/service pair renders through the
+software Vulkan display target at the explicitly requested 1024×512, 60 Hz mode
+in both graphics and compute composition. A wrong refresh rate and malformed
+request refuse client startup. These exercise the installed display path with
+lavapipe's virtual X11 display, not the Pico DRM connector or Adreno.
+
+Four additional Pico-kernel VM cycles submit 1,739 stereo frames with synthetic
+analytic optics, opposite eye rotations and both controller hands. All sampled
+eye pixels match. The updated physical and QEMU root clones pass complete
+readback checks; the QEMU root shuts down normally after a read-only boot.
+The matching unsigned boot container is assembled and unpacked offline.
+Evidence is in `output/pico-display-recovery-20261014-v1/`.
