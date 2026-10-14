@@ -293,6 +293,30 @@ Private audit and current-source receipts:
 `output/pico-flash-path-20261013-v1/`. No image has been flashed.
 
 
+## Prepared artifact set
+
+The current private runtime set is
+`output/pico-controller-motion-20261014-v1/first-boot-set.json`; its matching
+recovery references are in `recovery-session-set.json` in the same directory.
+The set binds the diagnostic, kernel, runtime container, external root, panel
+overlay, native package receipts and verification reports by size and SHA-256.
+Recheck those identities before use; do not combine a historical root with a
+newer runtime receipt. The diagnostic remains the KMS-disabled RAM-only stage
+from `output/pico-usb-power-20261014-v1/`, with stock DTBO. The Sharp120 overlay
+belongs to the later display stage.
+
+The current root includes display-time head-orientation prediction and raw
+controller IMU decoding. It has no automatic physical HMD configuration and
+cannot supply missing sensor identities or calibration. The opt-in
+`pico-controller-config.py --motion-status` getter is prepared for a later stock
+capture. It has only been tested offline. Capture connected controllers'
+configuration before selecting their scale and axis branches; do not copy
+synthetic test settings into the runtime.
+
+Recovery, native USB power/role, panel scanout, Adreno buffer sharing and sensor
+clock/axis acceptance still need the unit. None of the prepared receipts marks
+these physical gates as passed or authorizes a bootloader write.
+
 ## USB host startup cleanup
 
 The pinned Pico kernel registers a global USB host-death callback before creating

@@ -323,7 +323,30 @@ replaces the output sink and external logging; hardware reversal is explicitly
 bypassed in its synthetic configuration. Evidence is retained privately under
 `output/pico-controller-motion-20261014-v1/`.
 
-This decoder does not enable controller poses. Physical calibration, the
+A separate stock-execution comparison exercises the scale and axis branches
+without bypassing them: 10,368 records and 18,144 samples match bit-for-bit,
+including signed zero. It covers both MCU/radio types and hands, signed count
+limits, scale/bypass bytes 0, 1 and 255, and revision bytes `0` and `1`.
+These are synthetic branch inputs, not selected settings for the headset.
+
+Stock first multiplies gyroscope counts by float32 `0.001065264455974102`
+and accelerometer counts by float32 `0.004790039267390966`. A scale byte of
+exactly 1 doubles each converted value. Its axis operation, applied separately
+to each three-vector, is:
+
+| Configuration | Left | Right |
+| --- | --- | --- |
+| Nonzero axis-reversal bypass byte | `(x, y, z)` | `(x, y, z)` |
+| Bypass zero, MCU 1, revision byte ASCII `0` | `(x, y, z)` | `(-x, -y, z)` |
+| Bypass zero, all other verified MCU/revision branches | `(-y, -x, -z)` | `(y, x, -z)` |
+
+This reproduces stock's intermediate vectors, not their alignment with Monado's
+tracking origin. The [optional status capture](pico-controller-protocol.md#controller-configuration)
+records the raw selection bytes per hand. Stock instructions, complete synthetic
+inputs, outputs and comparison results are retained privately under
+`output/pico-controller-status-20261014-v1/`.
+
+This decoder does not enable controller poses. Physical calibration, captured
 hardware-dependent scale/reversal flags, per-hand timestamp mapping and observed
 native reports are still required. The stock process multiplies controller
 sample timestamps by 1,000 before delivering Android events; this establishes

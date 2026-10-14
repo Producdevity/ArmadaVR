@@ -455,9 +455,10 @@ A separate stock-probe comparison covers all **65,536** possible chip IDs,
 verifying the four-byte reply length and upper-halfword selection. No kernel
 boot, initializers, physical I2C access or firmware update occurs in these tests.
 
-This is a tested transport component, not a bound replacement display driver.
-Kernel/DRM integration, board selection, safe sequencing and physical rendering
-remain open. Evidence, disassembly, stock-function harness and Ghidra project are
+These initial transport tests are separate from the later native panel/mux
+integration described above. Physical board selection, GPIO/rail behavior,
+suspend/resume and rendering remain unverified. Evidence, disassembly, the
+stock-function harness and Ghidra project for the transport tests are
 preserved under `output/pico-stock-driver-analysis-20261011-v1/`.
 
 ## RTT is diagnostic
