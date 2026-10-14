@@ -516,22 +516,22 @@ agent dependencies; they are hash-recorded and loaded from the agent's private
 RAM directory. This leaves the image's package contents and runtime
 selection intact, and the regular root media remains read-only.
 
-The current Pico artifact set is in `output/pico-usb-power-20261014-v1/`.
-The physical `root`, matching `initramfs` and unsigned `boot` include the USB
-host-startup notifier, runtime-power and PHY cleanup, plus the verified Turnip
-allocation, import and PRIME ownership fixes. Full filesystem/component readback
-and boot-container roundtrip checks pass. The matching native Monado and SSC packages are retained;
-there is no calibrated HMD autostart. The physical root is an APFS clone of its
-verified predecessor with the complete module tree and kernel record replaced;
-the parent remains unchanged.
+The current Pico runtime and roots are in `output/pico-pose-time-20261014-v1/`.
+They use the unchanged kernels and initramfs from
+`output/pico-usb-power-20261014-v1/`, including USB host-startup notifier,
+runtime-power and PHY cleanup and the verified Turnip allocation/import fixes.
+The native Monado package now queries and predicts head orientation at the
+requested display timestamp, with a 50 ms forward limit including uncertainty.
+There is no calibrated HMD autostart.
 
-The `qemu-root` is an APFS clone of that physical root with the VM kernel's
-complete module tree and kernel build record substituted. Full module bytes,
-permissions and component readback pass; the physical parent remains unchanged.
-Physical and virtual kernels have identical patched source. Their 38 and 40
-modules respectively pass signature, import-version and dependency checks.
+Both physical and virtual roots are APFS clones of their verified predecessors
+with only Monado and its build record replaced. Full filesystem/component
+readback and boot-container roundtrip checks pass; all other component receipts
+and both parents remain unchanged. Physical and virtual kernels have identical
+patched source. Their 38 and 40 modules respectively retain their verified
+signatures, import versions and dependencies.
 
-A fresh 27.233-second USB-storage VM boot verifies native package relocation,
+A fresh 32.257-second USB-storage VM boot verifies native package relocation,
 Turnip DSO loading, 40 matched modules, user sessions and service isolation.
 Backing-disk writes remain zero, input hashes are unchanged, and shutdown is
 normal. This run does not exercise Adreno rendering or physical scanout. Its

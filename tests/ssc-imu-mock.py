@@ -152,7 +152,7 @@ def measurement(high, low, index):
             event.msg_id = 1025
     if hmd_runtime:
         message.uid.high, message.uid.low = high, low
-        event.timestamp = clock.ssc_test_ticks() // 192000 * 192000
+        event.timestamp = index * 192000
         values = (0.25, 0.5, -0.75) if is_calibration else ((0.25, 10.31, -0.75) if sensor == 0 else (0.25, 0.85, -0.75))
         event.msg_id = (1022 if is_calibration else 1025) if Path('/hmd-phase').read_text() == 'running' else 1234
         event.msg = b'\x0a\x0c' + struct.pack('<3f', *values) + accuracy
@@ -164,14 +164,25 @@ if hmd_runtime:
     runpy.run_path('/controller-mock.py', run_name='pico_controller_mock')['install'](ssc, common, clock.ssc_test_ticks)
 
     def runtime_measurements(self, high, low, node, port, transaction_id):
-        index = 0
+        sensor = uids.get((high, low))
+        period = 192000 * (10 if sensor in (2, 3) else 5 if sensor is None else 1)
+        deadline = clock.ssc_test_ticks() // period * period
+        sequence = 0
         while True:
+            now = clock.ssc_test_ticks()
+            if now < deadline:
+                time.sleep((deadline - now) / 19200000)
+                continue
+            # Both IMUs capture on the same 100 Hz clock. Missed synthetic
+            # samples are dropped, rather than replayed with stale timestamps.
+            capture = now // period * period
+            index = sequence if sensor is None else capture // 192000
             payload = ssc.generate_protobuf_sensor_measurement(high, low, index)
             packet = ssc.generate_report_large_indication(payload, transaction_id)
             if self._qrtr.qrtr_sendto(self.sock, node, port, ctypes.c_char_p(packet), len(packet)) != 0:
                 break
-            time.sleep(0.01)
-            index += 1
+            sequence += 1
+            deadline = capture + period
 
     namespace['SSCMockingServer']._sensor_measurement = runtime_measurements
 multiprocessing.set_start_method('fork')

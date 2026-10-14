@@ -94,8 +94,15 @@ pixels in both eyes for at least four captures spanning 1.5 seconds per phase.
 The service runs as an unprivileged user, matching the target session and
 avoiding real-time scheduling starvation in CPU emulation. This proves the
 calibration-to-framebuffer path with software Vulkan, not Adreno execution or
-physical panel scanout. Test evidence is retained under
-`output/pico-hmd-display-20261013-v1/`.
+physical panel scanout. The latest prediction-enabled run is retained under
+`output/pico-pose-time-20261014-v1/render-vm-v4/`: four services, 16 stable phases
+and 6,596 submitted projection frames. Its synthetic panel interval is 90 Hz;
+this is not a measured frame rate. The VM uses four emulated CPUs, paired
+100 Hz IMU samples, 10 Hz calibration refresh and alternating controller reports
+at 20 Hz. Missed synthetic capture intervals are dropped rather than replayed
+with stale timestamps. Late poses remain invalid under the production limits.
+The separate two-service null-compositor run is in `runtime-vm-v5/`; each fresh
+service resets the prior malformed controller stimulus before startup.
 
 ## Stock optical data
 

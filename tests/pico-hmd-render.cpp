@@ -1,6 +1,8 @@
 #ifdef NDEBUG
 #error This test requires assertions
 #endif
+#define XR_USE_TIMESPEC
+#include <ctime>
 #define XR_USE_GRAPHICS_API_VULKAN
 #include "xr-renderer.h"
 #include <cassert>
@@ -32,12 +34,14 @@ int main() {
         std::string identity; std::getline(board, identity, '\0');
         assert(identity == "linux,dummy-virt");
         assert(read("/proc/cmdline").find("reframed.ssc_test=1") != std::string::npos);
-        const char *extensions[] = {"XR_KHR_vulkan_enable2", "XR_BD_controller_interaction"};
+        const char *extensions[] = {"XR_KHR_vulkan_enable2", "XR_BD_controller_interaction", "XR_KHR_convert_timespec_time"};
         XrInstanceCreateInfo create{XR_TYPE_INSTANCE_CREATE_INFO};
         std::strcpy(create.applicationInfo.applicationName, "Pico stereo framebuffer test");
         create.applicationInfo.apiVersion = XR_API_VERSION_1_0;
-        create.enabledExtensionCount = 2; create.enabledExtensionNames = extensions;
+        create.enabledExtensionCount = 3; create.enabledExtensionNames = extensions;
         XrInstance instance; check(xrCreateInstance(&create, &instance));
+        PFN_xrConvertTimespecTimeToTimeKHR convert_time = nullptr;
+        check(xrGetInstanceProcAddr(instance, "xrConvertTimespecTimeToTimeKHR", reinterpret_cast<PFN_xrVoidFunction *>(&convert_time)));
         auto path = [&](const char *text) { XrPath result; check(xrStringToPath(instance, text, &result)); return result; };
         XrSystemGetInfo get{XR_TYPE_SYSTEM_GET_INFO}; get.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
         XrSystemId system; check(xrGetSystem(instance, &get, &system));
@@ -113,7 +117,15 @@ int main() {
                     if (frame.shouldRender) assert(std::fabs(views[hand].pose.position.x - (hand ? .032f : -.032f)) < .0001f);
                     if (frame.shouldRender) assert(std::fabs(views[hand].fov.angleLeft + .7f) < .0001f);
                 }
-                if (++attempts % 10 == 0) std::printf("PICO_RENDER_STATE attempts=%u valid=%llu render=%d focused=%d left=%d right=%d matched=%d\n", attempts, static_cast<unsigned long long>(state.viewStateFlags), frame.shouldRender, focused, pressed[0], pressed[1], matched);
+                if (++attempts % 100 == 0) {
+                    struct timespec ts{}; assert(!clock_gettime(CLOCK_MONOTONIC, &ts));
+                    XrTime current_time; check(convert_time(instance, &ts, &current_time));
+                    XrSpaceLocation current{XR_TYPE_SPACE_LOCATION};
+                    check(xrLocateSpace(view, local, current_time, &current));
+                    std::printf("PICO_RENDER_STATE attempts=%u valid=%llu current=%llu lead_ms=%.3f render=%d focused=%d left=%d right=%d matched=%d\n", attempts,
+                        static_cast<unsigned long long>(state.viewStateFlags), static_cast<unsigned long long>(current.locationFlags),
+                        (frame.predictedDisplayTime-current_time)/1e6, frame.shouldRender, focused, pressed[0], pressed[1], matched);
+                }
                 XrSpaceLocation head{XR_TYPE_SPACE_LOCATION};
                 check(xrLocateSpace(view, local, frame.predictedDisplayTime, &head));
                 if (head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) {

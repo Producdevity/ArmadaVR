@@ -43,6 +43,13 @@ env = dict(os.environ, LD_LIBRARY_PATH='/opt/reframed-vr/monado/lib64:/opt/refra
            XRT_COMPOSITOR_NULL='1', XRT_NO_STDIN='1', PICO_HMD_CONFIG='/synthetic-hmd.json',
            PICO_HMD_COUNTER='1', PICO_SSC_CONFIG='/synthetic-controller.json', PICO_SSC_COUNTER='1', P_LOG='info', IPC_LOG='info', LP_NUM_THREADS='1',
            XRT_SERVICE_AUTO_START='0')
+os.chown('/tmp/pico-runtime', 1000, 1000)
+
+def service_user():
+    os.setgroups([])
+    os.setgid(1000)
+    os.setuid(1000)
+
 nameserver = subprocess.Popen(['/qrtr-ns', '-f'])
 server = None
 try:
@@ -63,8 +70,9 @@ try:
             with tempfile.TemporaryFile() as servicelog, tempfile.TemporaryFile() as clientlog:
                 try:
                     Path('/hmd-phase').write_text('running')
+                    Path('/controller-phase').write_text('release')
                     service = subprocess.Popen(['/opt/reframed-vr/monado/bin/monado-service'],
-                                               env=env, stdout=servicelog, stderr=subprocess.STDOUT)
+                                               env=env, stdout=servicelog, stderr=subprocess.STDOUT, preexec_fn=service_user)
                     deadline = time.monotonic() + 15
                     while not Path(env['XDG_RUNTIME_DIR'], 'monado_comp_ipc').exists():
                         assert service.poll() is None, 'Monado exited before IPC readiness'
@@ -87,7 +95,8 @@ try:
                                 process.wait(timeout=5)
                     clientlog.seek(0)
                     servicelog.seek(0)
-                    report = {'cycle': cycle, 'client_exit': client.returncode if client else None,
+                    mocklog.seek(0)
+                    report = {'mock': mocklog.read().decode(errors='replace')[-20000:], 'cycle': cycle, 'client_exit': client.returncode if client else None,
                               'service_exit': service.returncode if service else None,
                               'client': clientlog.read().decode(errors='replace'),
                               'service': servicelog.read().decode(errors='replace')}
