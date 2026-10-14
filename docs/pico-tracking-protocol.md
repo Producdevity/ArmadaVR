@@ -977,3 +977,17 @@ generate 256 events of each kind that the native decoder accepts under ARM64
 sanitizers. Six error types are checked using the retained UAPI and notification
 function. Host tests cover unaligned buffers, truncation, malformed cookies and
 clock-domain rejection. This verifies the event ABI, not live device delivery.
+
+`pico-camera-control` supplies the b1977 Linux ioctl transport for CRM sessions,
+links, synchronization, scheduling and flushes, plus device configuration and
+stream transitions, and sync-object creation/cookie registration/destruction.
+It operates only on descriptors supplied by its caller. Handles are cleared only
+after successful destruction. Mutating calls are never automatically retried on
+interruption, and a failed operation cannot justify recycling its resources.
+
+An ARM64 sanitizer harness exercises 16,000 calls across 1,000 lifecycle cycles.
+The CRM calls run through the retained ioctl size-check and user-copy branches;
+core scheduling and hardware operations are stubs. Sync/device payloads are
+checked against the retained UAPI. Host and ARM64 fault tests cover interrupted
+cleanup, malformed returned handles and invalid request/packet ranges. This
+checks the transport ABI; it does not establish that a live flush stops DMA.
