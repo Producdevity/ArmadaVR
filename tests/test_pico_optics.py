@@ -427,3 +427,41 @@ class PicoRuntimeSettingsTests(unittest.TestCase):
             before = output.read_bytes()
             self.assertNotEqual(subprocess.run(command+extra+screen_args, capture_output=True, timeout=5).returncode, 0)
             self.assertEqual(output.read_bytes(), before)
+
+
+class PicoFovSettingsTests(unittest.TestCase):
+    setUp = PicoRuntimeSettingsTests.setUp
+
+    def test_fov_override_uses_stock_float_boundaries(self):
+        self.settings.update(schema_version=2, fov_override_degrees=0)
+        cases = [(0, 95, False), (60, 95, False), (60.000001, 95, False),
+                 (60.000003, float.fromhex('0x1.e00002p+5'), True),
+                 (90, 90, True), (159.99999, float.fromhex('0x1.3ffffep+7'), True),
+                 (159.999999, 95, False), (160, 95, False), (180, 95, False)]
+        for value, expected, applied in cases:
+            self.settings['fov_override_degrees'] = value
+            for model in ('neo3-pro', 'neo3-pro-eye'):
+                with self.subTest(value=value, model=model):
+                    result = OPT.resolve_runtime(self.lens, self.axes, self.settings, model, 2)
+                    self.assertEqual(result['lens']['fov_degrees'], expected)
+                    self.assertTrue(result['fov_override_resolved'])
+                    self.assertEqual(result['fov_override_applied'], applied)
+                    self.assertFalse(result['active_settings_verified'])
+        self.assertEqual(self.lens['fov_degrees'], 95)
+
+    def test_schema_requires_explicit_bounded_fov_and_preserves_legacy(self):
+        self.settings['schema_version'] = 2
+        for value in [None, True, '95', -1, 181, float('nan'), float('inf'), 10**400]:
+            self.settings['fov_override_degrees'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                OPT.runtime_parameters(json.dumps(self.settings).encode())
+        del self.settings['fov_override_degrees']
+        with self.assertRaises(ValueError):
+            OPT.runtime_parameters(json.dumps(self.settings).encode())
+        self.settings.update(schema_version=1, fov_override_degrees=95)
+        with self.assertRaises(ValueError):
+            OPT.runtime_parameters(json.dumps(self.settings).encode())
+        del self.settings['fov_override_degrees']
+        result = OPT.resolve_runtime(self.lens, self.axes, self.settings, 'neo3-pro-eye', 2)
+        self.assertFalse(result['fov_override_resolved'])
+        self.assertFalse(result['fov_override_applied'])

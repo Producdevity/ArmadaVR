@@ -314,17 +314,22 @@ def runtime_parameters(data):
         raise ValueError('Malformed runtime settings') from error
     fields = {'schema_version', 'ipd_enabled', 'ipd_correction_enabled',
               'ipd_correction_mm', 'screen_gap_m', 'axis_corrections_mm'}
+    if isinstance(settings, dict) and settings.get('schema_version') == 2:
+        fields.add('fov_override_degrees')
     if not isinstance(settings, dict) or set(settings) != fields:
         raise ValueError('Missing or unexpected runtime setting')
-    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+    if type(settings['schema_version']) is not int or settings['schema_version'] not in (1, 2):
         raise ValueError('Unsupported runtime settings schema')
     for name in ('ipd_enabled', 'ipd_correction_enabled'):
         if type(settings[name]) is not bool:
             raise ValueError('Expected explicit IPD enable flags')
-    for name, low, high in [('ipd_correction_mm', -10, 10), ('screen_gap_m', 0, .05)]:
+    bounds = [('ipd_correction_mm', -10, 10), ('screen_gap_m', 0, .05)]
+    if settings['schema_version'] == 2:
+        bounds.append(('fov_override_degrees', 0, 180))
+    for name, low, high in bounds:
         value = settings[name]
         if type(value) not in (int, float) or not low <= value <= high or not math.isfinite(value):
-            raise ValueError('Invalid IPD correction or screen gap')
+            raise ValueError('Invalid IPD correction, screen gap or FOV override')
     values = settings['axis_corrections_mm']
     if (not isinstance(values, list) or len(values) != 4 or
             any(type(v) not in (int, float) or abs(v) > 10 or not math.isfinite(v) for v in values)):
@@ -359,10 +364,15 @@ def resolve_runtime(lens, axes, settings, model, ipd_state):
     resolved = dict(lens, lens_separation_m=separation,
                     distortion_coefficients=list(lens['distortion_coefficients']))
     resolved['distortion_coefficients'][14:18] = adjusted
+    fov_resolved = settings['schema_version'] == 2
+    fov_applied = fov_resolved and 60 < f32(settings['fov_override_degrees']) < 160
+    if fov_resolved:
+        resolved['fov_degrees'] = f32(settings['fov_override_degrees'] if fov_applied else lens['fov_degrees'])
     return {'settings': settings, 'lens': resolved, 'optical_offsets_mm': adjusted,
             'before_clamping_mm': values, 'clamped_axes': [i for i, value in enumerate(values) if value != adjusted[i]],
             'ipd_correction_used_mm': correction, 'float_precision': 'stock binary32 operation order',
-            'ipd_lookup_verified': False, 'fov_override_resolved': False, 'active_settings_verified': False,
+            'ipd_lookup_verified': False, 'fov_override_resolved': fov_resolved,
+            'fov_override_applied': fov_applied, 'active_settings_verified': False,
             'runtime_usable': False, 'calibration_applied': False}
 
 

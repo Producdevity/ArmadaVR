@@ -137,7 +137,7 @@ separate camera system; its coefficients are not display-lens calibration.
 
 `--runtime-settings FILE --runtime-sha256 SHA256` resolves the FalconCV3 lens
 separation and axis adjustments from explicit saved inputs. Both options are
-required together. The settings JSON has exactly these fields:
+required together. Version 1 of the settings JSON has exactly these fields:
 
 | Field | Contents |
 | --- | --- |
@@ -158,8 +158,22 @@ The resolver preserves binary32 rounding after each operation. Its report keeps
 raw offsets, adjusted values before clamping, the clamped axis indices and a
 separate resolved lens record with coefficient slots 14–17 replaced. Supplying
 a screen model additionally requires its separation and offsets to agree with
-that result. It does not choose active settings, resolve FOV overrides or
-produce an installable calibration file.
+that result. It does not choose active settings or produce an installable
+calibration file.
+
+Version 2 requires the same fields plus `fov_override_degrees`, the explicit
+numeric value of `persist.pvrservice.lens.fov`. The stock service converts this
+value to binary32 and accepts it only when strictly greater than 60 and less
+than 160 degrees. Otherwise it keeps the lens file's FOV. A missing value is
+not replaced with zero. Version 1 continues to leave the FOV unresolved.
+
+The override is read when stock first loads the lens record and remains cached
+on later calls. The inspector resolves a fresh load; it does not emulate a
+running service's history. The scalar lens FOV does not establish the two render
+projection matrices, which remain explicit screen-model inputs. Across 136
+synthetic stock calls and 136 subsequent cached calls, the original ARM64 code
+confirms the bounds, float rounding and cached behavior. Non-finite property
+values ignored by stock are deliberately refused by the inspector.
 
 An isolated ARM64 comparison executes the saved stock HMD service's original
 cached `getLensInfo` and `getIPDLensAxisOffset` routines with synthetic model,
