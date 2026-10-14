@@ -277,8 +277,8 @@ verified external root filesystem.
 
 The current native full-root container is assembled and roundtrip-verified
 offline with the Reframed paths and matched packages. Its QEMU counterpart
-passes read-only startup and package checks. External root transport and
-physical device-tree compatibility are untested; kernel/VM results do not
+passes read-only startup and package checks over virtio and emulated USB storage.
+Physical root transport and device-tree compatibility are untested; kernel/VM results do not
 replace those checks. Native USB diagnostics, stock return and the complete
 recovery sequence remain physical acceptance requirements.
 

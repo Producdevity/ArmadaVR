@@ -235,6 +235,8 @@ python3 -B tools/test-pico-root.py PICO_QEMU_KERNEL PICO_QEMU_INITRAMFS PICO_QEM
 
 This boots the actual packaged image read-only under TCG. The fixture only adds
 an agent and probes in the RAM overlay; it does not replace modules or systemd.
+The fixture resolves its explicitly named virtio port through sysfs, so the
+packaged root does not need a QEMU-specific udev alias rule.
 It verifies the installed kernel-module and GPU-firmware inventories, all
 prepared systemd files and command dependencies, user-session startup and
 service isolation. Acceptance requires a read-only backing device, a writable RAM
@@ -242,6 +244,15 @@ overlay, no disk writes, no failed services and normal poweroff. The kernel,
 initramfs and complete root-image hashes must remain unchanged. Physical-kernel
 roots and mismatched inputs are refused. QEMU does not execute Pico panel, GPU,
 radio, sensor or controller hardware; this is userspace and boot-handoff evidence.
+`--transport usb-storage` boots the same packaged root through emulated xHCI
+and USB mass storage. The probe resolves the root by label, verifies its USB
+ancestry and read-only block state, and checks the whole-disk write counter.
+Native package checks include the installed Turnip build record, ICD and driver
+hashes, ICD path resolution and immediate dynamic loading. This catches missing
+or incompatible library dependencies; it does not execute GPU commands or verify
+panel scanout. USB-root fixtures and failure cases are described in
+[initramfs verification](headset-initramfs.md#verification).
+
 The initial command line requests `selinux=0`, but this vendor kernel omits
 `CONFIG_SECURITY_SELINUX_BOOTPARAM` and ignores that request. Use
 `--enforcing-boot` to test the physical candidate's `selinux=1 enforcing=1` flags.

@@ -21,6 +21,9 @@ spec.loader.exec_module(builder)
 spec = importlib.util.spec_from_file_location("vm_control", ROOT / "tools/vm_control.py")
 vm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(vm)
+spec = importlib.util.spec_from_file_location("root_test", ROOT / "tools/test-initramfs-root.py")
+root_test = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(root_test)
 
 HANDOFF = r'''#!/bin/bash
 set -euo pipefail
@@ -29,7 +32,16 @@ IFS= read -r -d '' model < /sys/firmware/devicetree/base/compatible
 grep -qw 'reframed.pico_root_test=1' /proc/cmdline
 [[ ! -e /sysroot/etc/systemd/system/reframed-pico-test-agent.service ]]
 mkdir -p /sysroot/etc/systemd/system/multi-user.target.wants
-cp /pico-agent.service /sysroot/etc/systemd/system/reframed-pico-test-agent.service
+channel=
+for port in /sys/class/virtio-ports/*; do
+    [[ -f $port/name ]] || continue
+    read -r name < "$port/name"
+    [[ $name == org.reframed.pico_root_test.0 ]] || continue
+    [[ -z $channel && ${port##*/} =~ ^vport[0-9]+p[0-9]+$ ]]
+    channel=/dev/${port##*/}
+done
+[[ -n $channel && -c $channel ]]
+sed "s|@CHANNEL@|$channel|" /pico-agent.service > /sysroot/etc/systemd/system/reframed-pico-test-agent.service
 ln -s /etc/systemd/system/reframed-pico-test-agent.service /sysroot/etc/systemd/system/multi-user.target.wants/
 cp /pico-probe.py /run/pico-probe.py
 cp /pico-expected.json /run/pico-expected.json
@@ -55,12 +67,12 @@ AGENT_UNIT = '''[Unit]
 Description=Private Pico root verification agent
 
 [Service]
-ExecStart=/usr/bin/qemu-ga --method=virtio-serial --path=/dev/virtio-ports/org.reframed.pico_root_test.0
+ExecStart=/usr/bin/qemu-ga --method=virtio-serial --path=@CHANNEL@
 StandardOutput=journal+console
 StandardError=journal+console
 '''
 
-PROBE = r'''import hashlib,json,os,stat,struct,subprocess
+PROBE = r'''import ctypes,hashlib,json,os,stat,struct,subprocess
 from pathlib import Path
 def sha(p):
     with p.open('rb') as stream:return hashlib.file_digest(stream,'sha256').hexdigest()
@@ -72,9 +84,16 @@ expected=json.loads(Path('/run/pico-expected.json').read_text())
 if expected['enforcing_boot']:
     assert {'selinux=1','enforcing=1'} <= set(Path('/proc/cmdline').read_text().split())
 assert command(['findmnt','-n','-o','FSTYPE','/']).strip()=='overlay'
-assert Path('/sys/block/vda/ro').read_text().strip()=='1'
-for line in Path('/proc/self/mountinfo').read_text().splitlines():
-    if ' - ext4 /dev/vda ' in line:assert 'ro' in line.split()[5].split(',')
+root_device=Path('/dev/disk/by-label')/expected['root_label']
+device=root_device.stat()
+assert stat.S_ISBLK(device.st_mode)
+device_id=f'{os.major(device.st_rdev)}:{os.minor(device.st_rdev)}'
+block=(Path('/sys/dev/block')/device_id).resolve(strict=True)
+assert (block/'ro').read_text().strip()=='1'
+if expected['transport']=='usb-storage':assert any(p.startswith('usb') for p in block.parts),str(block)
+lower_mounts=[line.split() for line in Path('/proc/self/mountinfo').read_text().splitlines() if line.split()[2]==device_id]
+assert all('ro' in m[5].split(',') and m[m.index('-')+1]=='ext4' for m in lower_mounts)
+if (block/'partition').exists():block=block.parent
 assert command(['systemctl','is-system-running','--wait'],90).strip()=='running'
 assert sha(Path('/usr/share/reframed-vr/kernel-build.json'))==expected['kernel_build_sha256']
 assert not Path('/usr/lib/systemd/system/reframed-quest-boot.service').exists()
@@ -115,6 +134,18 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
                    '/lib/ld-linux-aarch64.so.1','--library-path',libraries,str(prefix/program)])
     assert 'not found' not in trace and 'undefined symbol' not in trace,(name,trace)
     packages[name]={'files':len(files),'links':len(links),'loader_relocations':True,'program_executed':False}
+turnip=expected.get('turnip')
+if turnip is not None:
+    assert sha(Path('/usr/share/reframed-vr/turnip-build.json'))==turnip['build_sha256']
+    for item in turnip['files']:
+        p=Path('/')/item['path']
+        assert p.is_file() and not p.is_symlink() and sha(p)==item['sha256'],item['path']
+    prefix=Path('/opt/reframed-vr/turnip')
+    icd=json.loads((prefix/'share/vulkan/icd.d/freedreno_icd.aarch64.json').read_text())
+    driver=(prefix/'share/vulkan/icd.d'/icd['ICD']['library_path']).resolve(strict=True)
+    assert driver==prefix/'lib64/libvulkan_freedreno.so'
+    ctypes.CDLL(str(driver),mode=os.RTLD_NOW)
+    packages['turnip']={'files':len(turnip['files']),'loader_relocations':True,'hardware_gpu_verified':False}
 shared=[i['path'].removeprefix('files/') for i in runtime['files'] if '/libsystemd-shared-' in i['path'] and 'sha256' in i]
 assert len(shared)==1 and '/'+shared[0] in Path('/proc/1/maps').read_text()
 for name in runtime['commands']:
@@ -129,7 +160,7 @@ probe.write_text("from pathlib import Path\nassert 'NoNewPrivs:\\t1' in Path('/p
 isolation=command(['systemd-run','--unit=reframed-pico-isolation','--wait','--pipe','--property=NoNewPrivileges=yes','--property=PrivateTmp=yes','--property=PrivateNetwork=yes','--property=ProtectSystem=strict','/usr/bin/python3',str(probe)],45)
 assert 'PICO_ROOT_ISOLATION_PASS' in isolation and not Path('/tmp/pico-private-probe').exists()
 Path('/pico-volatile-write').write_text('guest RAM only\n')
-assert Path('/sys/block/vda/stat').read_text().split()[4]=='0'
+assert (block/'stat').read_text().split()[4]=='0'
 assert command(['systemctl','show','--property=NFailedUnits','--value']).strip()=='0'
 selinux=Path('/run/pico-selinux');selinux.mkdir()
 command(['mount','-t','selinuxfs','-o','ro','none',str(selinux)])
@@ -144,6 +175,7 @@ print(json.dumps({'status':'passed','boot_id':Path('/proc/sys/kernel/random/boot
     'taint':int(Path('/proc/sys/kernel/tainted').read_text()),'runtime_files':len(runtime['files']),
     'runtime_commands':len(runtime['commands']),'modules':len(expected['modules']),'firmware':len(expected['firmware']),
     'user_session':True,'service_isolation':True,'root_overlay':True,'root_block_readonly':True,'disk_writes':0,
+    'lower_mount_visible':bool(lower_mounts),'root_device':str(root_device.resolve()),'root_sysfs':str(block),'transport':expected['transport'],
     'selinux':policy,'selinux_policy_acceptance':False,'native_packages':packages}),flush=True)
 '''
 
@@ -227,6 +259,8 @@ def run(args):
         raise ValueError("Choose a new output directory and paths without commas or colons")
     hashes, root, expected, disk, initrd_sha = root_input(kernel, initramfs, directory)
     expected['enforcing_boot'] = args.enforcing_boot
+    expected['root_label'] = root['root_label']
+    expected['transport'] = args.transport
     if shutil.disk_usage(output.parent).free < 1024**3:
         raise ValueError("Requires 1 GiB free for bounded test evidence")
     agent = guest_agent(args.guest_agent) if args.guest_agent else None
@@ -237,7 +271,8 @@ def run(args):
     record = {"status": "started", "hardware_boot_verified": False, "hardware_recovery_verified": False,
               "kernel_sha256": hashes["Image"], "initramfs_sha256": initrd_sha,
               "root_sha256": root["sha256"]["rootfs.ext4"], "runner_sha256": builder.digest(Path(__file__)),
-              "enforcing_boot_requested": args.enforcing_boot,
+              "enforcing_boot_requested": args.enforcing_boot, "transport": args.transport,
+              "transport_helper_sha256": builder.digest(ROOT / "tools/test-initramfs-root.py"),
               "network": "none", "writable_state": "guest RAM only", "runtime_replaced_in_fixture": False}
     process = None
     started = time.monotonic()
@@ -273,7 +308,7 @@ def run(args):
                        "-accel", "tcg", "-cpu", "cortex-a76", "-smp", "2", "-m", "4096", "-nodefaults",
                        "-nographic", "-monitor", "none", "-serial", "stdio", "-no-reboot", "-nic", "none",
                        "-kernel", str(kernel / "Image"), "-initrd", str(boot),
-                       "-drive", f"file={disk},if=none,id=root,format=raw,readonly=on", "-device", "virtio-blk-device,drive=root",
+                       *root_test.disk_options(disk, args.transport, pico=True, readonly=True),
                        "-object", "rng-random,id=rng,filename=/dev/urandom", "-device", "virtio-rng-device,rng=rng",
                        "-device", "virtio-serial-device", "-chardev", f"socket,path={sockets}/agent.sock,server=on,wait=off,id=agent",
                        "-device", "virtserialport,chardev=agent,name=org.reframed.pico_root_test.0", "-append",
@@ -346,6 +381,7 @@ if __name__ == "__main__":
     parser.add_argument("initramfs", type=Path)
     parser.add_argument("rootfs", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--transport", choices=("virtio", "usb-storage"), default="virtio")
     parser.add_argument("--qemu", default="qemu-system-aarch64")
     parser.add_argument("--guest-agent", type=Path, help="ARM64 QEMU agent to stage in guest RAM when the root omits it")
     parser.add_argument("--guest-agent-library", type=Path, action="append", default=[],
