@@ -89,6 +89,37 @@ class Module:
         values = self.array(identifier, name, present, bits)
         return values[0] if present else None
 
+    def sensor_name(self, length, identifier):
+        if not 1 <= length <= 256:
+            raise ValueError('Invalid sensor name length')
+        name = self.reference(identifier, 'sensorName', (length + 7) // 8, 8)
+        if name[length - 1] != 0 or any(name[length:]) or not re.fullmatch(rb'[A-Za-z0-9_.-]+\0', name[:length]):
+            raise ValueError('Invalid sensor name')
+        return name[:length - 1].decode('ascii')
+
+    def power(self, count, identifier):
+        data = self.reference(identifier, 'powerSetting', count, 24)
+        return [dict(zip(('sequence_type', 'value', 'delay_ms'),
+                         [integer(data, offset + i * 8) for i in range(3)]))
+                for offset in range(0, len(data), 24)]
+
+    def configurations(self):
+        roots = [s for s in self.symbols.values() if s.name == 'cameraModuleData']
+        if len(roots) != 1 or roots[0].version != 1 or len(roots[0].data) != 40:
+            raise ValueError('Requires one supported camera module schema')
+        root = roots[0].data
+        count, identifier = integer(root, 24), integer(root, 32)
+        data = self.reference(identifier, 'moduleConfiguration', count, 360)
+        result = []
+        for offset in range(0, len(data), 360):
+            row = [integer(data, offset + i * 8) for i in range(31)]
+            result.append({'index': offset // 360, 'sensor_name': self.sensor_name(row[3], row[4]),
+                           'slave_address': self.optional(row[6], 'sensorSlaveAddress', row[5], 16),
+                           'frequency': self.optional(row[8], 'sensorI2CFrequencyMode', row[7]),
+                           'lane_assign': self.optional(row[28], 'laneAssign', row[27], 16),
+                           'combo': self.optional(row[30], 'isComboMode', row[29], 8)})
+        return result
+
     def registers(self, symbol):
         if symbol.version != 0 or symbol.mode != 0xffffffff or len(symbol.data) % 80:
             raise ValueError('Invalid register-setting table')
@@ -135,12 +166,7 @@ class Module:
         if len(drivers) != 1 or drivers[0].version != 1 or len(drivers[0].data) != 808:
             raise ValueError('Requires one supported sensor driver schema')
         driver = drivers[0].data
-        length, name_id = integer(driver, 24), integer(driver, 32)
-        if not 1 <= length <= 256:
-            raise ValueError('Invalid sensor name length')
-        name = self.reference(name_id, 'sensorName', (length + 7) // 8, 8)
-        if name[length - 1] != 0 or any(name[length:]) or not re.fullmatch(rb'[A-Za-z0-9_.-]+\0', name[:length]):
-            raise ValueError('Invalid sensor name')
+        name = self.sensor_name(integer(driver, 24), integer(driver, 32))
         registers = {str(s.identifier): self.registers(s) for s in self.symbols.values() if s.name == 'regSetting'}
         resolutions = {str(s.identifier): self.resolutions(s) for s in self.symbols.values() if s.name == 'resolutionData'}
         initialization = {}
@@ -153,7 +179,12 @@ class Module:
                 {'selector': integer(symbol.data, i),
                  'settings': self.settings(integer(symbol.data, i + 8), integer(symbol.data, i + 16))}
                 for i in range(0, len(symbol.data), 24)]
-        return {'sensor_name': name[:length - 1].decode('ascii'),
+        return {'sensor_name': name,
+                'address_type': integer(driver, 48), 'data_type': integer(driver, 56),
+                'frequency': integer(driver, 88),
+                'power_up': self.power(integer(driver, 96), integer(driver, 104)),
+                'power_down': self.power(integer(driver, 112), integer(driver, 120)),
+                'configurations': self.configurations(),
                 'slave_address': integer(driver, 40), 'sensor_id_register': integer(driver, 64),
                 'sensor_id': integer(driver, 72), 'sensor_id_mask': integer(driver, 80),
                 'symbols': len(self.symbols), 'resolutions': resolutions,

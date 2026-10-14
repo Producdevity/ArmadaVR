@@ -29,4 +29,18 @@ size_t pico_camera_sensor_writes(const struct pico_camera_sensor_bus *bus,
                                 const struct pico_camera_sensor_write *writes, size_t count,
                                 void *output, size_t size);
 
+#define PICO_CAMERA_SENSOR_MAX_POWER_STEPS 12
+
+struct pico_camera_sensor_power_step {
+    uint32_t sequence_type, value, delay_ms;
+};
+
+/* Power resources use the retained kernel enum 0..11. A sequence has at most
+ * 12 steps and fewer than 12 between waits, as required by its parser.
+ * Values are board-specific; this encoder does not establish safe power levels.
+ * Inputs and output must not overlap. Invalid inputs leave output unchanged. */
+size_t pico_camera_sensor_power_size(const struct pico_camera_sensor_power_step *steps, size_t count);
+size_t pico_camera_sensor_power(bool up, const struct pico_camera_sensor_power_step *steps,
+                               size_t count, void *output, size_t size);
+
 #endif

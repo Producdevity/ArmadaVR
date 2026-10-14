@@ -842,3 +842,25 @@ retained writes plus width, slave-address and delay boundaries. The retained
 kernel's random-write and delay handlers decode that corpus correctly with a
 host allocation stub. This verifies the command ABI, not physical I2C traffic,
 power sequencing, camera startup or safe selection of a module.
+
+### Sensor power and module CSI settings
+
+The module decoder also reads the driver's power-up/down sequences, probe
+address/data widths and default bus frequency. Each module configuration keeps
+its optional slave-address, bus-frequency, lane-assignment and combo-mode
+settings. Missing fields stay unknown; the tool does not choose a physical
+camera slot or substitute another module's settings. Parsing all eight retained
+modules matches stock ARM64 output, including 116 power steps.
+
+`pico_camera_sensor_power` encodes those ordered steps with explicit direction.
+It enforces the retained kernel's 12-step total limit, fewer than 12 steps per
+batch, resource types 0–11 and signed 16-bit millisecond waits. Invalid input
+leaves the destination unchanged. Resource values remain board-specific and
+must be validated against the selected camera's regulators, clocks and GPIOs
+before submission.
+
+All 16 retained sequences and 384 boundary cases match the stock encoder on
+host and ARM64 sanitizer runs. The retained kernel's power-command parser also
+decodes those 400 cases (2,612 steps) in an instrumented host harness. This
+checks serialization and parser compatibility; it does not exercise regulators,
+GPIOs, clocks or a physical camera.

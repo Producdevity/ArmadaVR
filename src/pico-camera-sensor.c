@@ -72,3 +72,52 @@ size_t pico_camera_sensor_writes(const struct pico_camera_sensor_bus *bus,
     }
     return required;
 }
+
+size_t pico_camera_sensor_power_size(const struct pico_camera_sensor_power_step *steps, size_t count)
+{
+    if (!steps || !count || count > PICO_CAMERA_SENSOR_MAX_POWER_STEPS) return 0;
+    size_t size = 0;
+    unsigned group_count = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (steps[i].sequence_type > 11 || steps[i].delay_ms > 32767 || group_count == 11) return 0;
+        if (!group_count++) size += 8;
+        size += 12;
+        if (steps[i].delay_ms) {
+            size += 8;
+            group_count = 0;
+        }
+    }
+    return size;
+}
+
+size_t pico_camera_sensor_power(bool up, const struct pico_camera_sensor_power_step *steps,
+                               size_t count, void *output, size_t size)
+{
+    size_t required = pico_camera_sensor_power_size(steps, count);
+    if (!required || !output || size < required) return 0;
+    uint8_t *bytes = output;
+    memset(bytes, 0, required);
+    size_t offset = 0, header = 0;
+    uint32_t group_count = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const struct pico_camera_sensor_power_step *step = steps + i;
+        if (!group_count) {
+            header = offset;
+            bytes[offset + 5] = up ? 2 : 3;
+            offset += 8;
+        }
+        bytes[offset] = (uint8_t)step->sequence_type;
+        put32(bytes + offset + 4, step->value);
+        offset += 12;
+        put32(bytes + header, ++group_count);
+        if (step->delay_ms) {
+            bytes[offset] = (uint8_t)step->delay_ms;
+            bytes[offset + 1] = (uint8_t)(step->delay_ms >> 8);
+            bytes[offset + 4] = 3;
+            bytes[offset + 5] = 9;
+            offset += 8;
+            group_count = 0;
+        }
+    }
+    return required;
+}

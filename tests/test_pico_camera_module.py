@@ -18,7 +18,8 @@ def words(*values):
 
 def fixture():
     driver = bytearray(808)
-    for offset, value in ((24, 8), (32, 2), (40, 0xe0), (64, 0x300a), (72, 0x1234), (80, 0xffff)):
+    for offset, value in ((24, 8), (32, 2), (40, 0xe0), (64, 0x300a), (72, 0x1234), (80, 0xffff), (48, 2), (56, 2), (88, 1),
+                          (96, 2), (104, 12), (112, 1), (120, 13)):
         struct.pack_into('<Q', driver, offset, value)
     resolution = bytearray(288)
     values = {1: 1, 2: 4, 3: 800, 4: 500, 7: 24000000, 8: 1, 9: 1,
@@ -26,6 +27,10 @@ def fixture():
     for index, value in values.items():
         struct.pack_into('<Q', resolution, index * 8, value)
     struct.pack_into('<d', resolution, 80, 60)
+    configuration = bytearray(360)
+    for index, value in {3: 8, 4: 2, 5: 1, 6: 16, 7: 1, 8: 17,
+                         27: 1, 28: 18, 29: 1, 30: 19}.items():
+        struct.pack_into('<Q', configuration, index * 8, value)
     return [
         [1, 'sensorDriverData', 1, 0, driver],
         [2, 'sensorName', 0, 0xffffffff, b'ov-test\0'],
@@ -38,6 +43,14 @@ def fixture():
         [9, 'capability', 0, 0xffffffff, words(0)],
         [10, 'mipiFlags', 0, 0xffffffff, words(1)],
         [11, 'initSettings', 0, 0xffffffff, words(0, 1, 5)],
+        [12, 'powerSetting', 0, 0xffffffff, words(8, 0, 1, 0, 24000000, 18)],
+        [13, 'powerSetting', 0, 0xffffffff, words(8, 1, 2)],
+        [14, 'cameraModuleData', 1, 0, words(1, 0, 0, 1, 15)],
+        [15, 'moduleConfiguration', 0, 0xffffffff, configuration],
+        [16, 'sensorSlaveAddress', 0, 0xffffffff, words(0xe2)],
+        [17, 'sensorI2CFrequencyMode', 0, 0xffffffff, words(1)],
+        [18, 'laneAssign', 0, 0xffffffff, words(0x3210)],
+        [19, 'isComboMode', 0, 0xffffffff, words(0)],
     ]
 
 
@@ -69,6 +82,35 @@ class CameraModuleTests(unittest.TestCase):
         self.assertEqual(result['initialization']['11'], [{'selector': 0, 'settings': {'symbol': 5, 'count': 1}}])
         self.assertEqual(result['register_tables']['5'], [{'slave_address': None, 'address': 0x100,
             'values': [128], 'address_type': 2, 'data_type': 1, 'operation': 0, 'delay_us': 1000}])
+
+    def test_power_and_csi_configuration(self):
+        result = camera.Module(encode(fixture())).inspect()
+        self.assertEqual((result['address_type'], result['data_type'], result['frequency']), (2, 2, 1))
+        self.assertEqual(result['power_up'], [{'sequence_type': 8, 'value': 0, 'delay_ms': 1},
+                                            {'sequence_type': 0, 'value': 24000000, 'delay_ms': 18}])
+        self.assertEqual(result['power_down'], [{'sequence_type': 8, 'value': 1, 'delay_ms': 2}])
+        self.assertEqual(result['configurations'], [{'index': 0, 'sensor_name': 'ov-test',
+            'slave_address': 0xe2, 'frequency': 1, 'lane_assign': 0x3210, 'combo': 0}])
+
+    def test_missing_optional_csi_values_remain_unknown(self):
+        symbols = fixture()
+        for index, reference in ((5, 15), (7, 16), (27, 17), (29, 18)):
+            struct.pack_into('<Q', symbols[14][4], index * 8, 0)
+            symbols[reference][4] = b''
+        result = camera.Module(encode(symbols)).inspect()['configurations'][0]
+        self.assertEqual([result[key] for key in ('slave_address', 'frequency', 'lane_assign', 'combo')], [None] * 4)
+
+    def test_bad_power_and_configuration_references(self):
+        for index, column, value in ((11, 1, 'regSetting'), (12, 4, bytes(16)), (13, 2, 2),
+                                    (14, 4, bytes(352)), (17, 4, words(65536)), (18, 4, words(256))):
+            symbols = fixture()
+            symbols[index][column] = value
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                camera.Module(encode(symbols)).inspect()
+        symbols = fixture()
+        struct.pack_into('<Q', symbols[14][4], 27 * 8, 2)
+        with self.assertRaises(ValueError):
+            camera.Module(encode(symbols)).inspect()
 
     def test_truncation_and_wrong_header(self):
         data = encode(fixture())
