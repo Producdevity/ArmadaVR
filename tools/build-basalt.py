@@ -55,6 +55,13 @@ def verify(source, profile):
         raise ValueError('Unexpected VIT interface')
 
 
+def verify_patches(profile):
+    for item in profile.get('patches', []):
+        patch = ROOT / item['path']
+        if not patch.resolve().is_relative_to((ROOT / 'patches/basalt').resolve()) or digest(patch) != item['sha256']:
+            raise ValueError('Basalt patch differs: ' + item['path'])
+
+
 def prepare(output, profile):
     output.mkdir(parents=True, exist_ok=False)
     source = output / 'source'
@@ -98,6 +105,8 @@ def prepare(output, profile):
 
 def build(source, output, image, engine, profile):
     verify(source, profile)
+    verify_patches(profile)
+    builder_sha = digest(Path(__file__))
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', image):
         raise ValueError('Use an immutable local build image ID')
     metadata = json.loads(subprocess.check_output([engine, 'image', 'inspect', image], text=True))[0]
@@ -106,6 +115,16 @@ def build(source, output, image, engine, profile):
     if ',' in str(source) or ',' in str(output):
         raise ValueError('Container bind paths cannot contain commas')
     output.mkdir(parents=True, exist_ok=False)
+    compiled_source = output / 'source'
+    shutil.copytree(source, compiled_source, ignore=shutil.ignore_patterns('.git'), symlinks=True)
+    for index, item in enumerate(profile.get('patches', [])):
+        patch = ROOT / item['path']
+        if digest(patch) != item['sha256']:
+            raise ValueError('Basalt patch differs: ' + item['path'])
+        with (output / f'patch-{index}.log').open('wb') as log:
+            subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-d', str(compiled_source), '-i', str(patch)],
+                           check=True, stdout=log, stderr=subprocess.STDOUT, timeout=30)
+    compiled_sha = tree_digest(compiled_source)
     name = 'reframed-basalt-' + uuid.uuid4().hex[:12]
     script = ('set -e\nrpm -qa | sort > /out/packages.txt\n'
               'cmake -S /source -B /out/build -G Ninja ' + shlex.join(profile['cmake_options']) +
@@ -117,10 +136,10 @@ def build(source, output, image, engine, profile):
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                '--memory', '4g', '--memory-swap', '4g', '--cpus', '2', '--pids-limit', '128',
                '--tmpfs', '/tmp:rw,exec,size=128m',
-               '--mount', f'type=bind,src={source},dst=/source,readonly',
+               '--mount', f'type=bind,src={compiled_source},dst=/source,readonly',
                '--mount', f'type=bind,src={output},dst=/out', '--entrypoint', 'sh', image, '-c', script]
     report = {'status': 'started', 'profile': profile, 'build_image': metadata['Id'],
-              'builder_sha256': digest(Path(__file__)), 'command': command, 'physical_tracking_verified': False}
+              'compiled_source_sha256': compiled_sha, 'builder_sha256': builder_sha, 'command': command, 'physical_tracking_verified': False}
     try:
         with (output / 'run.log').open('wb') as log:
             result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, timeout=1800)
@@ -136,9 +155,18 @@ def build(source, output, image, engine, profile):
         if header[:6] != b'\x7fELF\x02\x01' or header[18:20] != b'\xb7\x00':
             raise ValueError('Expected a native ARM64 library')
         verify(source, profile)
+        if tree_digest(compiled_source) != compiled_sha:
+            raise ValueError('Patched source changed during compilation')
+        verify_patches(profile)
+        if json.loads(PROFILE.read_text()) != profile or digest(Path(__file__)) != builder_sha:
+            raise ValueError('Basalt build definition changed during compilation')
         share = output / PREFIX / 'share/basalt'
         share.mkdir(exist_ok=True, parents=True)
         shutil.copyfile(PROFILE, share / 'source-profile.json')
+        for item in profile.get('patches', []):
+            target = share / item['path']
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(ROOT / item['path'], target)
         for item in source.rglob('*'):
             if item.is_file() and re.fullmatch(r'(license|copying)(\..*)?', item.name, re.IGNORECASE):
                 target = share / 'licenses' / item.relative_to(source)

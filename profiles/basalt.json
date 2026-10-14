@@ -73,7 +73,18 @@
     "-DCMAKE_C_COMPILER=clang",
     "-DCMAKE_CXX_COMPILER=clang++",
     "-DCMAKE_INSTALL_PREFIX=/opt/reframed-vr/basalt",
-    "-DCMAKE_INSTALL_LIBDIR=lib64"
+    "-DCMAKE_INSTALL_LIBDIR=lib64",
+    "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--as-needed"
   ],
-  "test_count": 187
+  "test_count": 187,
+  "patches": [
+    {
+      "path": "patches/basalt/0001-join-optical-flow-before-destroy.patch",
+      "sha256": "9acfd8b4744534081901c39fbb22c77ea1b5766c986b564c814a9a65a2adca04"
+    },
+    {
+      "path": "patches/basalt/0002-report-supported-image-formats.patch",
+      "sha256": "8e409ac330302d24fb2e0120e68ff9a5da241fbb0395362a642cc40cd7b2749f"
+    }
+  ]
 }

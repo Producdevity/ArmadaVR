@@ -112,7 +112,8 @@ for item in runtime['files']:
 for name,digest in runtime['native_abi_sha256'].items():assert sha(Path('/')/name)==digest,name
 packages={}
 for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventory'),
-                     ('fastrpc','lib64/libpico-sensors.so.1'),('monado','bin/monado-service')):
+                     ('fastrpc','lib64/libpico-sensors.so.1'),('monado','bin/monado-service'),
+                     ('basalt','lib64/libbasalt.so.2')):
     record=expected.get(name)
     if record is None:continue
     installed=name.replace('_','-')
@@ -134,6 +135,14 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
                    '/lib/ld-linux-aarch64.so.1','--library-path',libraries,str(prefix/program)])
     assert 'not found' not in trace and 'undefined symbol' not in trace,(name,trace)
     packages[name]={'files':len(files),'links':len(links),'loader_relocations':True,'program_executed':False}
+if expected.get('basalt') is not None:
+    lib=ctypes.CDLL('/opt/reframed-vr/basalt/lib64/libbasalt.so.2',mode=os.RTLD_NOW)
+    version=[ctypes.c_uint32() for _ in range(3)]
+    api=lib.vit_api_get_version
+    api.argtypes=[ctypes.POINTER(ctypes.c_uint32)]*3;api.restype=ctypes.c_int
+    assert api(*[ctypes.byref(v) for v in version])==0
+    assert [v.value for v in version]==[2,0,1]
+    packages['basalt'].update(vit_api=[2,0,1],physical_tracking_verified=False)
 turnip=expected.get('turnip')
 if turnip is not None:
     assert sha(Path('/usr/share/reframed-vr/turnip-build.json'))==turnip['build_sha256']

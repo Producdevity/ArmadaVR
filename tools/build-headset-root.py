@@ -42,6 +42,10 @@ spec = importlib.util.spec_from_file_location("inventory_artifact", ROOT / "tool
 inventory_artifact = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(inventory_artifact)
 
+spec = importlib.util.spec_from_file_location("basalt_artifact", ROOT / "tools/basalt-artifact.py")
+basalt_artifact = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(basalt_artifact)
+
 SCRIPT = r'''
 set -eu
 mkdir -p /tmp/root /tmp/modules /tmp/verify/modules /tmp/verify/firmware
@@ -149,6 +153,12 @@ if Path('/output/fastrpc.json').is_file():
     spec=importlib.util.spec_from_file_location('fastrpc','/repo/tools/fastrpc-artifact.py')
     artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
     artifact.install('/fastrpc',root,fastrpc)
+basalt=None
+if Path('/output/basalt.json').is_file():
+    basalt=json.loads(Path('/output/basalt.json').read_text())
+    spec=importlib.util.spec_from_file_location('basalt','/repo/tools/basalt-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.install('/basalt',root,basalt)
 monado=None
 if Path('/output/monado.json').is_file():
     monado=json.loads(Path('/output/monado.json').read_text())
@@ -164,7 +174,7 @@ if Path('/output/lepton.json').is_file():
     Path('/output/lepton-runtime.json').write_text(json.dumps(artifact.configure_runtime(root,'/lepton-host',lepton['host']),indent=2)+'\n')
 Path('/output/root-settings.json').write_text(json.dumps({'removed_virtual_paths':removed,'unit_path':unit,
     'unit_sha256':hashlib.sha256((root/unit).read_bytes()).hexdigest() if unit else None,'hostname':'reframed-vr',
-    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'ssc_inventory':inventory,'fastrpc':fastrpc,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
+    'default_target':'multi-user.target','automatic_lab_tests':False,'automatic_desktop':False,'turnip':turnip,'basalt':basalt,'monado':monado,'lepton':lepton,'ssc':ssc,'ssc_inventory':inventory,'fastrpc':fastrpc,'gpu_firmware':gpu,'pico_services':pico_services},indent=2)+'\n')
 PYROOT
 if test -d /systemd-runtime; then
     python3 /systemd-runtime.py /systemd-runtime --install /tmp/root
@@ -209,6 +219,14 @@ for name in ('qrtr-ns','qrtr-lookup')+(('pd-mapper',) if services['pd_mapper'] e
         raise SystemExit('Pico QRTR runtime has unresolved dependencies: '+name)
 Path('/output/pico-services-dependencies.txt').write_text('\n'.join(logs))
 PYQRTR
+fi
+if test -f /output/basalt.json; then
+    python3 -B - <<'PYBASALT' > /output/basalt-loader.txt
+import importlib.util
+spec=importlib.util.spec_from_file_location('basalt','/repo/tools/basalt-artifact.py')
+artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+print(artifact.check_loader('/tmp/root'))
+PYBASALT
 fi
 if test -f /output/turnip.json; then
     chroot /tmp/root /usr/bin/ldd -r /opt/reframed-vr/turnip/lib64/libvulkan_freedreno.so > /output/turnip-dependencies.txt 2>&1
@@ -327,6 +345,12 @@ if Path('/output/turnip.json').is_file():
             raise SystemExit('Root image Turnip mismatch: '+item['path'])
     if hashlib.sha256(Path('/tmp/verify/turnip-build.json').read_bytes()).hexdigest()!=turnip['build_sha256']:
         raise SystemExit('Root image Turnip build record mismatch')
+basalt=None
+if Path('/output/basalt.json').is_file():
+    basalt=json.loads(Path('/output/basalt.json').read_text())
+    spec=importlib.util.spec_from_file_location('basalt','/repo/tools/basalt-artifact.py')
+    artifact=importlib.util.module_from_spec(spec);spec.loader.exec_module(artifact)
+    artifact.verify_image('/output/rootfs.ext4',basalt,'/tmp/verify/basalt-root')
 monado=None
 if Path('/output/monado.json').is_file():
     monado=json.loads(Path('/output/monado.json').read_text())
@@ -366,7 +390,7 @@ if Path('/output/fastrpc.json').is_file():
     artifact.verify_image('/output/rootfs.ext4',fastrpc,'/tmp/verify/fastrpc-root')
 Path('/output/contents.json').write_text(json.dumps({'modules':modules,'firmware':firmware,'gpu_firmware':gpu,'pico_services':pico_services,
     'quest_startup_unit_sha256':hashlib.sha256(Path('/tmp/verify/quest.service').read_bytes()).hexdigest() if Path('/quest.service').exists() else None,
-    'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'monado':monado,'lepton':lepton,'ssc':ssc,'ssc_inventory':inventory,'fastrpc':fastrpc},indent=2)+'\n')
+    'systemd_runtime_verified':Path('/systemd-runtime').is_dir(),'turnip':turnip,'basalt':basalt,'monado':monado,'lepton':lepton,'ssc':ssc,'ssc_inventory':inventory,'fastrpc':fastrpc},indent=2)+'\n')
 PYVERIFY
 rpm -q e2fsprogs systemd > /output/tool-versions.txt
 '''
@@ -512,6 +536,11 @@ def run(args):
     if turnip_dir and any(c in str(turnip_dir) for c in (",", ":")):
         raise ValueError("Choose a Turnip path without commas or colons")
     turnip = turnip_artifact.validate(turnip_dir) if turnip_dir else None
+    basalt_path = getattr(args, "basalt", None)
+    basalt_dir = basalt_path.absolute() if basalt_path else None
+    if basalt_dir and any(c in str(basalt_dir) for c in (",", ":")):
+        raise ValueError("Choose a Basalt path without commas or colons")
+    basalt = basalt_artifact.package(basalt_dir) if basalt_dir else None
     monado_dir = args.monado.absolute() if args.monado else None
     if monado_dir and any(c in str(monado_dir) for c in (",", ":")):
         raise ValueError("Choose a Monado path without commas or colons")
@@ -583,6 +612,9 @@ def run(args):
         inputs["tools/prepare-pico-dsp.py"] = builder.digest(Path(builder.pico_firmware.dsp.__file__))
     if runtime:
         inputs["tools/systemd-runtime.py"] = builder.digest(Path(builder.systemd_runtime.__file__))
+    if basalt:
+        for name in ("tools/basalt-artifact.py", "tools/build-basalt.py", "profiles/basalt.json"):
+            inputs[name] = builder.digest(ROOT / name)
     inputs["tools/monado-artifact.py"] = builder.digest(ROOT / "tools/monado-artifact.py")
     if lepton:
         inputs["tools/lepton-artifact.py"] = builder.digest(ROOT / "tools/lepton-artifact.py")
@@ -602,6 +634,8 @@ def run(args):
     (output / "root-profile.json").write_text(json.dumps(target, indent=2) + "\n")
     if turnip:
         (output / "turnip.json").write_text(json.dumps(turnip, indent=2) + "\n")
+    if basalt:
+        (output / "basalt.json").write_text(json.dumps(basalt, indent=2) + "\n")
     if monado:
         (output / "monado.json").write_text(json.dumps(monado, indent=2) + "\n")
     if lepton:
@@ -615,7 +649,7 @@ def run(args):
     if rpms:
         (output / "runtime-rpms.json").write_text(json.dumps(rpms, indent=2) + "\n")
     report = {"status": "started", "profile": args.profile, "pico_services": pico_services, "systemd_runtime_sha256": runtime_sha,
-              "turnip": turnip, "monado": monado, "lepton": lepton, "ssc": ssc, "ssc_inventory": inventory, "fastrpc": fastrpc, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
+              "turnip": turnip, "basalt": basalt, "monado": monado, "lepton": lepton, "ssc": ssc, "ssc_inventory": inventory, "fastrpc": fastrpc, "gpu_firmware": gpu, "export_source": export_source, "target": "headset-root-offline", "hardware_flash_image": False,
               "hardware_boot_verified": False, "kernel_variant": build["variant"], "qemu_transports": build["qemu_transports"],
               "kernel_build_sha256": builder.digest(kernel / "build.json"), "kernel_inputs_sha256": hashes,
               "initramfs_sha256": expected, "firmware": fw,
@@ -686,6 +720,9 @@ print('Monado runtime image preflight: passed')
                    *(["-v", f"{ssc_dir}:/ssc:ro", "-v", f"{ROOT / 'tools/ssc-artifact.py'}:/repo/tools/ssc-artifact.py:ro"] if ssc_dir else []),
                    *(["-v", f"{inventory_dir}:/ssc-inventory:ro", "-v", f"{ROOT / 'tools/ssc-inventory-artifact.py'}:/repo/tools/ssc-inventory-artifact.py:ro"] if inventory_dir else []),
                    *(["-v", f"{fastrpc_dir}:/fastrpc:ro", "-v", f"{ROOT / 'tools/fastrpc-artifact.py'}:/repo/tools/fastrpc-artifact.py:ro"] if fastrpc_dir else []),
+                   *(["-v", f"{basalt_dir}:/basalt:ro",
+                       "-v", f"{ROOT / 'tools/basalt-artifact.py'}:/repo/tools/basalt-artifact.py:ro",
+                       "-v", f"{ROOT / 'tools/build-basalt.py'}:/repo/tools/build-basalt.py:ro"] if basalt_dir else []),
                    *(["-v", f"{monado_dir}:/monado:ro", "-v", f"{ROOT / 'tools/monado-artifact.py'}:/repo/tools/monado-artifact.py:ro"] if monado_dir else []),
                    *(["-v", f"{lepton_dir}:/lepton:ro", "-v", f"{lepton_host_dir}:/lepton-host:ro", "-v", f"{ROOT / 'tools/lepton-artifact.py'}:/repo/tools/lepton-artifact.py:ro"] if lepton_dir else []),
                    "--entrypoint", "timeout", image["Id"], "--kill-after=5", "900", "bash", "-c", SCRIPT,
@@ -712,6 +749,8 @@ print('Monado runtime image preflight: passed')
             raise ValueError("SSC inventory changed during root construction")
         if fastrpc_dir and fastrpc_artifact.package(fastrpc_dir) != fastrpc:
             raise ValueError("FastRPC changed during root construction")
+        if basalt_dir and basalt_artifact.package(basalt_dir) != basalt:
+            raise ValueError("Basalt changed during root construction")
         if monado_dir and monado_artifact.package(monado_dir) != monado:
             raise ValueError("Monado changed during root construction")
         if lepton_dir and lepton_artifact.validate(lepton_dir, lepton_host_dir) != lepton:
@@ -731,6 +770,8 @@ print('Monado runtime image preflight: passed')
             names += ["ssc-inventory.json", "ssc-inventory-loader.json"]
         if fastrpc:
             names += ["fastrpc.json", "fastrpc-loader.json"]
+        if basalt:
+            names += ["basalt.json", "basalt-loader.txt"]
         if monado:
             names += ["monado.json", "monado-dependencies.txt", "monado-loader.txt"]
             if (output / "monado-preflight.txt").exists():
@@ -765,6 +806,7 @@ if __name__ == "__main__":
     parser.add_argument("--image", default="localhost/reframed-vr:runtime")
     parser.add_argument("--systemd-runtime", type=Path, help="Prepared root-scope systemd runtime; required for Pico")
     parser.add_argument("--turnip", type=Path, help="Verified Mesa Turnip build directory")
+    parser.add_argument("--basalt", type=Path, help="Verified native Basalt bundle; no automatic tracking")
     parser.add_argument("--monado", type=Path, help="Verified native Monado build directory")
     parser.add_argument("--lepton", type=Path, help="Prepared Lepton execution bundle with source-built init")
     parser.add_argument("--lepton-host", type=Path, help="Manifest-pinned native and Android Fossilize host bundle")

@@ -46,6 +46,13 @@ class BasaltSources(unittest.TestCase):
             (root / '.git/HEAD').write_text('repository metadata\n')
             self.assertEqual(before, basalt.tree_digest(root))
 
+    def test_pinned_patch_changes_are_rejected(self):
+        profile = json.loads((ROOT / 'profiles/basalt.json').read_text())
+        basalt.verify_patches(profile)
+        profile['patches'][0]['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'patch differs'):
+            basalt.verify_patches(profile)
+
     def test_profile_pins_every_fetched_tree(self):
         profile = json.loads((ROOT / 'profiles/basalt.json').read_text())
         self.assertEqual(profile['sources'][0]['commit'], profile['commit'])

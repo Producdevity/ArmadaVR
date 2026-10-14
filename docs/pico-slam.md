@@ -19,8 +19,9 @@ python3 -B tools/build-basalt.py build output/basalt-source-new/source \
 ```
 
 Source preparation fetches exact commits and verifies the complete source tree,
-including the pinned Eigen archive. Compilation runs without network access,
-with a read-only source tree, one build job, two CPUs and a 4 GiB memory limit.
+including the pinned Eigen archive. Hash-pinned patches are applied to a separate
+copy; the original sources are preserved. Compilation runs without network access,
+with a read-only patched source tree, one build job, two CPUs and a 4 GiB memory limit.
 The build requires all 187 upstream tests to pass. The staged install contains
 the native library, VIT header, corrected pkg-config file, dependency license
 files and source provenance. It does not install or select a host runtime.
@@ -49,6 +50,13 @@ produce the expected poses and meet the reference trajectory thresholds. The
 adapter and harness run with address/undefined-behavior sanitizers; the Release
 Basalt library itself is not sanitizer-instrumented.
 
+Before replay, 70 lifecycle cases exercise empty, IMU-only, incomplete-camera,
+stereo-without-IMU, queued-camera and normal startup, including repeated stop
+and destruction before startup. The pinned patches join optical flow before
+its derived buffers are destroyed, handle the end-of-stream pose sentinel and
+correct the upstream grayscale format query. The unpatched backend crashed
+when stopped after receiving stereo images without IMU input.
+
 The checked recording contains 186 stereo frames and 3,467 IMU samples. Its
 first image pair precedes the first IMU and is correctly withheld because it
 cannot be bracketed. Both tested runs delivered 370 images and all IMU samples,
@@ -61,6 +69,15 @@ These results validate a short recorded-data pipeline with Valve Index
 calibration. They do not measure Pico accuracy, latency, camera availability,
 relocalization, thermal behavior or sustained on-device performance. Reference
 calibration is never substituted for Pico calibration.
+
+## Offline root package
+
+Pass `--basalt VERIFIED_BUNDLE` to `tools/build-headset-root.py` to include the
+native library in an offline root. The builder verifies its pinned source,
+patches, tests, architecture and staged contents, tests dynamic loading, and
+reads the installed files back from the completed image. `test-pico-root.py`
+also checks the installed package and VIT version in the Pico-kernel VM.
+This does not start a tracker or supply headset calibration.
 
 ## Remaining integration
 

@@ -55,9 +55,11 @@ def main():
     profile = json.loads((ROOT / 'profiles/basalt.json').read_text())
     dataset = json.loads((ROOT / 'profiles/slam-replay.json').read_text())
     basalt.verify(args.basalt_source, profile)
+    basalt.verify_patches(profile)
     build = json.loads((args.basalt_build / 'build.json').read_text())
     prefix = args.basalt_build / basalt.PREFIX
     if (build['status'] != 'passed' or build['profile'] != profile or
+            build['builder_sha256'] != digest(ROOT / 'tools/build-basalt.py') or
             build['stage_sha256'] != basalt.tree_digest(prefix)):
         raise ValueError('Basalt bundle differs from verified build')
     if digest(args.monado_archive) != monado['full_source']['sha256']:
@@ -92,15 +94,17 @@ def main():
         'show-gui=0\ncam-calib="/source/' + dataset['calibration'] + '"\nconfig-path="/source/' +
         dataset['configuration'] + '"\nmarg-data=""\nprint-queue=0\nuse-double=0\ndeterministic=0\nnum-threads=1\n')
     source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h',
-                    'tests/pico-slam-replay.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
+                    'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/out/include -isystem /monado/src/xrt/include"
 cc -std=c11 $flags -c /repo/src/pico-camera.c -o /out/camera.o
 cc -std=c11 $flags -c /repo/src/pico-slam-input.c -o /out/input.o
 c++ -std=c++17 $flags -I/source/thirdparty/vit /repo/tests/pico-slam-replay.cpp /out/camera.o /out/input.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/replay
+c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-lifecycle.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/lifecycle
 export LD_LIBRARY_PATH=/opt/reframed-vr/basalt/lib64
 export ASAN_OPTIONS=detect_leaks=1
+/out/lifecycle /out/reference.toml > /out/lifecycle.log 2>&1
 for n in 1 2; do
     /out/replay /dataset /out/reference.toml /out/poses-$n.csv > /out/replay-$n.log 2>&1
 done
@@ -122,6 +126,8 @@ done
     try:
         with (args.output / 'run.log').open('wb') as log:
             subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, timeout=180)
+        if 'BASALT_LIFECYCLE_PASS stopped=70' not in (args.output / 'lifecycle.log').read_text():
+            raise ValueError('Estimator lifecycle checks did not finish')
         results = []
         for index in (1, 2):
             log = (args.output / f'replay-{index}.log').read_text()
@@ -137,7 +143,8 @@ done
         if build['stage_sha256'] != basalt.tree_digest(prefix):
             raise ValueError('Basalt bundle changed during replay')
         basalt.verify(args.basalt_source, profile)
-        report.update(status='passed', trajectories=results,
+        report.update(status='passed', trajectories=results, lifecycle_cycles=70,
+                      lifecycle_binary_sha256=digest(args.output / 'lifecycle'),
                       binary_sha256=digest(args.output / 'replay'),
                       output_sha256={path.name: digest(path) for path in args.output.glob('poses-*.csv')})
     except BaseException as error:

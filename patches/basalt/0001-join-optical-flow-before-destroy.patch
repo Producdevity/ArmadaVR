@@ -1,0 +1,108 @@
+--- a/include/basalt/optical_flow/optical_flow.h
++++ b/include/basalt/optical_flow/optical_flow.h
+@@ -34,6 +34,7 @@
+ */
+ #pragma once
+ 
++#include <atomic>
+ #include <chrono>
+ #include <memory>
+ #include <thread>
+@@ -128,11 +129,23 @@
+     // patch_coord = PatchT::pattern2.template cast<float>();
+     depth_guess = config.optical_flow_matching_default_depth;
+   }
+-  virtual ~OpticalFlowBase() { processing_thread->join(); }
++  virtual ~OpticalFlowBase() { join(); }
+ 
+   virtual void processingLoop() = 0;
+ 
+-  void start() { processing_thread.reset(new std::thread(&OpticalFlowBase::processingLoop, this)); }
++  void start() {
++    finished = false;
++    processing_thread.reset(new std::thread([this] {
++      processingLoop();
++      finished = true;
++    }));
++  }
++
++  void join() {
++    if (processing_thread && processing_thread->joinable()) processing_thread->join();
++  }
++
++  std::atomic<bool> finished = false;
+ 
+   virtual inline void drain_input_queues() {
+     while (!input_img_queue.empty()) {
+--- a/src/vit/vit_tracker.cpp
++++ b/src/vit/vit_tracker.cpp
+@@ -416,22 +416,30 @@
+   }
+ 
+   void stop() {
+-    running = false;
+-    image_data_queue->push(nullptr);
+-    imu_data_queue->push(nullptr);
+-    opt_flow_ptr->input_imu_queue.push(nullptr);
++    if (!running.exchange(false)) return;
++
++    ImuData<double>::Ptr imu;
++    OpticalFlowInput::Ptr image;
++    while (!imu_data_queue->try_push(nullptr)) imu_data_queue->try_pop(imu);
++    while (!opt_flow_ptr->input_imu_queue.try_push(nullptr)) opt_flow_ptr->input_imu_queue.try_pop(imu);
++    while (!image_data_queue->try_push(nullptr)) image_data_queue->try_pop(image);
++
++    // A backend stopped before its first IMU cannot consume frontend output.
++    while (!opt_flow_ptr->finished) {
++      if (vio->finished) {
++        OpticalFlowResult::Ptr discarded;
++        while (vio->vision_data_queue.try_pop(discarded)) {}
++      }
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++    }
++    opt_flow_ptr->join();
++    vio->maybe_join();
+ 
+     if (print_queue) queues_printer_thread.join();
+     if (!deterministic) state_consumer_thread.join();
+     if (show_gui) ui.stop();
+-
+-    // TODO: There is a segfault when closing monado without starting the stream
+-    // happens in a lambda from keypoint_vio.cpp and ends at line c1alib_bias.hpp:112
+-  }
+-
+-  void finalize() const {
+-    // Only the OpticalFlow gets started by initialize, finish it with this
+-    image_data_queue->push(nullptr);
++    partial_frame.reset();
++    expecting_frame = 0;
+   }
+ 
+   void reset() { vio->scheduleResetState(); }
+@@ -505,7 +513,8 @@
+ 
+     bool popped = monado_out_state_queue.try_pop(state);
+ 
+-    if (popped) {
++    if (pose != nullptr) *pose = nullptr;
++    if (popped && state != nullptr) {
+       // Discard the pose if the caller doesn't request it.
+       if (pose == nullptr) { return vit::Result::VIT_SUCCESS; }
+ 
+@@ -517,8 +526,6 @@
+       state->input_images->addTime("vit_consumer_pose_received");
+ 
+       *pose = static_cast<vit_pose_t *>(p);
+-    } else {
+-      *pose = nullptr;
+     }
+ 
+     return vit::Result::VIT_SUCCESS;
+@@ -605,7 +612,6 @@
+ }
+ 
+ vit::Result Tracker::stop() {
+-  impl_->finalize();
+   impl_->stop();
+   return vit::Result::VIT_SUCCESS;
+ }

@@ -1,0 +1,11 @@
+--- a/src/vit/vit_tracker.cpp
++++ b/src/vit/vit_tracker.cpp
+@@ -578,7 +578,7 @@
+ vit::Result Tracker::has_image_format(vit::ImageFormat fmt, bool *out) const {
+   switch (fmt) {
+     case VIT_IMAGE_FORMAT_L8:
+-    case VIT_IMAGE_FORMAT_L16: *out = true; break;
++    case VIT_IMAGE_FORMAT_L16: *out = true; return vit::Result::VIT_SUCCESS;
+     default: std::cerr << "Unknown image format: " << fmt << std::endl; break;
+   }
+ 
