@@ -1001,6 +1001,13 @@ them under ARM64 sanitizers. The bus prefix is checked against the UAPI.
 The module and slot must still match the actual hardware before probing, which
 powers the sensor and is not a read-only operation.
 
+The module inventory also resolves optional delay records and follows the stock
+probe selection: the last explicit type-zero record wins, otherwise the first
+record is used. Missing tables remain unknown. All eight retained modules match
+the stock parser and actual probe encoder: OV7251 variants select one frame,
+and IMX476/OV6211 variants select two. Request pipeline delay is distinct from
+the exposure-center timestamp correction required by tracking.
+
 The transport now queries sensor/PHY capabilities and ISP MMUs and supports
 sensor, PHY and split ISP device/hardware acquisition. The ISP v2 request is
 120 bytes, including five acquired resources with three split paths each.

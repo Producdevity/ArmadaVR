@@ -19,7 +19,7 @@ def words(*values):
 def fixture():
     driver = bytearray(808)
     for offset, value in ((24, 8), (32, 2), (40, 0xe0), (64, 0x300a), (72, 0x1234), (80, 0xffff), (48, 2), (56, 2), (88, 1),
-                          (96, 2), (104, 12), (112, 1), (120, 13)):
+                          (96, 2), (104, 12), (112, 1), (120, 13), (720, 1), (728, 20)):
         struct.pack_into('<Q', driver, offset, value)
     resolution = bytearray(288)
     values = {1: 1, 2: 4, 3: 800, 4: 500, 7: 24000000, 8: 1, 9: 1,
@@ -51,6 +51,11 @@ def fixture():
         [17, 'sensorI2CFrequencyMode', 0, 0xffffffff, words(1)],
         [18, 'laneAssign', 0, 0xffffffff, words(0x3210)],
         [19, 'isComboMode', 0, 0xffffffff, words(0)],
+        [20, 'delayInfo', 0, 0xffffffff, words(0, 21, 1, 22, 1, 23, 0, 24, 1, 0)],
+        [21, 'delayType', 0, 0xffffffff, b''],
+        [22, 'linecount', 0, 0xffffffff, words(0)],
+        [23, 'gain', 0, 0xffffffff, words(0)],
+        [24, 'frameLengthLines', 0, 0xffffffff, b''],
     ]
 
 
@@ -91,6 +96,36 @@ class CameraModuleTests(unittest.TestCase):
         self.assertEqual(result['power_down'], [{'sequence_type': 8, 'value': 1, 'delay_ms': 2}])
         self.assertEqual(result['configurations'], [{'index': 0, 'sensor_name': 'ov-test',
             'slave_address': 0xe2, 'frequency': 1, 'lane_assign': 0x3210, 'combo': 0}])
+
+    def test_probe_pipeline_delay_selection(self):
+        result = camera.Module(encode(fixture())).inspect()
+        self.assertEqual(result['probe_pipeline_delay'], 1)
+        self.assertEqual(result['delays'], [{'type': None, 'line_count_delay': 0,
+            'gain_delay': 0, 'frame_length_delay': None, 'pipeline_delay': 1}])
+        symbols = fixture()
+        struct.pack_into('<Q', symbols[0][4], 720, 3)
+        symbols[19][4] += words(1, 21, 1, 22, 1, 23, 0, 24, 2, 0)
+        symbols[19][4] += words(1, 21, 1, 22, 1, 23, 0, 24, 3, 0)
+        # Optional references share a table; absent fields require an empty one.
+        symbols.append([25, 'delayType', 0, 0xffffffff, b''])
+        symbols[19][4] = bytearray(symbols[19][4])
+        struct.pack_into('<Q', symbols[19][4], 8, 25)
+        symbols[20][4] = words(0)
+        self.assertEqual(camera.Module(encode(symbols)).inspect()['probe_pipeline_delay'], 3)
+        symbols[20][4] = words(1)
+        self.assertEqual(camera.Module(encode(symbols)).inspect()['probe_pipeline_delay'], 1)
+        struct.pack_into('<Q', symbols[0][4], 720, 0)
+        symbols[19][4] = b''
+        self.assertIsNone(camera.Module(encode(symbols)).inspect()['probe_pipeline_delay'])
+
+    def test_invalid_delay_metadata(self):
+        for index, value in ((0, 2), (1, 99999), (8, 1 << 32)):
+            symbols = fixture()
+            delay = bytearray(symbols[19][4])
+            struct.pack_into('<Q', delay, index * 8, value)
+            symbols[19][4] = delay
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                camera.Module(encode(symbols)).inspect()
 
     def test_missing_optional_csi_values_remain_unknown(self):
         symbols = fixture()

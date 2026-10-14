@@ -103,6 +103,18 @@ class Module:
                          [integer(data, offset + i * 8) for i in range(3)]))
                 for offset in range(0, len(data), 24)]
 
+    def delays(self, count, identifier):
+        data = self.reference(identifier, 'delayInfo', count, 80)
+        result = []
+        for offset in range(0, len(data), 80):
+            row = [integer(data, offset + i * 8) for i in range(10)]
+            result.append({'type': self.optional(row[1], 'delayType', row[0]),
+                           'line_count_delay': self.optional(row[3], 'linecount', row[2]),
+                           'gain_delay': self.optional(row[5], 'gain', row[4]),
+                           'frame_length_delay': self.optional(row[7], 'frameLengthLines', row[6]),
+                           'pipeline_delay': row[8]})
+        return result
+
     def configurations(self):
         roots = [s for s in self.symbols.values() if s.name == 'cameraModuleData']
         if len(roots) != 1 or roots[0].version != 1 or len(roots[0].data) != 40:
@@ -179,7 +191,12 @@ class Module:
                 {'selector': integer(symbol.data, i),
                  'settings': self.settings(integer(symbol.data, i + 8), integer(symbol.data, i + 16))}
                 for i in range(0, len(symbol.data), 24)]
+        delays = self.delays(integer(driver, 720), integer(driver, 728))
+        selected = next((row for row in reversed(delays) if row['type'] == 0),
+                        delays[0] if delays else None)
         return {'sensor_name': name,
+                'delays': delays,
+                'probe_pipeline_delay': selected['pipeline_delay'] & 0xffff if selected else None,
                 'address_type': integer(driver, 48), 'data_type': integer(driver, 56),
                 'frequency': integer(driver, 88),
                 'power_up': self.power(integer(driver, 96), integer(driver, 104)),
