@@ -29,6 +29,18 @@ size_t pico_camera_sensor_writes(const struct pico_camera_sensor_bus *bus,
                                 const struct pico_camera_sensor_write *writes, size_t count,
                                 void *output, size_t size);
 
+struct pico_camera_sensor_probe {
+    uint32_t register_address, expected_id, id_mask, camera_id, pipeline_delay;
+};
+
+/* Encode the 28-byte bus and sensor identity command. The slave address must
+ * be present. Pipeline delay 0 keeps the kernel default; 1..3 selects frames.
+ * The kernel reads this delay from the nominally reserved probe field.
+ * This command does not select hardware or establish safe power settings. */
+size_t pico_camera_sensor_probe(const struct pico_camera_sensor_bus *bus,
+                               const struct pico_camera_sensor_probe *probe,
+                               void *output, size_t size);
+
 #define PICO_CAMERA_SENSOR_MAX_POWER_STEPS 12
 
 struct pico_camera_sensor_power_step {

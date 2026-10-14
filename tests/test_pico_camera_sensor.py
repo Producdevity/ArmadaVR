@@ -11,6 +11,9 @@ class CameraSensorTests(unittest.TestCase):
     def test_power_encoding(self):
         self.run_encoder('power')
 
+    def test_probe_encoding(self):
+        self.run_encoder('probe')
+
     def run_encoder(self, kind):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

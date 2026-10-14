@@ -121,3 +121,30 @@ size_t pico_camera_sensor_power(bool up, const struct pico_camera_sensor_power_s
     }
     return required;
 }
+
+size_t pico_camera_sensor_probe(const struct pico_camera_sensor_bus *bus,
+                               const struct pico_camera_sensor_probe *probe,
+                               void *output, size_t size)
+{
+    if (!bus || !probe || !output || size < 28 || !bus->include_slave ||
+        !bus->address_type || bus->address_type > 4 || !bus->data_type || bus->data_type > 4 ||
+        bus->frequency > 3 || !bus->slave_address || bus->slave_address > 254 ||
+        (bus->slave_address & 1) || probe->camera_id > UINT16_MAX || probe->pipeline_delay > 3 ||
+        probe->register_address >= ((uint64_t)1 << (bus->address_type * 8))) return 0;
+    uint8_t bytes[28] = {0};
+    put32(bytes, bus->slave_address);
+    bytes[4] = (uint8_t)bus->frequency;
+    bytes[5] = 4;
+    bytes[8] = (uint8_t)bus->data_type;
+    bytes[9] = (uint8_t)bus->address_type;
+    bytes[10] = 3;
+    bytes[11] = 1;
+    put32(bytes + 12, probe->register_address);
+    put32(bytes + 16, probe->expected_id);
+    put32(bytes + 20, probe->id_mask);
+    bytes[24] = (uint8_t)probe->camera_id;
+    bytes[25] = (uint8_t)(probe->camera_id >> 8);
+    bytes[26] = (uint8_t)probe->pipeline_delay;
+    memcpy(output, bytes, sizeof(bytes));
+    return sizeof(bytes);
+}
