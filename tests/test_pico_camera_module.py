@@ -91,6 +91,15 @@ class CameraModuleTests(unittest.TestCase):
         self.assertEqual(result['register_tables']['5'], [{'slave_address': None, 'address': 0x100,
             'values': [128], 'address_type': 2, 'data_type': 1, 'operation': 0, 'delay_us': 1000}])
 
+    def test_color_filter_pattern_is_not_csi_data_type(self):
+        for color, pattern in enumerate((2, 3, 1, 0, 0, 6, None, None)):
+            symbols = fixture()
+            struct.pack_into('<Q', symbols[2][4], 0, color)
+            mode = camera.Module(encode(symbols)).inspect()['resolutions']['3'][0]
+            self.assertEqual(mode['color_filter_pattern'], color)
+            self.assertEqual(mode['camif_sample_pattern'], pattern)
+            self.assertEqual(mode['streams'][0]['data_type'], 0x2a)
+
     def test_stream_tables_and_initialization_reference(self):
         symbols = fixture()
         result = camera.Module(encode(symbols)).inspect()

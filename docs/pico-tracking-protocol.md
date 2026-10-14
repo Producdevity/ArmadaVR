@@ -1175,3 +1175,11 @@ IFE commands also pass its scratch-space and generic-blob parsers, and PHY
 commands pass its configuration and lane-enable parsers. Kernel memory lookup,
 device-handle lookup and hardware operations are stubbed. This verifies packet
 integration, not sensor startup, CSI signalling or sustainable capture.
+
+The module inventory now retains each mode's color-filter pattern and resolves
+its three-bit CAMIF sample pattern through the stock pixel-format conversion.
+The saved OV7251/OV6211 monochrome modes use filter value 4: stock converts this
+to sample value 8, then masks it to 0 in the RDI register. This differs from the
+CSI RAW8 data type. Unsupported conversions remain null. All eight saved modules
+and eight varied filter fixtures match the original parser/conversion functions,
+covering 72 mode records; this still does not identify the active physical module.

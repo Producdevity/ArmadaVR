@@ -171,6 +171,8 @@ class Module:
             if any(flag > 31 for flag in flags):
                 raise ValueError('Invalid MIPI flag bit')
             result.append({'index': offset // 288, 'streams': decoded,
+                           'color_filter_pattern': row[0],
+                           'camif_sample_pattern': {0: 2, 1: 3, 2: 1, 3: 0, 4: 0, 5: 6}.get(row[0]),
                            'line_length': row[3], 'frame_length': row[4], 'pixel_clock': row[7],
                            'horizontal_binning': row[8], 'vertical_binning': row[9], 'fps': fps,
                            'lanes': row[11], 'settle_count': row[14], 'cphy': row[15],
