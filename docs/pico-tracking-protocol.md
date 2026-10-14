@@ -750,3 +750,7 @@ tracking. Run them with:
 ```sh
 python3 -B tools/test-pico-slam-input.py PINNED_MONADO_ARCHIVE --output NEW_TEST_DIRECTORY
 ```
+
+The separate [native Basalt replay](pico-slam.md) tests this adapter with real
+recorded images and IMU samples and an actual 6DoF estimator. Its reference
+calibration is not a physical Pico calibration.

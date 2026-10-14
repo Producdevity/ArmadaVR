@@ -20,6 +20,7 @@ virtual target for functional tests.
 | Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Physical driver operation, recovery and exact-device boot |
 | Pico userspace | Matched native root and unsigned boot containers assembled; QEMU root boots, starts user sessions, enforces service isolation and powers off without disk writes | Physical root transport, complete application stack and hardware startup |
 | Pico HMD | Monado HMD with explicit calibration input; orientation, stereo geometry, both controllers and tracking-loss handling pass with synthetic SSC streams | Device calibration, panel output, controller poses and positional tracking |
+| Pico VIO | Native ARM64 Basalt build and two camera/IMU replays producing 185 poses each; recorded-reference position error 6.4 mm RMS | Native camera capture, active calibration, HMD pose integration and physical 6DoF |
 | Pico optics | Radial/RGB and screen-to-texture mapping compared with saved stock code; analytic calibration works through both software compositor paths | Active profile/IPD, panel orientation and physical optical alignment |
 | Graphics | KGSL Turnip and native Monado builds; software Vulkan stereo/RGB-distortion framebuffer checks, synchronization and display-selection tests | GPU execution, panel scanout and compositor timing on the headset |
 | VR applications | Native and Windows OpenXR stereo samples and virtual controller actions in QEMU | Games, physical tracking, controllers, audio and sustained performance |
@@ -70,7 +71,7 @@ used by the recorded SteamVR tests.
 - [Turnip](docs/turnip.md), [Monado](docs/monado.md), and [DMA-buffer synchronization](docs/dma-buf-sync.md)
 - [SteamVR](docs/steamvr.md), [native ARM64 runtime](docs/steamvr-arm64.md), [Windows OpenXR](docs/windows-openxr.md), and [controller acceptance](docs/controller-tests.md)
 - [VR acceptance milestones](docs/vr-milestones.md), [Steam Frame components](docs/steam-frame.md), and [Android container checks](docs/android-containers.md)
-- [Pico firmware and boot access](docs/pico-firmware.md), [HMD integration and calibration](docs/pico-hmd.md)
+- [Pico firmware and boot access](docs/pico-firmware.md), [HMD integration and calibration](docs/pico-hmd.md), [visual-inertial tracking](docs/pico-slam.md)
 
 Source revisions, archive hashes and build profiles are recorded under
 `profiles/`. Build tooling retains upstream license files. Firmware, calibration,
@@ -86,7 +87,7 @@ patches. [ROCKNIX](https://github.com/ROCKNIX) also provides upstream work used
 through those projects. Their handheld boot layout and updater are not a
 headset installer.
 
-The project also depends on Fedora, Linux, Mesa/Turnip, Monado, OpenXR, FEX,
+The project also depends on Fedora, Linux, Mesa/Turnip, Monado, Basalt, OpenXR, FEX,
 Proton, and Valve's published runtimes, with Meta and Pico vendor sources for
 board support. Upstream names, licenses, copyright notices, source URLs, and
 pinned revisions remain attached to their respective components.

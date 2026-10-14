@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "name": "MIO09_short_1_updown",
+  "url": "https://huggingface.co/datasets/collabora/monado-slam-datasets/resolve/main/M_monado_datasets/MI_valve_index/MIO_others/MIO09_short_1_updown.zip",
+  "size": 99569080,
+  "sha256": "14072018b9e424b06abfd1173169b24e53ad47632d3051e3164b27d322a0b898",
+  "archive_root": "MIO09_short_1_updown",
+  "uncompressed_size": 99477862,
+  "calibration": "data/msd/msdmi_calib.json",
+  "configuration": "data/msd/msdmi_config.json",
+  "poses": 185,
+  "max_rigid_rmse_m": 0.02,
+  "max_rigid_error_m": 0.05,
+  "scope": "Valve Index reference data and calibration; synthetic Pico camera envelope, not Pico capture or calibration."
+}

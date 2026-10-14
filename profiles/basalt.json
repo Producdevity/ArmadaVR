@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "repository": "https://gitlab.freedesktop.org/mateosss/basalt",
+  "commit": "df6e970c8da7636eb401a09e3317fbeaaf829b9a",
+  "vit_api": "2.0.1",
+  "vit_header_sha256": "5b15713785fcba7892032ca97910d34fa1be2d2bf8993e76828d493e023b2d86",
+  "source_tree_sha256": "d8fe564ee7df36cc2037c2a0eaec136af79aa93a0c5099a8222b3ec6ccfb0fbc",
+  "sources": [
+    {
+      "path": ".",
+      "url": "https://gitlab.freedesktop.org/mateosss/basalt.git",
+      "commit": "df6e970c8da7636eb401a09e3317fbeaaf829b9a"
+    },
+    {
+      "path": "thirdparty/basalt-headers",
+      "url": "https://gitlab.freedesktop.org/mateosss/basalt-headers.git",
+      "commit": "e6db0fb84c69614bc4923fde6c52154c221c1768"
+    },
+    {
+      "path": "thirdparty/opengv",
+      "url": "https://github.com/laurentkneip/opengv.git",
+      "commit": "91f4b19c73450833a40e463ad3648aae80b3a7f3"
+    },
+    {
+      "path": "thirdparty/CLI11",
+      "url": "https://github.com/CLIUtils/CLI11.git",
+      "commit": "37bb6edc5317e99af72ef48405e65d9ca5218861"
+    },
+    {
+      "path": "thirdparty/magic_enum",
+      "url": "https://github.com/Neargye/magic_enum.git",
+      "commit": "e046b69a3736d314fad813e159b1c192eaef92cd"
+    },
+    {
+      "path": "thirdparty/basalt-headers/thirdparty/Sophus",
+      "url": "https://github.com/strasdat/Sophus.git",
+      "commit": "d0b7315a0d90fc6143defa54596a3a95d9fa10ec"
+    },
+    {
+      "path": "thirdparty/basalt-headers/thirdparty/cereal",
+      "url": "https://github.com/USCiLab/cereal.git",
+      "commit": "ebef1e929807629befafbb2918ea1a08c7194554"
+    },
+    {
+      "path": "thirdparty/basalt-headers/test/googletest",
+      "url": "https://github.com/google/googletest.git",
+      "commit": "52eb8108c5bdec04579160ae17225d66034bd723"
+    },
+    {
+      "path": "thirdparty/basalt-headers/test/benchmark",
+      "url": "https://github.com/google/benchmark.git",
+      "commit": "192ef10025eb2c4cdd392bc502f0c852196baa48"
+    }
+  ],
+  "archives": [
+    {
+      "url": "https://gitlab.com/libeigen/eigen/-/archive/bc3b39870ecb690a623a3f49149a358b95c5781d/eigen-bc3b39870ecb690a623a3f49149a358b95c5781d.tar.gz",
+      "sha256": "5f6557d1aca6e959a4b955c55f2935261fd30de59c0c79e35bc6d5cbe1de22d1",
+      "size": 2969440,
+      "path": "thirdparty/basalt-headers/thirdparty/eigen",
+      "root": "eigen-bc3b39870ecb690a623a3f49149a358b95c5781d"
+    }
+  ],
+  "cmake_options": [
+    "-DCMAKE_BUILD_TYPE=Release",
+    "-DBASALT_BUILD_SHARED_LIBRARY_ONLY=ON",
+    "-DBASALT_BUILD_VISUALIZATION=OFF",
+    "-DBASALT_ENABLE_ROSBAG2=OFF",
+    "-DBASALT_BUILD_TESTS=ON",
+    "-DJUST_INSTALL_CEREAL=ON",
+    "-DBASALT_INSTANTIATIONS_DOUBLE=OFF",
+    "-DCXX_MARCH=armv8-a",
+    "-DCMAKE_C_COMPILER=clang",
+    "-DCMAKE_CXX_COMPILER=clang++",
+    "-DCMAKE_INSTALL_PREFIX=/opt/reframed-vr/basalt",
+    "-DCMAKE_INSTALL_LIBDIR=lib64"
+  ],
+  "test_count": 187
+}
