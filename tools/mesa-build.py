@@ -147,6 +147,17 @@ def build(profile, driver="lavapipe"):
                 "executable_sha256": digest(output / "kgsl-import-tests"),
             }
 
+            run([sys.executable, str(ROOT / "tests/mesa-display-format-tests.py"),
+                 str(source / "src/vulkan/wsi/wsi_common_display.c"), str(output)],
+                "mesa-display-format-tests.log", timeout=120)
+            report["display_format_tests"] = {
+                "status": "passed",
+                "scope": "actual WSI format lookup with modeled libdrm queries",
+                "runner_sha256": digest(ROOT / "tests/mesa-display-format-tests.py"),
+                "model_sha256": digest(ROOT / "tests/mesa-display-format-tests.c"),
+                "helpers_sha256": digest(output / "display-format-under-test.h"),
+                "executable_sha256": digest(output / "mesa-display-format-tests"),
+            }
         report["source_sha256"] = stamp.read_text()
         (output / "packages.txt").write_text(subprocess.check_output(["rpm", "-qa"], text=True))
         if not (build_dir / "build.ninja").is_file():

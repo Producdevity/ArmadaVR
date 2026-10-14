@@ -1,0 +1,74 @@
+Subject: [PATCH] wsi/display: handle missing formats and property query failures
+
+Do not return the first format's modifiers when the requested format is absent.
+Initialize the result count and release property metadata on every early return,
+including older kernels without IN_FORMATS. Check property-query failure before
+dereferencing the result.
+
+--- a/src/vulkan/wsi/wsi_common_display.c
++++ b/src/vulkan/wsi/wsi_common_display.c
+@@ -1668,6 +1668,7 @@
+     * are non-zero IDs.
+     */
+    assert(plane_id != 0);
++   *modifiers_count = 0;
+ 
+    /* Get the properties of the plane */
+    drmModeObjectProperties *props =
+@@ -1684,6 +1685,11 @@
+       const drmModePropertyPtr prop =
+          drmModeGetProperty(wsi->fd, props->props[i]);
+ 
++      if (!prop) {
++         drmModeFreeObjectProperties(props);
++         return NULL;
++      }
++
+       if (!strcmp(prop->name, "IN_FORMATS")) {
+          blob_id = props->prop_values[i];
+          drmModeFreeProperty(prop);
+@@ -1692,6 +1698,8 @@
+ 
+       drmModeFreeProperty(prop);
+    }
++
++   drmModeFreeObjectProperties(props);
+ 
+    /* Property not found, which means an old kernel, so definitely no modifiers
+     * support.
+@@ -1713,12 +1721,17 @@
+                                      fmt_mod_blob->modifiers_offset);
+ 
+    /* Find the format we care about in the list */
+-   size_t format_index = 0;
++   size_t format_index = fmt_mod_blob->count_formats;
+    for (size_t i = 0; i < fmt_mod_blob->count_formats; i++) {
+       if (blob_formats[i] == drm_format) {
+          format_index = i;
+          break;
+       }
++   }
++
++   if (format_index == fmt_mod_blob->count_formats) {
++      drmModeFreePropertyBlob(blob);
++      return NULL;
+    }
+ 
+    /* Get the list of modifiers supported by that format */
+@@ -1738,7 +1751,6 @@
+       if (!new_modifiers) {
+          free(modifiers);
+          drmModeFreePropertyBlob(blob);
+-         drmModeFreeObjectProperties(props);
+          return NULL;
+       }
+       modifiers = new_modifiers;
+@@ -1746,8 +1758,6 @@
+    }
+ 
+    drmModeFreePropertyBlob(blob);
+-
+-   drmModeFreeObjectProperties(props);
+ 
+    *modifiers_count = count_modifiers;
+    return modifiers;

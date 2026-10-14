@@ -62,6 +62,11 @@ def validate(directory):
         if (result.get('status') != 'passed' or result['runner_sha256'] != digest(ROOT / ('tests/' + stem + '.py')) or
                 result['model_sha256'] != digest(ROOT / ('tests/' + stem + '.cpp'))):
             raise ValueError('Turnip ' + suite + ' test sources changed or tests failed')
+    formats = report['display_format_tests']
+    if (formats.get('status') != 'passed' or
+            formats['runner_sha256'] != digest(ROOT / 'tests/mesa-display-format-tests.py') or
+            formats['model_sha256'] != digest(ROOT / 'tests/mesa-display-format-tests.c')):
+        raise ValueError('Turnip display format test sources changed or tests failed')
     display = report['kgsl_display_test']
     if (display['source_sha256'] != digest(ROOT / 'tests/kgsl-display.c') or
             display['header_sha256'] != artifacts['tu_kgsl_display.h']['sha256'] or

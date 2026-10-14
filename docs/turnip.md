@@ -263,3 +263,14 @@ modeled KGSL ioctls and real descriptors. The 2,304 cases cover successful impor
 query/import/duplication failures, cleanup failure and repeated recovery. The
 preceding source fails 1,536 ownership checks; the corrected source passes.
 These are userspace ownership tests, not hardware GPU or display acceptance.
+
+Patch 0008 fixes display-plane modifier lookup: an absent format no longer
+inherits the first format's modifiers. Missing property queries are handled
+without dereferencing null, and all property metadata is released, including on
+kernels without `IN_FORMATS`. The existing no-modifier fallback remains.
+
+The actual WSI function passes 6,336 synthetic format/query/allocation cases,
+including format indices across the 64-bit modifier-mask boundaries, and a
+missing-property sanitizer test. The previous function fails 4,776 cases and
+triggers a null-pointer diagnostic. This verifies lookup and ownership; compatible
+physical SDE/Adreno layouts and actual PRIME import still need hardware testing.
