@@ -93,14 +93,23 @@ def main():
     (args.output / 'reference.toml').write_text(
         'show-gui=0\ncam-calib="/source/' + dataset['calibration'] + '"\nconfig-path="/source/' +
         dataset['configuration'] + '"\nmarg-data=""\nprint-queue=0\nuse-double=0\ndeterministic=0\nnum-threads=1\n')
-    source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h',
+    source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h', 'src/pico-slam-tracking.c', 'src/pico-slam-tracking.h',
                     'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
-flags="-O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/out/include -isystem /monado/src/xrt/include"
+flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/out/include -isystem /monado/src/xrt/include"
 cc -std=c11 $flags -c /repo/src/pico-camera.c -o /out/camera.o
 cc -std=c11 $flags -c /repo/src/pico-slam-input.c -o /out/input.o
-c++ -std=c++17 $flags -I/source/thirdparty/vit /repo/tests/pico-slam-replay.cpp /out/camera.o /out/input.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/replay
+mathflags="$flags -pthread -ffunction-sections -fdata-sections -isystem /monado/src/xrt/auxiliary -isystem /monado/src/external/cjson $(pkg-config --cflags eigen3)"
+cc -std=gnu11 $mathflags -c /repo/src/pico-slam-tracking.c -o /out/tracking.o
+for path in math/m_predict.c util/u_logging.c util/u_debug.c; do
+    cc -std=gnu11 $mathflags -w -c /monado/src/xrt/auxiliary/$path -o /out/$(basename $path).o
+done
+for path in math/m_base.cpp math/m_relation_history.cpp math/m_quatexpmap.cpp; do
+    c++ -std=c++17 $mathflags -w -c /monado/src/xrt/auxiliary/$path -o /out/$(basename $path).o
+done
+cc -std=gnu11 $mathflags -w -c /monado/src/external/cjson/cjson/cJSON.c -o /out/cJSON.o
+c++ -std=c++17 $flags -pthread -Wl,--gc-sections -I/source/thirdparty/vit /repo/tests/pico-slam-replay.cpp /out/*.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/replay
 c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-lifecycle.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/lifecycle
 export LD_LIBRARY_PATH=/opt/reframed-vr/basalt/lib64
 export ASAN_OPTIONS=detect_leaks=1
@@ -111,7 +120,7 @@ done
 '''
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
-               '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '2g', '--memory-swap', '2g',
+               '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '4g', '--memory-swap', '4g',
                '--cpus', '2', '--pids-limit', '128', '--tmpfs', '/tmp:rw,exec,size=128m']
     for source, target, readonly in [(ROOT, '/repo', True), (args.basalt_source, '/source', True),
                                      (prefix, '/opt/reframed-vr/basalt', True), (monado_source, '/monado', True),
@@ -125,13 +134,13 @@ done
               'physical_tracking_verified': False}
     try:
         with (args.output / 'run.log').open('wb') as log:
-            subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, timeout=180)
+            subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, timeout=300)
         if 'BASALT_LIFECYCLE_PASS stopped=70' not in (args.output / 'lifecycle.log').read_text():
             raise ValueError('Estimator lifecycle checks did not finish')
         results = []
         for index in (1, 2):
             log = (args.output / f'replay-{index}.log').read_text()
-            if 'PICO_SLAM_REPLAY_PASS' not in log:
+            if 'PICO_SLAM_REPLAY_PASS' not in log or 'PICO_SLAM_HEAD_POSES_PASS poses=184 stopped_invalid=1' not in log:
                 raise ValueError('Replay did not finish')
             metrics = trajectory_metrics(args.output / f'poses-{index}.csv', reference / 'mav0/gt/data.csv')
             if (metrics['poses'] != dataset['poses'] or metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or

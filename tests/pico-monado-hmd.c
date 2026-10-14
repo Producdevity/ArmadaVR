@@ -1,5 +1,6 @@
 #include "pico-monado-hmd.h"
 #include <assert.h>
+#include <os/os_time.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,6 +131,40 @@ static int radial_samples(void)
     assert(!live&&stops==joins);return 0;
 }
 
+static void visual_tracking_test(void)
+{
+    struct pico_slam_tracking *tracking=NULL;
+    struct pico_slam_tracking_config c={.openxr_from_slam={.orientation={0,0,0,1}},
+        .imu_from_head={.orientation={0,0,0,1}},.max_age_ns=100000000,
+        .max_gap_ns=30000000,.max_prediction_ns=50000000};
+    assert(pico_slam_tracking_create(&c,&tracking) && pico_slam_tracking_begin(tracking,1));
+    struct xrt_uv_triplet grid[4]={0};
+    struct pico_hmd_config h=configuration(grid,2);
+    h.visual_tracking=tracking;
+    struct xrt_device *d=NULL;
+    unsigned prior=starts;
+    assert(pico_monado_hmd_create(&h,&d) && starts==prior);
+    assert(d->supported.position_tracking);
+    assert(d->update_inputs(d)==XRT_SUCCESS && !d->inputs[0].active);
+    int64_t now=(int64_t)os_monotonic_get_ns();
+    struct xrt_pose p={.orientation={0,0,0,1},.position={0,0,0}};
+    assert(pico_slam_tracking_push(tracking,1,&p,now-20000000,0,now));
+    p.position.x=.02f;
+    assert(pico_slam_tracking_push(tracking,1,&p,now,0,now));
+    struct xrt_space_relation r;
+    assert(d->get_tracked_pose(d,XRT_INPUT_GENERIC_HEAD_POSE,now+10000000,&r)==XRT_SUCCESS);
+    assert(r.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT);
+    assert(fabsf(r.pose.position.x-.03f)<.00001f);
+    assert(d->update_inputs(d)==XRT_SUCCESS && d->inputs[0].active && d->inputs[0].timestamp==now);
+    pico_slam_tracking_stop(tracking);
+    assert(d->get_tracked_pose(d,XRT_INPUT_GENERIC_HEAD_POSE,now,&r)==XRT_SUCCESS && !r.relation_flags);
+    assert(d->update_inputs(d)==XRT_SUCCESS && !d->inputs[0].active);
+    d->destroy(d);
+    pico_slam_tracking_destroy(&tracking);
+    assert(starts==prior && !live);
+    puts("PICO_HMD_VISUAL_TRACKING_PASS predicted_position=0.03 no_duplicate_imu_session=1");
+}
+
 int main(int argc, char **argv)
 {
     if (argc==2 && !strcmp(argv[1],"--radial-samples")) return radial_samples();
@@ -197,5 +232,6 @@ int main(int argc, char **argv)
     assert(!live && stops==joins && joins==1064);
     printf("PICO_MONADO_HMD_PASS checks=%u joined=%u\n",checks,joins);
     radial_tests();
+    visual_tracking_test();
     return 0;
 }

@@ -79,6 +79,28 @@ reads the installed files back from the completed image. `test-pico-root.py`
 also checks the installed package and VIT version in the Pico-kernel VM.
 This does not start a tracker or supply headset calibration.
 
+## HMD pose output
+
+`pico-slam-tracking` accepts timestamped estimator IMU poses and explicit
+`T_openxr_slam` and `T_imu_head` transforms. It keeps Monado relation history,
+estimates head linear/angular velocity, and caps prediction at 50 ms including
+clock uncertainty. Initialization requires two estimates. Stale, nonfinite,
+regressing or discontinuous poses are rejected; a newer generation clears
+history after the owner resets the estimator.
+
+The Pico HMD factory can borrow this provider through `visual_tracking`.
+It then uses full head poses without starting a second IMU session or switching
+to an unrelated orientation-only world frame. The caller owns the provider and
+must stop capture and destroy the HMD before freeing it. The automatic prober
+does not create this path: active camera calibration and a capture/VIO owner
+are still needed.
+
+Native sanitizer tests cover transforms, interpolation, prediction limits,
+1,000 stream generations, 10,000 poses and 20,000 concurrent reads. Recorded
+Basalt replay additionally yields 184 usable head poses after initialization
+in each run and clears the provider on stop. These tests use synthetic transforms
+and replay time, not measured Pico axes or on-device latency.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.
@@ -86,8 +108,8 @@ This does not start a tracker or supply headset calibration.
   transforms; the retained older XML is not established as the active profile.
 - Bind camera and IMU clocks with measured uncertainty, and reset the estimator
   whenever a stream generation changes.
-- Feed fresh estimator poses through a bounded, calibrated HMD pose provider;
-  reject stale or invalid output rather than advertising positional tracking.
+- Own camera capture and estimator lifetimes together, connect pose draining to
+  the HMD provider, and invalidate it on capture loss or backend failure.
 - Validate camera coverage, real motion, loss/recovery and display-time prediction
   on the device after the boot/recovery gates pass.
 

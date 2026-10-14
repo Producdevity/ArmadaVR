@@ -13,6 +13,7 @@ struct pico_hmd {
     struct xrt_tracking_origin origin;
     struct xrt_input input;
     struct pico_head_session *session;
+    struct pico_slam_tracking *visual_tracking;
     struct xrt_pose eyes[2];
     unsigned width[2], height[2];
     struct xrt_uv_triplet *grids[2];
@@ -126,7 +127,13 @@ static xrt_result_t get_pose(struct xrt_device *xdev, enum xrt_input_name name,
     relation->pose.orientation.w = 1;
     if (name != XRT_INPUT_GENERIC_HEAD_POSE) return XRT_ERROR_INPUT_UNSUPPORTED;
     struct pico_hmd *hmd = (struct pico_hmd *)xdev;
-    pico_head_session_get_at(hmd->session, (int64_t)os_monotonic_get_ns(), at_timestamp_ns, relation);
+    int64_t now = (int64_t)os_monotonic_get_ns();
+    if (hmd->visual_tracking) {
+        int64_t sample_time;
+        pico_slam_tracking_get(hmd->visual_tracking, now, at_timestamp_ns, relation, &sample_time);
+    } else {
+        pico_head_session_get_at(hmd->session, now, at_timestamp_ns, relation);
+    }
     return XRT_SUCCESS;
 }
 
@@ -135,7 +142,10 @@ static xrt_result_t update_inputs(struct xrt_device *xdev)
     struct pico_hmd *hmd = (struct pico_hmd *)xdev;
     struct xrt_space_relation relation;
     int64_t time;
-    hmd->input.active = pico_head_session_get(hmd->session, (int64_t)os_monotonic_get_ns(), &relation, &time);
+    int64_t now = (int64_t)os_monotonic_get_ns();
+    hmd->input.active = hmd->visual_tracking ?
+        pico_slam_tracking_get(hmd->visual_tracking, now, now, &relation, &time) :
+        pico_head_session_get(hmd->session, now, &relation, &time);
     hmd->input.timestamp = time;
     return XRT_SUCCESS;
 }
@@ -196,12 +206,14 @@ bool pico_monado_hmd_create(const struct pico_hmd_config *config, struct xrt_dev
     xdev->tracking_origin = &hmd->origin;
     hmd->origin.type = XRT_TRACKING_TYPE_OTHER;
     hmd->origin.initial_offset.orientation.w = 1;
-    snprintf(hmd->origin.name, sizeof(hmd->origin.name), "Pico head orientation");
+    snprintf(hmd->origin.name, sizeof(hmd->origin.name), "%s", config->visual_tracking ? "Pico visual-inertial tracking" : "Pico head orientation");
     xdev->name = XRT_DEVICE_GENERIC_HMD;
     xdev->device_type = XRT_DEVICE_TYPE_HMD;
     snprintf(xdev->str, sizeof(xdev->str), "Pico Neo3 HMD");
     snprintf(xdev->serial, sizeof(xdev->serial), "%s", config->serial);
     xdev->supported.orientation_tracking = true;
+    xdev->supported.position_tracking = config->visual_tracking != NULL;
+    hmd->visual_tracking = config->visual_tracking;
     xdev->input_count = 1; xdev->inputs = &hmd->input;
     hmd->input.name = XRT_INPUT_GENERIC_HEAD_POSE;
     xdev->update_inputs = update_inputs;
@@ -225,7 +237,7 @@ bool pico_monado_hmd_create(const struct pico_hmd_config *config, struct xrt_dev
         if (!hmd->grids[i]) { destroy(xdev); return false; }
         memcpy(hmd->grids[i], v->distortion, size);
     }
-    if (!pico_head_session_create(&config->sensors, &config->tracking, &hmd->session)) {
+    if (!hmd->visual_tracking && !pico_head_session_create(&config->sensors, &config->tracking, &hmd->session)) {
         destroy(xdev); return false;
     }
     *device = xdev;

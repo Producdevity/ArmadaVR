@@ -2,6 +2,7 @@
 #include "vit_interface.h"
 extern "C" {
 #include "pico-slam-input.h"
+#include "pico-slam-tracking.h"
 }
 #include <algorithm>
 #include <array>
@@ -131,6 +132,16 @@ int main(int argc, char **argv) {
   CHECK(poses.good());
   poses.precision(12);
   poses << "timestamp_ns,x,y,z,qx,qy,qz,qw\n";
+  pico_slam_tracking_config pose_config{};
+  pose_config.openxr_from_slam.orientation.w = 1;
+  pose_config.imu_from_head.orientation.w = 1;
+  pose_config.max_age_ns = 100000000;
+  pose_config.max_gap_ns = 100000000;
+  pose_config.max_prediction_ns = 50000000;
+  pico_slam_tracking *tracking = nullptr;
+  CHECK(pico_slam_tracking_create(&pose_config, &tracking));
+  CHECK(pico_slam_tracking_begin(tracking, 1));
+  unsigned head_poses = 0;
   unsigned count = 0;
   int64_t last_pose = 0;
   double minpos[3] = {1e9, 1e9, 1e9}, maxpos[3] = {-1e9, -1e9, -1e9};
@@ -156,6 +167,18 @@ int main(int argc, char **argv) {
       }
       poses << d.timestamp << ',' << d.px << ',' << d.py << ',' << d.pz << ','
             << d.ox << ',' << d.oy << ',' << d.oz << ',' << d.ow << '\n';
+      xrt_pose imu_pose{{d.ox, d.oy, d.oz, d.ow}, {d.px, d.py, d.pz}};
+      CHECK(pico_slam_tracking_push(tracking, 1, &imu_pose, d.timestamp, 0, d.timestamp));
+      xrt_space_relation head{};
+      int64_t sample_time = 0;
+      bool valid = pico_slam_tracking_get(tracking, d.timestamp, d.timestamp, &head, &sample_time);
+      CHECK(valid == (count != 0));
+      if (valid) {
+        CHECK(sample_time == d.timestamp && (head.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT));
+        CHECK(std::abs(head.pose.position.x-d.px)<0.00001 &&
+              std::abs(head.pose.position.y-d.py)<0.00001 && std::abs(head.pose.position.z-d.pz)<0.00001);
+        ++head_poses;
+      }
       vit_pose_destroy(pose);
       ++count;
     }
@@ -216,6 +239,12 @@ int main(int argc, char **argv) {
   CHECK(vit_tracker_stop(tracker) == VIT_SUCCESS);
   vit_tracker_destroy(tracker);
   tracker = nullptr;
+  pico_slam_tracking_stop(tracking);
+  xrt_space_relation stopped{};
+  int64_t sample_time;
+  CHECK(!pico_slam_tracking_get(tracking, last_pose, last_pose, &stopped, &sample_time));
+  pico_slam_tracking_destroy(&tracking);
+  CHECK(head_poses + 1 == count);
   CHECK(count == left.size() - 1 && delivered_images == 2 * count &&
         delivered_imu == inertial.size());
   double span = 0;
@@ -223,6 +252,7 @@ int main(int argc, char **argv) {
     span += pow(maxpos[i] - minpos[i], 2);
   CHECK(span > 0.01 && span < 100);
   poses.close();
+  printf("PICO_SLAM_HEAD_POSES_PASS poses=%u stopped_invalid=1\n", head_poses);
   printf("PICO_SLAM_REPLAY_PASS frames=%zu images=%u imu=%u poses=%u "
          "position_span=%.6f api=%u.%u.%u\n",
          left.size(), delivered_images, delivered_imu, count, sqrt(span), major,

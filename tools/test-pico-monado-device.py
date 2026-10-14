@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--eigen', type=Path)
     parser.add_argument('--cc', default='cc')
     parser.add_argument('--cxx', default='c++')
     parser.add_argument('--sanitizer', choices=('address,undefined', 'thread', 'none'), default='address,undefined')
@@ -37,8 +38,9 @@ def main():
     include = source / 'src/xrt/include'
     generated = output / 'include/xrt'
     generated.mkdir(parents=True)
-    template = (include / 'xrt/xrt_config_build.h.cmake_in').read_text()
-    (generated / 'xrt_config_build.h').write_text(re.sub(r'^#cmakedefine .+$', '', template, flags=re.MULTILINE))
+    for name in ('xrt_config_build.h', 'xrt_config_have.h'):
+        template = (include / ('xrt/' + name + '.cmake_in')).read_text()
+        (generated / name).write_text(re.sub(r'^#cmakedefine .+$', '', template, flags=re.MULTILINE))
     inputs = [ROOT / name for name in ['tests/pico-monado-device.c', 'src/pico-monado-device.c', 'src/pico-monado-input.c']]
     inputs += [auxiliary / ('util/' + name) for name in [
         'u_device.c', 'u_device_ni.c', 'u_device_id.c', 'u_limited_unique_id.cpp',
@@ -46,7 +48,7 @@ def main():
     ]]
     inputs.append(source / 'src/external/cjson/cjson/cJSON.c')
     prober_inputs = [ROOT / 'tests/pico-monado-prober.c', ROOT / 'src/pico-monado-prober.c']
-    flags = ['-O1', '-g', '-ffunction-sections', '-fdata-sections', '-pthread',
+    flags = ['-O1', '-g1', '-ffunction-sections', '-fdata-sections', '-pthread',
              '-I', str(ROOT / 'src'), '-I', str(output / 'include'),
              '-isystem', str(include), '-isystem', str(auxiliary),
              '-isystem', str(source / 'src/external/cjson')]
@@ -88,12 +90,17 @@ def main():
         if 'PICO_MONADO_PROBER_PASS checks=123 sessions=100' not in log:
             raise ValueError('Prober tests did not complete')
         print(log.splitlines()[-1])
-        hmd_inputs = [ROOT / 'tests/pico-monado-hmd.c', ROOT / 'src/pico-monado-hmd.c']
+        hmd_inputs = [ROOT / name for name in ('tests/pico-monado-hmd.c', 'src/pico-monado-hmd.c', 'src/pico-slam-tracking.c')]
+        hmd_inputs += [auxiliary / ('math/' + name) for name in ('m_base.cpp', 'm_predict.c', 'm_relation_history.cpp', 'm_quatexpmap.cpp')]
+        eigen = ['-isystem', str(args.eigen.resolve())] if args.eigen else subprocess.check_output(['pkg-config', '--cflags', 'eigen3'], text=True).split()
         hmd_objects = []
         for index, path in enumerate(hmd_inputs):
             obj = output / ('hmd-' + str(index) + '.o')
-            run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
-                 '-c', str(path), '-o', str(obj)], 'hmd-' + str(index) + '-compile.log')
+            compiler = args.cxx if path.suffix == '.cpp' else args.cc
+            standard = '-std=c++17' if path.suffix == '.cpp' else '-std=gnu11'
+            warnings = ['-Wall', '-Wextra', '-Werror'] if index < 3 else ['-w']
+            run([compiler, standard, *flags, *eigen, *sanitize, *warnings,
+                 '-c', str(path), '-o', str(obj)], 'hmd-' + str(index) + '-compile.log', timeout=180)
             hmd_objects.append(str(obj))
         hmd = output / 'pico-monado-hmd'
         run([args.cxx, *sanitize, *hmd_objects, *objects[3:], '-pthread', '-lm', collect,
@@ -101,9 +108,9 @@ def main():
         run([str(hmd)], 'hmd-test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1',
             ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
         hmd_log = (output / 'hmd-test.log').read_text()
-        if 'PICO_MONADO_HMD_PASS' not in hmd_log or 'joined=1064' not in hmd_log or 'PICO_HMD_RADIAL_PASS samples=12740' not in hmd_log:
+        if 'PICO_HMD_VISUAL_TRACKING_PASS' not in hmd_log or 'PICO_MONADO_HMD_PASS' not in hmd_log or 'joined=1064' not in hmd_log or 'PICO_HMD_RADIAL_PASS samples=12740' not in hmd_log:
             raise ValueError('HMD callbacks and ownership checks did not complete')
-        report['hmd_inputs_sha256'] = {str(p.relative_to(ROOT)): digest(p) for p in hmd_inputs}
+        report['hmd_inputs_sha256'] = {str(p): digest(p) for p in hmd_inputs}
         report['hmd_binary_sha256'] = digest(hmd)
         print(hmd_log, end='')
         config_inputs = [ROOT / ('src/' + name + '.c') for name in ('pico-hmd-config', 'pico-hmd-prober')]
