@@ -83,7 +83,16 @@ int main(void)
     bad_output=1;expected_opcode=0x10b;expected_size=8;assert(pico_camera_session_create(17,&session)==-EPROTO&&!session);
     expected_opcode=0;expected_size=68;assert(pico_camera_fence_create(18,"capture",&fence)==-EPROTO&&!fence);
     expected_opcode=0x10d;expected_size=268;assert(pico_camera_link_create(17,101,devices,2,&link)==-EPROTO&&!link);
-    bad_output=0;failures=1;expected_opcode=0x10b;expected_size=8;assert(pico_camera_session_create(17,&session)==-EINTR&&!session);failures=0;
+    bad_output=0;failures=1;expected_opcode=0x10b;expected_size=8;
+    assert(pico_camera_session_create(17,&session)==-EINTR&&session==101);
+    expected_opcode=0x10d;expected_size=268;
+    assert(pico_camera_link_create(17,session,devices,2,&link)==-EINTR&&link==202);
+    expected_opcode=0;expected_size=68;
+    assert(pico_camera_fence_create(18,"capture",&fence)==-EINTR&&fence==303);
+    failures=0;
+    CALL(1,68,pico_camera_fence_destroy(18,&fence));
+    CALL(0x10e,8,pico_camera_link_destroy(17,session,&link));
+    CALL(0x10c,8,pico_camera_session_destroy(17,&session));
     before=calls;
     assert(pico_camera_session_create(-1,&session)==-EINVAL);
     assert(pico_camera_request_schedule(17,101,202,0,false,false)==-EINVAL);

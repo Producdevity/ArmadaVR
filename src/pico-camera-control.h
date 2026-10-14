@@ -7,7 +7,8 @@
 
 /* b1977 Linux ioctl transport. Descriptors must already refer to the matching
  * CRM/sync/device node. No discovery, open, retry, stream startup or cleanup is
- * automatic. Returns zero or negative errno. Handle outputs start at zero.
+ * automatic. Returns zero or negative errno. Handle outputs start at zero;
+ * positive returned handles are retained even after a failed copy-back.
  * Failed mutating ioctls may have partly completed: stop the owner and establish
  * quiescence before reusing resources. A successful CRM flush alone does not
  * establish hardware quiescence. */

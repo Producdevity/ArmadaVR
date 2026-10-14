@@ -29,10 +29,8 @@ int pico_camera_session_create(int fd, int32_t *session)
     if (!session || *session) return -EINVAL;
     int32_t data[2] = {0};
     int result = submit(fd, 0x10b, data, sizeof(data), false);
-    if (result) return result;
-    if (data[0] <= 0) return -EPROTO;
-    *session = data[0];
-    return 0;
+    if (data[0] > 0) *session = data[0];
+    return result ? result : data[0] > 0 ? 0 : -EPROTO;
 }
 int pico_camera_session_destroy(int fd, int32_t *session)
 {
@@ -54,10 +52,8 @@ int pico_camera_link_create(int fd, int32_t session, const int32_t *devices, siz
     }
     data.session = session; data.count = (uint32_t)count;
     int result = submit(fd, 0x10d, &data, sizeof(data), false);
-    if (result) return result;
-    if (data.link <= 0) return -EPROTO;
-    *link = data.link;
-    return 0;
+    if (data.link > 0) *link = data.link;
+    return result ? result : data.link > 0 ? 0 : -EPROTO;
 }
 int pico_camera_link_destroy(int fd, int32_t session, int32_t *link)
 {
@@ -129,10 +125,8 @@ int pico_camera_fence_create(int fd, const char *name, int32_t *fence)
     _Static_assert(sizeof(data) == 68, "camera fence ABI");
     memcpy(data.name, name, length);
     int result = submit(fd, 0, &data, sizeof(data), true);
-    if (result) return result;
-    if (data.handle <= 0) return -EPROTO;
-    *fence = data.handle;
-    return 0;
+    if (data.handle > 0) *fence = data.handle;
+    return result ? result : data.handle > 0 ? 0 : -EPROTO;
 }
 int pico_camera_fence_register(int fd, int32_t fence, uint64_t generation, uint64_t request)
 {

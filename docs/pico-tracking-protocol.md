@@ -1079,3 +1079,22 @@ silently ignores them in its initial and acquired states. An ARM64 harness feeds
 notification helper, observes 2,000 notifications in configured/started states,
 and confirms no I2C parser calls. Kernel memory lookup and CRM delivery are stubs;
 this does not establish sensor streaming or successful physical synchronization.
+
+The native request owner prepares a mono8 RDI image, sensor no-op packet, ISP
+packet, kernel command scratch space and a registered completion fence. It
+requires already initialized and linked devices, queried MMUs and explicit
+geometry. CRM scheduling precedes sensor and ISP submission, matching the retained
+stock request thread. Submission occurs once; even partial failure holds every
+marked buffer until completion or independently verified quiescence. The request
+can then feed the capture owner under a CPU read synchronization interval.
+
+300 host/ARM64 sanitizer frame deliveries exercise this path through the actual
+packet, control, stream and capture code with simulated allocation and ioctls.
+Twenty failure scenarios cover allocation, cache operations, preparation,
+scheduling, both device submissions and uncertain fence destruction. These tests do not start a sensor or establish a sustainable physical frame rate.
+
+CRM session, link and sync creation preserve positive returned handles even if
+the syscall reports failure. The retained CRM dispatch confirms that copy-back can
+fail after creation. Such handles are recovery information, not proof that an
+operation can be retried safely. Two copy-back fault cases run through the retained
+CRM dispatch; the other native transport tests cover the sync ABI.
