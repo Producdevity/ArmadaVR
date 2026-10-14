@@ -62,16 +62,11 @@ static bool varint(const uint8_t *data, size_t length, size_t *position,
     return false;
 }
 
-bool pico_controller_decode_ssc(const void *payload, size_t length,
-                                unsigned mcu_type, unsigned radio_type,
-                                bool touch_supported,
-                                struct pico_controller_sample *sample,
-                                unsigned *accuracy)
+static bool decode_ssc_record(const void *payload, size_t length, uint8_t record[100],
+                              unsigned *accuracy)
 {
-    if (!payload || !sample || !accuracy || length > 4096)
-        return false;
+    if (!payload || length > 4096) return false;
     const uint8_t *data = payload;
-    uint8_t record[100];
     size_t position = 0, used = 0;
     unsigned status = 0;
     bool has_status = false;
@@ -99,7 +94,7 @@ bool pico_controller_decode_ssc(const void *payload, size_t length,
         if (size > length - position)
             return false;
         if (field == 1) {
-            if ((wire != 2 && wire != 5) || size % 4 || size > sizeof(record) - used)
+            if ((wire != 2 && wire != 5) || size % 4 || size > 100 - used)
                 return false;
             memcpy(record + used, data + position, size);
             used += size;
@@ -111,11 +106,83 @@ bool pico_controller_decode_ssc(const void *payload, size_t length,
         }
         position += size;
     }
+    if (!has_status || used != 100) return false;
+    *accuracy = status;
+    return true;
+}
+
+bool pico_controller_decode_ssc(const void *payload, size_t length,
+                                unsigned mcu_type, unsigned radio_type,
+                                bool touch_supported,
+                                struct pico_controller_sample *sample,
+                                unsigned *accuracy)
+{
+    uint8_t record[100]; unsigned status;
     struct pico_controller_sample result;
-    if (!has_status || used != sizeof(record) ||
-        !pico_controller_decode(record, used, mcu_type, radio_type, touch_supported, &result))
+    if (!sample || !accuracy || !decode_ssc_record(payload, length, record, &status) ||
+        !pico_controller_decode(record, sizeof(record), mcu_type, radio_type, touch_supported, &result))
         return false;
     *sample = result;
+    *accuracy = status;
+    return true;
+}
+
+static uint64_t read_u64(const uint8_t *p)
+{
+    uint64_t value = 0;
+    for (unsigned i = 0; i < 8; i++) value |= (uint64_t)p[i] << (8 * i);
+    return value;
+}
+
+static int16_t read_i16(const uint8_t *p)
+{
+    int32_t value = p[0] | ((uint32_t)p[1] << 8);
+    return (int16_t)(value >= 32768 ? value - 65536 : value);
+}
+
+bool pico_controller_decode_imu(const void *record, size_t length, unsigned mcu_type,
+                                unsigned radio_type, unsigned connected_mask,
+                                struct pico_controller_imu_batch *batch)
+{
+    if (!record || !batch || length != 100 || mcu_type < 1 || mcu_type > 2 ||
+        radio_type < 1 || radio_type > 2 || !connected_mask || connected_mask > 3)
+        return false;
+    const uint8_t *data = record;
+    if (data[0] != 0xa5 || !(data[1] & 1) || crc8(data, 99) != data[99])
+        return false;
+    const bool enabled[2] = {
+        (mcu_type == 2 && (connected_mask & 2)) || radio_type == 1,
+        (mcu_type == 2 && (connected_mask & 1)) || mcu_type == 1,
+    };
+    struct pico_controller_imu_batch result = {.station_time = read_u64(data + 56)};
+    for (unsigned slot = 0; slot < 2; slot++) {
+        const uint8_t *raw = data + 10 + slot * 23;
+        uint64_t timestamp = read_u64(raw + 14);
+        if (!enabled[slot] || !timestamp) continue;
+        struct pico_controller_imu_sample *sample = &result.samples[result.count++];
+        sample->timestamp_us = timestamp;
+        sample->hand = mcu_type == 2 ? 2 - slot : (data[7] & 0x40 ? 1 : 2);
+        sample->sequence = raw[22];
+        for (unsigned i = 0; i < 3; i++) {
+            sample->gyroscope[i] = read_i16(raw + i * 2);
+            sample->acceleration[i] = read_i16(raw + 6 + i * 2);
+        }
+        sample->temperature = read_i16(raw + 12);
+    }
+    *batch = result;
+    return true;
+}
+
+bool pico_controller_decode_imu_ssc(const void *payload, size_t length, unsigned mcu_type,
+                                    unsigned radio_type, unsigned connected_mask,
+                                    struct pico_controller_imu_batch *batch, unsigned *accuracy)
+{
+    uint8_t record[100]; unsigned status;
+    struct pico_controller_imu_batch result;
+    if (!batch || !accuracy || !decode_ssc_record(payload, length, record, &status) ||
+        !pico_controller_decode_imu(record, sizeof(record), mcu_type, radio_type, connected_mask, &result))
+        return false;
+    *batch = result;
     *accuracy = status;
     return true;
 }

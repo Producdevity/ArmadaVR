@@ -298,6 +298,38 @@ field's clock origin. The separate head reader still uses Android's 104-byte
 direct-channel records described above. Do not apply its layout or clock
 calibration to the controller ring.
 
+## Controller IMU records
+
+The stock station parser also carries two raw controller IMU slots. The native
+`pico_controller_decode_imu` decoder preserves their signed gyroscope,
+accelerometer and temperature counts, sequence bytes, microsecond timestamps
+and separate station time. `pico_controller_decode_imu_ssc` accepts the existing
+SSC message 1024 payload and returns its accuracy separately. Both reject
+malformed records without changing caller outputs.
+
+Slot selection depends on explicit MCU/radio types and the connected-hand mask.
+MCU type 1 identifies the hand from the packet and can carry two samples for
+that hand. MCU type 2 assigns the first slot to right and the second to left.
+Radio type and connected state also control which slots stock accepts; the
+implementation does not assume both slots are always present. Zero sample
+timestamps are absent, and valid packets can have no samples.
+
+The saved stock ARM64 `imuDataAnalyze` instructions were executed in an isolated
+container against 384 synthetic configurations, yielding 288 samples. Native
+macOS and ARM64 decoder outputs agree with the captured stock fields and vector
+conversion inputs. CRC corruption, truncation, unaligned records, signed limits,
+empty slots and unchanged outputs on rejection pass sanitizer tests. The oracle
+replaces the output sink and external logging; hardware reversal is explicitly
+bypassed in its synthetic configuration. Evidence is retained privately under
+`output/pico-controller-motion-20261014-v1/`.
+
+This decoder does not enable controller poses. Physical calibration, the
+hardware-dependent scale/reversal flags, per-hand timestamp mapping and observed
+native reports are still required. The stock process multiplies controller
+sample timestamps by 1,000 before delivering Android events; this establishes
+the wire unit but does not establish an origin shared with the host or head IMU.
+Station time must not be substituted for capture time.
+
 ## Native SSC IMU reports
 
 The retained b1977 `libssc.so` embeds `sns_accel.proto` and `sns_gyro.proto`,

@@ -56,4 +56,32 @@ bool pico_controller_decode_ssc(const void *payload, size_t length,
                                 struct pico_controller_sample *sample,
                                 unsigned *accuracy);
 
+struct pico_controller_imu_sample {
+    uint64_t timestamp_us;
+    int16_t gyroscope[3], acceleration[3], temperature;
+    uint8_t hand, sequence;
+};
+
+struct pico_controller_imu_batch {
+    uint64_t station_time;
+    struct pico_controller_imu_sample samples[2];
+    unsigned count;
+};
+
+/* Decode raw IMU counts from a complete b1977 station record. connected_mask
+ * uses bit 0 for left and bit 1 for right; MCU/radio types must be explicit.
+ * Samples retain wire order. A valid packet may contain no nonzero timestamps.
+ * Controller timestamps are microseconds, but their host-clock mapping is not
+ * established. Station time has a separate, unresolved clock. No vector units, bias,
+ * hardware axis reversal, freshness or pose are inferred; failure preserves batch. */
+bool pico_controller_decode_imu(const void *record, size_t length, unsigned mcu_type,
+                                unsigned radio_type, unsigned connected_mask,
+                                struct pico_controller_imu_batch *batch);
+
+/* Decode the same 0x400 SSC payload accepted by pico_controller_decode_ssc.
+ * Both outputs are unchanged on failure. Accuracy does not establish calibration. */
+bool pico_controller_decode_imu_ssc(const void *payload, size_t length, unsigned mcu_type,
+                                    unsigned radio_type, unsigned connected_mask,
+                                    struct pico_controller_imu_batch *batch, unsigned *accuracy);
+
 #endif

@@ -21,3 +21,17 @@ class PicoControllerDecoderTests(unittest.TestCase):
             result = subprocess.run([str(executable)], check=True, capture_output=True,
                                     text=True, timeout=10)
             self.assertIn("controller decoding and rejection checks passed", result.stdout)
+
+    def test_native_imu_decoder(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            executable = Path(temp) / "pico-controller-imu"
+            subprocess.run([
+                "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-I", str(root / "src"),
+                str(root / "tests/pico-controller-imu.c"), str(root / "src/pico-controller.c"),
+                "-o", str(executable),
+            ], check=True, capture_output=True, text=True, timeout=30)
+            result = subprocess.run([str(executable)], check=True, capture_output=True,
+                                    text=True, timeout=10)
+            self.assertIn("PICO_CONTROLLER_IMU_PASS", result.stdout)

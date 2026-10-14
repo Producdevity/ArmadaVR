@@ -39,6 +39,11 @@ is repeated `fixed32` controller data; field 2 is a required sample-accuracy
 enum with values 0 through 3. It is not a byte-string field. The first 25 words
 are the station record consumed by the stock service.
 
+The separate [controller IMU decoder](pico-tracking-protocol.md#controller-imu-records)
+now handles raw motion slots from the same station records and SSC payloads.
+It preserves capture timestamps separately from the outer SSC report time and
+does not enable uncalibrated controller poses.
+
 `pico_controller_decode_ssc` accepts this payload and calls the existing CRC and
 key decoder. It requires exactly 25 words and an accuracy value in range,
 supports packed, unpacked and mixed word encoding, skips unknown scalar fields,
