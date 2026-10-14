@@ -754,3 +754,26 @@ python3 -B tools/test-pico-slam-input.py PINNED_MONADO_ARCHIVE --output NEW_TEST
 The separate [native Basalt replay](pico-slam.md) tests this adapter with real
 recorded images and IMU samples and an actual 6DoF estimator. Its reference
 calibration is not a physical Pico calibration.
+
+### Native IFE acquisition
+
+`pico-camera-isp` encodes one uncropped CSI input and one nonsecure RDI0 output
+for b1977's Spectra acquire interface. PHY, lane arrangement, virtual channel,
+RAW8/RAW10 mode and dimensions are explicit inputs. Supported output packing is
+PLAIN8 (RAW8 only), PLAIN16 and MIPI RAW; this encoder does not convert pixels.
+It rejects unsupported values before changing the caller's output buffer.
+
+The 264-byte resource matches the stock QuickCamera encoder in 6,000 ARM64
+comparisons, including all six PHY indices, D-PHY/C-PHY lane counts, four virtual
+channels, supported formats and dimensions through 4096. The same corpus passes
+the retained kernel's acquire resource parser; UAPI layout assertions and host
+and ARM64 sanitizer tests also pass. Stock's unused padded tail remains zero.
+These checks establish command representation, not working lane assignments.
+
+Native capture still needs sensor/CSIPHY configuration, request-manager sessions,
+IFE clock/bandwidth commands, DMA buffers and completion fences. The retained
+public kernel does not contain the Android `cam_virtual_mono` bridge used by
+stock QuickCamera, so that transport cannot simply be opened from the Linux
+runtime. Sensor register sequences are supplied through CamX sensor modules;
+active camera identity and calibration still need verification. This encoder
+opens no device and does not enable a sensor or alter the boot chain.
