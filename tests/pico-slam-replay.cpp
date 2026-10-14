@@ -4,6 +4,7 @@ extern "C" {
 #include "pico-slam-input.h"
 #include "pico-slam-tracking.h"
 #include "pico-slam-session.h"
+#include "pico-camera-stream.h"
 }
 #include <algorithm>
 #include <array>
@@ -148,8 +149,9 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes <= 4);
-  bool capture_input = image_bytes == 4;
+  CHECK(image_bytes <= 5);
+  bool capture_input = image_bytes >= 4;
+  bool stream_input = image_bytes == 5;
   bool native_input = image_bytes >= 3;
   bool owned = image_bytes == 0 || native_input;
   cv::setNumThreads(1);
@@ -217,10 +219,15 @@ int main(int argc, char **argv) {
   }
   CaptureSink capture_sink{session};
   pico_camera_capture *capture_owner = nullptr;
+  pico_camera_stream *camera_stream = nullptr;
+  uint32_t event_sequence[2] = {UINT32_MAX-3, UINT32_MAX-3};
   if (capture_input) {
     pico_camera_capture_config cfg{1, {c.camera_ids[0], c.camera_ids[1], 0, 0}, 2, 100000000};
     pico_camera_capture_ops ops{capture_sync, capture_frame, capture_release, capture_invalid};
-    CHECK(pico_camera_capture_create(&cfg, &ops, &capture_sink, &capture_owner));
+    if (stream_input) {
+      pico_camera_stream_config stream_config{cfg, 77, {100, 101, 0, 0}, 1};
+      CHECK(pico_camera_stream_create(&stream_config, &ops, &capture_sink, &camera_stream));
+    } else CHECK(pico_camera_capture_create(&cfg, &ops, &capture_sink, &capture_owner));
   }
   std::ofstream poses(argv[3]);
   CHECK(poses.good());
@@ -317,14 +324,37 @@ int main(int argc, char **argv) {
             pico_camera_capture_buffer buffer{&padded, ci + 1, 100 + i, 200 + i,
               c.camera_ids[i], view.width, view.height, static_cast<uint32_t>(stride),
               view.pixels, view.size};
-            CHECK(pico_camera_capture_reserve(capture_owner, &buffer, arrival));
-            CHECK(pico_camera_capture_fence(capture_owner, 2, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_IGNORED);
-            if (ci % 2) {
-              CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_PENDING);
-              CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+            if (stream_input) {
+              int64_t offset = -10000 - static_cast<int64_t>(ci % 7);
+              CHECK(pico_camera_stream_reserve(camera_stream, &buffer, offset, arrival));
+              pico_camera_event fence{};
+              fence.type = 0x08000000;
+              fence.sequence = event_sequence[0]++;
+              put32(fence.data, 200+i); put32(fence.data+4, 2);
+              put64(fence.data+8, 2); put64(fence.data+16, ci+1);
+              CHECK(pico_camera_stream_event(camera_stream, PICO_CAMERA_SYNC_EVENTS, &fence, arrival) == PICO_CAMERA_CAPTURE_IGNORED);
+              fence.sequence = event_sequence[0]++; put64(fence.data+8, 1);
+              pico_camera_event sof{};
+              sof.type = 0x08000000; sof.sequence = event_sequence[1]++;
+              put32(sof.data, 77); put64(sof.data+8, ci+1); put64(sof.data+16, ci);
+              put64(sof.data+24, time-offset); put32(sof.data+32, 100+i);
+              if (ci % 2) {
+                CHECK(pico_camera_stream_event(camera_stream, PICO_CAMERA_SYNC_EVENTS, &fence, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+                CHECK(pico_camera_stream_event(camera_stream, PICO_CAMERA_CRM_EVENTS, &sof, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+              } else {
+                CHECK(pico_camera_stream_event(camera_stream, PICO_CAMERA_CRM_EVENTS, &sof, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+                CHECK(pico_camera_stream_event(camera_stream, PICO_CAMERA_SYNC_EVENTS, &fence, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+              }
             } else {
-              CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_PENDING);
-              CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+              CHECK(pico_camera_capture_reserve(capture_owner, &buffer, arrival));
+              CHECK(pico_camera_capture_fence(capture_owner, 2, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_IGNORED);
+              if (ci % 2) {
+                CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+                CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+              } else {
+                CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+                CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+              }
             }
             CHECK(capture_sink.phase == 0 && padded[1] == 0xa5);
           } else CHECK(pico_slam_session_mono8(session, 1, &view, arrival));
@@ -369,9 +399,14 @@ int main(int argc, char **argv) {
   pico_slam_input_destroy(&input);
   pop();
   if (capture_input) {
-    CHECK(pico_camera_capture_destroy(&capture_owner));
+    if (stream_input) CHECK(pico_camera_stream_destroy(&camera_stream));
+    else CHECK(pico_camera_capture_destroy(&capture_owner));
     CHECK(capture_sink.frames == left.size()*2 && capture_sink.releases == capture_sink.frames && capture_sink.invalidations == 1);
     printf("PICO_SLAM_CAPTURE_PASS buffers=%u simulated_fences=1 simulated_cache=1 poisoned=1 stopped_invalid=1\n", capture_sink.releases);
+  }
+  if (stream_input) {
+    CHECK(event_sequence[0] < 1000 && event_sequence[1] < 1000);
+    printf("PICO_SLAM_STREAM_PASS simulated_events=1 sequence_wrap=1 per_request_timing=1\n");
   }
   if (owned) pico_slam_session_stop(session);
   else {

@@ -1031,3 +1031,25 @@ host/ARM64 sanitizer cases cover malformed outputs, partial errors, bounded MMU
 arrays and release ownership. A successful release does not establish hardware
 quiescence. Neither this transport nor the offline root contains proof of live
 camera capture, per-camera timing calibration or physical 6DoF accuracy.
+
+### Event delivery into tracking
+
+The control layer subscribes and dequeues V4L2 events on caller-owned,
+nonblocking descriptors. Its ARM64 event layout is checked against Linux headers.
+It preserves sequence counters and returns `EAGAIN` without altering the output;
+the wrapper's timestamp is not used as camera time.
+
+`pico_camera_stream` binds a capture generation to explicit camera/link pairs.
+It routes sync cookies and QTimer SOFs, requires a per-request calibrated
+SOF-to-exposure-center offset, and rejects sequence gaps or duplicate events.
+Counter wrap is accepted. Errors on a matching session/link invalidate tracking,
+including errors whose truncated request field cannot identify a pending request.
+Earlier generations and unrelated links do not complete current buffers. Fresh
+links and monotonically increasing request IDs remain caller requirements.
+
+Host and ARM64 sanitizer runs deliver 1,200 frames and exercise twelve failure
+scenarios. A sixth recorded Basalt replay uses this event router, including
+sequence wrap, alternating event order, per-request timing offsets and poisoned
+released buffers. It produces the same 185-pose trajectory as direct input.
+Events, cache synchronization and timing offsets in that replay are simulated;
+physical camera timing, DMA completion and Pico calibration remain unverified.

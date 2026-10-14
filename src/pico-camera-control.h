@@ -94,4 +94,17 @@ int pico_camera_pixels_import(int crm_fd, int dma_fd, const int32_t *mmus,
  * DMA-BUF fd nor unmaps userspace memory; failures preserve the handle. */
 int pico_camera_memory_release(int crm_fd, int32_t *handle);
 
+struct pico_camera_event {
+    uint32_t type, id, sequence, pending;
+    uint8_t data[64];
+};
+
+/* V4L2 event transport for exclusively owned, nonblocking sync/CRM descriptors.
+ * Subscribe ID 0 on sync; IDs 0 (SOF) and 1 (error) on CRM. No retries or loops.
+ * Dequeue returns zero or negative errno, including -EAGAIN when empty, and
+ * preserves output on failure. Sequence is retained to detect lost events;
+ * the V4L2 wrapper timestamp is not a calibrated camera timestamp. */
+int pico_camera_event_subscribe(int event_fd, uint32_t id, bool enabled);
+int pico_camera_event_dequeue(int event_fd, struct pico_camera_event *event);
+
 #endif

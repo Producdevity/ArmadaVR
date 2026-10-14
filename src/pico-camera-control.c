@@ -321,3 +321,31 @@ int pico_camera_memory_release(int fd, int32_t *handle)
     if (!result) *handle = 0;
     return result;
 }
+
+int pico_camera_event_subscribe(int fd, uint32_t id, bool enabled)
+{
+    if (fd < 0 || id > 1) return -EINVAL;
+    uint32_t subscription[8] = {0x08000000, id, 0, 0, 0, 0, 0, 0};
+    int result = ioctl(fd, enabled ? 0x4020565aUL : 0x4020565bUL, subscription);
+    return result < 0 ? -errno : result ? -EPROTO : 0;
+}
+int pico_camera_event_dequeue(int fd, struct pico_camera_event *event)
+{
+    if (fd < 0 || !event) return -EINVAL;
+    struct {
+        uint32_t type, alignment;
+        uint8_t data[64];
+        uint32_t pending, sequence;
+        int64_t seconds, nanoseconds;
+        uint32_t id, reserved[8], tail;
+    } data = {0};
+    _Static_assert(sizeof(data) == 136, "Linux AArch64 V4L2 event ABI");
+    _Static_assert(offsetof(struct pico_camera_event, data) == 16, "event payload layout");
+    int result = ioctl(fd, 0x80885659UL, &data);
+    if (result < 0) return -errno;
+    if (result) return -EPROTO;
+    event->type = data.type; event->id = data.id;
+    event->sequence = data.sequence; event->pending = data.pending;
+    memcpy(event->data, data.data, sizeof(event->data));
+    return 0;
+}
