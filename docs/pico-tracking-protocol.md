@@ -1138,3 +1138,18 @@ A separate harness routes 1,857 configurations through the retained kernel's
 packet validator, sensor settings selector and random-write/delay handlers.
 Memory and hardware calls are stubbed; this does not verify physical I2C writes,
 sensor timing, camera pairing or image capture.
+
+### Titan480 RDI commands
+
+`pico-camera-ife` encodes the retained Titan480 CAMIF RDI register commands for
+an explicitly acquired full or Lite IFE path. Hardware sample pattern, RDI index
+and batch size are supplied by the caller. The separate throttle command requires
+explicit utilization and ownership of that register. These helpers only write
+command bytes; they do not access registers, choose a sensor or start capture.
+
+The 28-byte RDI sequence matches unmodified b1977 CamX ARM64 code for all 1,792
+supported combinations of hardware class, path, pattern and batch size. Eight
+throttle boundary cases also match the stock command builder. Host and ARM64
+sanitizer tests cover malformed arguments and unchanged output on refusal.
+CSID pixel/line subsampling and physical hardware selection are separate work;
+these comparisons do not establish image capture or camera calibration.
