@@ -801,3 +801,120 @@ class PicoConfigurationSelectionTests(unittest.TestCase):
             self.assertFalse(result['configuration_selection_verified'])
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+
+class PicoSdkGeometryTests(unittest.TestCase):
+    def setUp(self):
+        self.settings = {'schema_version': 1, 'equation_type': 2, 'separate_distortion': False,
+                         'disable_lens_correction': False, 'lens_separation_m': None,
+                         'meters_per_tan_angle': None, 'radial_coefficients': [None] * 11,
+                         'chromatic_coefficients': [None] * 6,
+                         'left_frustum': [None] * 6, 'right_frustum': [None] * 6}
+        self.lens = OPT.lens_parameters(fixture())
+        self.projection = {'schema_version': 1, 'left': [-.1, .1, .1, -.1, .1, 100],
+                           'right': [-.09, .11, .08, -.12, .1, 100]}
+
+    def test_absent_overrides_preserve_binary32_service_values_and_inputs(self):
+        before = copy.deepcopy(self.lens)
+        result = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)
+        self.assertEqual(result['lens']['distortion_coefficients'][:11],
+                         list(map(OPT.binary32, self.lens['distortion_coefficients'][:11])))
+        self.assertEqual(result['lens']['distortion_coefficients'][11:18],
+                         self.lens['distortion_coefficients'][11:18])
+        self.assertEqual(self.lens, before)
+        self.assertEqual(result['projection']['fov'], OPT.projection_parameters(json.dumps(self.projection).encode())['fov'])
+        for flag in ('active_settings_verified', 'runtime_usable', 'calibration_applied'):
+            self.assertIs(result[flag], False)
+
+    def test_zero_replaces_coefficients_and_chromatic_radius_terms_stay_ordered(self):
+        self.settings['radial_coefficients'][4] = 0
+        self.settings['chromatic_coefficients'] = [0, -.2, .3, -.4, .5, -.6]
+        result = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)['lens']
+        self.assertEqual(result['distortion_coefficients'][4], 0)
+        self.assertEqual(result['chromatic_aberration'], list(map(OPT.binary32, [0, -.2, .3, -.4])))
+        self.assertEqual(result['distortion_coefficients'][18:20], list(map(OPT.binary32, [.5, -.6])))
+        self.assertEqual(result['distortion_coefficients'][14:18], self.lens['distortion_coefficients'][14:18])
+
+    def test_independent_frustum_override_recomputes_projection(self):
+        self.settings['lens_separation_m'] = .067
+        self.settings['meters_per_tan_angle'] = .035
+        self.settings['left_frustum'][0] = -.15
+        self.settings['right_frustum'][4] = .08
+        result = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)
+        self.assertEqual(result['lens']['lens_separation_m'], OPT.binary32(.067))
+        self.assertEqual(result['lens']['meters_per_tan_angle_at_center'], OPT.binary32(.035))
+        expected = copy.deepcopy(self.projection)
+        expected['left'][0] = -.15; expected['right'][4] = .08
+        self.assertEqual(result['projection']['fov'], OPT.projection_parameters(json.dumps(expected).encode())['fov'])
+        self.assertEqual(self.projection['left'][0], -.1)
+
+    def test_refuses_unsupported_modes_and_unbounded_or_ambiguous_overrides(self):
+        cases = [('schema_version', True), ('equation_type', 1), ('equation_type', 2.0),
+                 ('separate_distortion', True), ('disable_lens_correction', True),
+                 ('separate_distortion', 0), ('disable_lens_correction', 0),
+                 ('lens_separation_m', 0), ('meters_per_tan_angle', 1e-50),
+                 ('lens_separation_m', True), ('meters_per_tan_angle', float('inf')),
+                 ('radial_coefficients', [None] * 10), ('chromatic_coefficients', [True] * 6),
+                 ('left_frustum', [float('nan')] * 6), ('right_frustum', [1e7] * 6)]
+        for key, value in cases:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                OPT.sdk_geometry_parameters(json.dumps(dict(self.settings, **{key: value})).encode())
+        for data in (b'{}', b' ' * 8193, json.dumps(self.settings).encode() + b'\0',
+                     json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode(),
+                     json.dumps(dict(self.settings, right_radial_coefficients=[None] * 11)).encode()):
+            with self.subTest(data=data[:50]), self.assertRaises(ValueError):
+                OPT.sdk_geometry_parameters(data)
+
+    def test_refuses_degenerate_resolved_frustums(self):
+        for index, value in ((0, 0), (4, 0), (4, 100), (5, .05), (4, 1e-50)):
+            settings = copy.deepcopy(self.settings); settings['left_frustum'][index] = value
+            with self.subTest(index=index, value=value), self.assertRaises(ValueError):
+                OPT.resolve_sdk_geometry(self.lens, self.projection, settings)
+
+    def test_cli_requires_bound_inputs_and_matches_final_screen_geometry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axes.txt'; offsets.write_bytes(b'0,0,0,0')
+            runtime = d/'runtime.json'
+            runtime.write_text(json.dumps({'schema_version': 1, 'ipd_enabled': False,
+                'ipd_correction_enabled': False, 'ipd_correction_mm': 0, 'screen_gap_m': 0,
+                'axis_corrections_mm': [0, 0, 0, 0]}))
+            projection = d/'projection.json'; projection.write_text(json.dumps(self.projection))
+            self.settings.update(lens_separation_m=.07, meters_per_tan_angle=.035)
+            self.settings['left_frustum'][0] = -.13
+            sdk = d/'sdk.json'; sdk.write_text(json.dumps(self.settings))
+            screen = d/'screen.json'; output = d/'result.json'
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            base = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                    '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                    '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
+            inputs = ['--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime),
+                      '--projection-model', str(projection), '--projection-sha256', digest(projection)]
+            extra = ['--sdk-geometry', str(sdk), '--sdk-geometry-sha256', digest(sdk)]
+            for command in (base+extra, base+inputs+extra[:2], base+inputs+extra[:3]+['0'*64]):
+                self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            resolved = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)
+            geometry = screen_fixture()
+            geometry.update(lens_separation_m=resolved['lens']['lens_separation_m'],
+                            meters_per_tan_angle=resolved['lens']['meters_per_tan_angle_at_center'],
+                            fov=resolved['projection']['fov'])
+            for field, wrong in [('lens_separation_m', .0634), ('meters_per_tan_angle', .04),
+                                 ('fov', OPT.projection_parameters(projection.read_bytes())['fov'])]:
+                screen.write_text(json.dumps(dict(geometry, **{field: wrong})))
+                command = base+inputs+extra+['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+                self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            screen.write_text(json.dumps(geometry))
+            command = base+inputs+extra+['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            subprocess.run(command, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['files']['sdk_geometry']['sha256'], digest(sdk))
+            self.assertEqual(result['sdk_geometry']['projection']['fov'], geometry['fov'])
+            self.assertEqual(result['screen_grid']['views'][0]['analytic_distortion'],
+                             OPT.analytic_parameters(resolved['lens'], geometry, 0))
+            self.assertEqual(result['runtime_adjustment']['lens']['lens_separation_m'], OPT.binary32(.0634))
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=5).returncode, 0)

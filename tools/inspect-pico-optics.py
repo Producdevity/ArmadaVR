@@ -425,6 +425,73 @@ def projection_parameters(data):
     return {'frustums': model, 'fov': fovs, 'active_settings_verified': False, 'runtime_usable': False}
 
 
+def sdk_geometry_parameters(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate SDK geometry parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 8192 or b'\0' in data:
+        raise ValueError('Invalid SDK geometry size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed SDK geometry') from error
+    fields = {'schema_version', 'equation_type', 'separate_distortion', 'disable_lens_correction',
+              'lens_separation_m', 'meters_per_tan_angle', 'radial_coefficients',
+              'chromatic_coefficients', 'left_frustum', 'right_frustum'}
+    if not isinstance(settings, dict) or set(settings) != fields:
+        raise ValueError('Expected explicit SDK mode and nullable geometry overrides')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported SDK geometry schema')
+    if (type(settings['equation_type']) is not int or settings['equation_type'] != 2 or
+            settings['separate_distortion'] is not False or settings['disable_lens_correction'] is not False):
+        raise ValueError('Only enabled shared-coefficient equation-2 distortion is supported')
+    for name, count in [('radial_coefficients', 11), ('chromatic_coefficients', 6),
+                        ('left_frustum', 6), ('right_frustum', 6)]:
+        values = settings[name]
+        if (not isinstance(values, list) or len(values) != count or
+                any(v is not None and (type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e6)
+                    for v in values)):
+            raise ValueError('Expected bounded SDK coefficients/frustums, or null for absent')
+    for name, high in [('lens_separation_m', .2), ('meters_per_tan_angle', 1)]:
+        value = settings[name]
+        if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or
+                                  not .001 <= binary32(value) <= high):
+            raise ValueError('Invalid SDK lens separation or tangent scale')
+    return settings
+
+
+def resolve_sdk_geometry(lens, projection, settings):
+    settings = sdk_geometry_parameters(json.dumps(settings).encode())
+    projection_parameters(json.dumps(projection).encode())
+    if lens['equation_type'] != 2:
+        raise ValueError('Expected an equation-2 service lens')
+
+    def replace(values, overrides):
+        return [binary32(old if new is None else new) for old, new in zip(values, overrides)]
+
+    resolved = dict(lens, distortion_coefficients=list(lens['distortion_coefficients']))
+    for field, source in [('lens_separation_m', 'lens_separation_m'),
+                          ('meters_per_tan_angle', 'meters_per_tan_angle_at_center')]:
+        resolved[source] = replace([lens[source]], [settings[field]])[0]
+    resolved['distortion_coefficients'][:11] = replace(lens['distortion_coefficients'][:11],
+                                                      settings['radial_coefficients'])
+    chromatic = replace(lens['chromatic_aberration'] + lens['distortion_coefficients'][18:20],
+                        settings['chromatic_coefficients'])
+    resolved['chromatic_aberration'] = chromatic[:4]
+    resolved['distortion_coefficients'][18:20] = chromatic[4:]
+    frustums = {'schema_version': 1}
+    for eye in ('left', 'right'):
+        frustums[eye] = replace(projection[eye], settings[eye + '_frustum'])
+    return {'settings': settings, 'lens': resolved,
+            'projection': projection_parameters(json.dumps(frustums).encode()),
+            'active_settings_verified': False, 'runtime_usable': False, 'calibration_applied': False}
+
+
 def ipd_offset_table(data):
     if not 0 < len(data) <= 20000 or b'\0' in data:
         raise ValueError('Invalid IPD table size or NUL')
@@ -596,6 +663,8 @@ def main():
     parser.add_argument('--selection-sha256')
     parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
     parser.add_argument('--compositor-axes-sha256')
+    parser.add_argument('--sdk-geometry', type=Path, help='Explicit shared-lens SDK overrides JSON')
+    parser.add_argument('--sdk-geometry-sha256')
     parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
     parser.add_argument('--projection-sha256')
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
@@ -653,6 +722,15 @@ def main():
                 raise ValueError('Projection model and SHA-256 are required together')
             result['projection'] = projection_parameters(read_file(args.projection_model, args.projection_sha256, 4096))
             result['files']['projection_model'] = {'name': args.projection_model.name, 'sha256': args.projection_sha256}
+        if args.sdk_geometry is not None or args.sdk_geometry_sha256 is not None:
+            if (args.sdk_geometry is None or args.sdk_geometry_sha256 is None or
+                    'runtime_adjustment' not in result or 'projection' not in result):
+                raise ValueError('SDK geometry, SHA-256, runtime settings and base projection are required together')
+            settings = sdk_geometry_parameters(read_file(args.sdk_geometry, args.sdk_geometry_sha256, 8192))
+            resolved = resolve_sdk_geometry(lens, result['projection']['frustums'], settings)
+            result['sdk_geometry'] = resolved
+            lens = resolved['lens']
+            result['files']['sdk_geometry'] = {'name': args.sdk_geometry.name, 'sha256': args.sdk_geometry_sha256}
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
         result['tangent_samples'] = [sample_tangents(lens, x, y) for x, y in args.sample_tangent]
@@ -661,7 +739,7 @@ def main():
                 raise ValueError('Screen model, SHA-256 and grid size are required together')
             screen = screen_parameters(read_file(args.screen_model, args.screen_sha256, 16384))
             if 'projection' in result:
-                expected = result['projection']['fov']
+                expected = result.get('sdk_geometry', result)['projection']['fov']
                 if any(not math.isclose(a, b, rel_tol=0, abs_tol=2e-7)
                        for actual, wanted in zip(screen['fov'], expected) for a, b in zip(actual, wanted)):
                     raise ValueError('Screen FOV disagrees with the explicit projection frustums')
@@ -672,6 +750,9 @@ def main():
                 if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or
                         any(not math.isclose(a, b, rel_tol=0, abs_tol=1e-6) for a, b in zip(screen['optical_offsets_mm'], resolved['optical_offsets_mm']))):
                     raise ValueError('Screen model disagrees with resolved IPD/axis adjustments')
+            if ('sdk_geometry' in result and not math.isclose(screen['meters_per_tan_angle'],
+                    lens['meters_per_tan_angle_at_center'], rel_tol=0, abs_tol=1e-8)):
+                raise ValueError('Screen tangent scale disagrees with resolved SDK geometry')
             result['screen_grid'] = screen_grid(lens, screen, *args.grid_size)
             result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
         if args.render_size is not None or args.max_error_pixels is not None:

@@ -263,9 +263,43 @@ Other SDK lens, geometry and projection overrides remain separate inputs.
 The original ARM64 config-service function was executed with synthetic settings
 for 3,072 cases covering all override masks, enabled/disabled HWC and both
 orientations. All 12,288 output components, including signed zero, match exactly.
-The test isolates the logger, config lookup and unrelated separate-distortion
-helper. It establishes the axis transformation, not the complete SDK settings
+The test isolates the config lookup and two Android logging functions. It establishes the axis transformation, not the complete SDK settings
 path or the headset's active configuration. Outputs remain inspection-only.
+
+## SDK lens and frustum inspection
+
+`--sdk-geometry FILE --sdk-geometry-sha256 SHA256` applies explicit SDK overrides
+following the service settings. It requires `--runtime-settings` and
+`--projection-model`; the original service lens and projection remain in the
+report. The JSON has exactly these fields:
+
+- `schema_version: 1`, `equation_type: 2`, `separate_distortion: false`,
+  `disable_lens_correction: false`: the explicitly established effective modes.
+- `lens_separation_m` and `meters_per_tan_angle`: nullable scalar overrides.
+- `radial_coefficients`: eleven nullable coefficients, in stock index order.
+- `chromatic_coefficients`: six nullable values. The first four replace the
+  chromatic record; the last two replace the red/blue radius terms at lens
+  coefficient indices 18 and 19.
+- `left_frustum` and `right_frustum`: six nullable values each, ordered
+  `[left, right, top, bottom, near, far]`.
+
+`null` preserves a service value; zero replaces it. Values use the stock binary32
+conversion. Non-finite values, invalid resolved frustums, unsupported modes and
+unrecognized fields are refused. This version supports shared coefficients;
+separate-eye distortion and disabled lens correction are not silently mapped to
+that model. The screen model must match the final separation, tangent scale and
+per-eye FOV. SDK axes remain the separate `--compositor-axes` input described
+above. No active branch or physical settings are inferred from an absent input.
+
+The original ARM64 config-service function matches all 63,488 float outputs
+across 2,048 synthetic configurations, including absent values, single-field
+changes and signed zero. A further 192 configurations run through the original
+stock mesh and actual native HMD callback under sanitizers: 68,544 vertices and
+411,264 RGB UV components pass the existing normalized tolerance. Maximum sampled
+visible difference is 0.008273 pixels at a 1920-pixel render size. Deliberately
+omitting the SDK stage makes 218,215 visible components differ by over half a
+pixel. These are numerical tests with synthetic inputs, not active-unit optical
+calibration, GPU scanout or flash-readiness evidence.
 
 ## Projection inspection
 
