@@ -288,9 +288,8 @@ report. The JSON has exactly these fields:
 
 `null` preserves a service value; zero replaces it. Values use the stock binary32
 conversion. Non-finite values, invalid resolved frustums, unsupported modes and
-unrecognized fields are refused. This version supports shared coefficients;
-separate-eye distortion and disabled lens correction are not silently mapped to
-that model. The screen model must match the final separation, tangent scale and
+unrecognized fields are refused. Schema 1 supports shared coefficients; disabled
+lens correction is refused rather than mapped to a radial model. The screen model must match the final separation, tangent scale and
 per-eye FOV. SDK axes remain the separate `--compositor-axes` input described
 above. No active branch or physical settings are inferred from an absent input.
 
@@ -303,6 +302,28 @@ visible difference is 0.008273 pixels at a 1920-pixel render size. Deliberately
 omitting the SDK stage makes 218,215 visible components differ by over half a
 pixel. These are numerical tests with synthetic inputs, not active-unit optical
 calibration, GPU scanout or flash-readiness evidence.
+
+For separate-eye distortion, SDK schema 2 sets `separate_distortion: true` and
+adds three required fields:
+
+- `right_lens`: the explicit incoming right-eye record, containing a positive
+  `meters_per_tan_angle` and eleven `radial_coefficients`.
+- `right_meters_per_tan_angle`: a nullable SDK override.
+- `right_radial_coefficients`: eleven nullable SDK overrides.
+
+The right eye uses its own resolved tangent scale and radial coefficients.
+Chromatic corrections remain shared, as in the original mesh. The matching
+screen schema 2 requires `separate_distortion: true` and an explicit
+`right_meters_per_tan_angle`; mode and scale mismatches are refused. Both eyes
+produce the existing native per-eye analytic distortion format. No native
+runtime binary or installed calibration changes are needed for this inspection.
+
+Original SDK execution matches all 88,064 float values in 2,048 separate-eye
+cases. A further 192 native/stock mesh comparisons cover 68,544 vertices and
+411,264 RGB UV components. Maximum sampled visible difference is 0.001110 pixels
+at 1920 pixels. A control that incorrectly reuses the left-eye model for the
+right eye fails 167,014 visible components above half a pixel. These synthetic
+checks establish the mapping, not which coefficients are active on a headset.
 
 ## Startup selection
 
@@ -321,7 +342,10 @@ remain from the earlier configuration. A failed query leaves the incoming lens
 values intact. The inspector retains each stage, reports `effective_lens`, and
 uses that lens with the final SDK projection for screen/grid checks. HWC mesh
 reversal still applies after a service reload; the earlier SDK axis swap does
-not survive that reload.
+not survive that reload. Separate right-eye radial coefficients, tangent scale
+and the separate-distortion mode survive; the inspector preserves them while
+replacing the shared chromatic values and left-eye bank. Original-code tests
+also check this preservation across all 864 startup cases.
 
 The tool refuses a successful-query claim on a branch that never queries the
 service, SDK overrides on a config-file branch, and missing service settings
@@ -395,7 +419,7 @@ panel resolution, raw axis offsets or a fallback lens file.
 
 | Screen model field | Meaning |
 | --- | --- |
-| `schema_version`, `layout` | `1`, `side-by-side` |
+| `schema_version`, `layout` | `1` (shared) or `2` (separate eye), `side-by-side` |
 | `width_pixels`, `height_pixels` | Combined logical stereo screen dimensions, before panel rotation; width must be even |
 | `width_m` | Combined active screen width in metres |
 | `lens_separation_m` | Resolved stock lens separation after IPD/screen-gap adjustments |
@@ -403,7 +427,8 @@ panel resolution, raw axis offsets or a fallback lens file.
 | `horizontal_offset_m` | Stock horizontal screen offset in metres |
 | `optical_offsets_mm` | Four already adjusted offsets: left X/Y, right X/Y, in millimetres |
 | `hwc_reverse` | Effective stock HWC reversal, `0` or `180` degrees |
-| `separate_distortion` | Must be `false`; separate-eye coefficient overrides are not supported |
+| `separate_distortion` | `false` for schema 1, `true` for schema 2 |
+| `right_meters_per_tan_angle` | Required only in schema 2; resolved positive right-eye tangent scale |
 | `fov` | Two explicit `[left, right, up, down]` render FOVs in radians |
 
 For screen width `W`, optical scale `M`, lens separation `L`, and per-eye

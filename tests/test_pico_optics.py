@@ -1091,3 +1091,105 @@ class PicoDisplayScalingTests(unittest.TestCase):
                              OPT.analytic_parameters(result['stock_lens'], geometry, 0))
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+
+class PicoSeparateEyeTests(unittest.TestCase):
+    def setUp(self):
+        PicoSdkGeometryTests.setUp(self)
+        self.settings.update(schema_version=2, separate_distortion=True,
+            right_lens={'meters_per_tan_angle': .05, 'radial_coefficients': [2] + [0] * 10},
+            right_meters_per_tan_angle=None, right_radial_coefficients=[None] * 11)
+
+    def test_distinct_right_coefficients_and_scale_reach_analytic_mapping(self):
+        self.lens['distortion_coefficients'] = [1] + [0] * 19
+        self.lens['chromatic_aberration'] = [0] * 4
+        lens = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)['lens']
+        screen = dict(screen_fixture(), schema_version=2, separate_distortion=True,
+                      right_meters_per_tan_angle=lens['right_eye']['meters_per_tan_angle'])
+        OPT.screen_parameters(json.dumps(screen).encode())
+        left = OPT.analytic_parameters(lens, screen, 0); right = OPT.analytic_parameters(lens, screen, 1)
+        self.assertEqual(left['radial_coefficients'], [1] + [0] * 10)
+        self.assertEqual(right['radial_coefficients'], [2] + [0] * 10)
+        self.assertAlmostEqual(left['tangent_scale'][0], 2)
+        self.assertAlmostEqual(right['tangent_scale'][0], 1.6, places=6)
+        for eye, scale in ((0, 1), (1, 2)):
+            result = OPT.screen_tangents(lens, screen, eye, .7, .6)
+            for a, b in zip(result['input'], result['green']):
+                self.assertAlmostEqual(a * scale, b)
+        grid = OPT.screen_grid(lens, screen, 3, 3)
+        self.assertNotEqual(grid['views'][0]['distortion'], grid['views'][1]['distortion'])
+        self.assertFalse(grid['runtime_usable'])
+
+    def test_right_zero_overrides_and_absent_values_preserve_order_and_source(self):
+        self.settings['right_radial_coefficients'][0] = 0
+        self.settings['right_radial_coefficients'][10] = -.125
+        self.settings['right_meters_per_tan_angle'] = .035
+        before = copy.deepcopy(self.settings)
+        result = OPT.resolve_sdk_geometry(self.lens, self.projection, self.settings)
+        right = result['lens']['right_eye']
+        self.assertEqual(right['radial_coefficients'], [0] * 10 + [-.125])
+        self.assertEqual(right['meters_per_tan_angle'], OPT.binary32(.035))
+        self.assertEqual(result['lens']['distortion_coefficients'][:11],
+                         list(map(OPT.binary32, self.lens['distortion_coefficients'][:11])))
+        self.assertEqual(self.settings, before)
+
+    def test_refuses_missing_right_baseline_and_mismatched_schema(self):
+        for field, value in [('separate_distortion', False), ('right_lens', {}),
+                             ('right_meters_per_tan_angle', 0), ('right_meters_per_tan_angle', True),
+                             ('right_radial_coefficients', [None] * 10), ('right_radial_coefficients', [float('inf')] * 11)]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                OPT.sdk_geometry_parameters(json.dumps(dict(self.settings, **{field: value})).encode())
+        for field, value in [('meters_per_tan_angle', None), ('meters_per_tan_angle', 1e-50),
+                             ('radial_coefficients', [None] * 11), ('radial_coefficients', [True] * 11)]:
+            settings = copy.deepcopy(self.settings); settings['right_lens'][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                OPT.sdk_geometry_parameters(json.dumps(settings).encode())
+        screen = dict(screen_fixture(), schema_version=2, separate_distortion=True, right_meters_per_tan_angle=.05)
+        with self.assertRaises(ValueError):
+            OPT.analytic_parameters(self.lens, screen, 1)
+        for field, value in [('schema_version', 1), ('separate_distortion', False), ('right_meters_per_tan_angle', 0)]:
+            with self.assertRaises(ValueError):
+                OPT.screen_parameters(json.dumps(dict(screen, **{field: value})).encode())
+
+    def test_cli_service_reload_retains_separate_right_bank_and_enforces_scale(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axes.txt'; offsets.write_bytes(b'0,0,0,0')
+            def save(name, obj):
+                p = d/name; p.write_text(json.dumps(obj)); return p
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            sdk = save('sdk.json', self.settings)
+            projection = save('projection.json', self.projection)
+            runtime = save('runtime.json', {'schema_version': 1, 'ipd_enabled': False,
+                'ipd_correction_enabled': False, 'ipd_correction_mm': 0, 'screen_gap_m': 0,
+                'axis_corrections_mm': [0, 0, 0, 0]})
+            startup = save('startup.json', {'schema_version': 1, 'service_mode': 1,
+                'config_service_enabled': True, 'use_service_parameters': True,
+                'config_file_compatible': True, 'lens_query_succeeded': True})
+            output = d/'result.json'
+            base = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                    '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                    '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output),
+                    '--sdk-geometry', str(sdk), '--sdk-geometry-sha256', digest(sdk),
+                    '--projection-model', str(projection), '--projection-sha256', digest(projection),
+                    '--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime),
+                    '--startup-model', str(startup), '--startup-sha256', digest(startup)]
+            subprocess.run(base, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text()); output.unlink()
+            lens = result['effective_lens']; right = lens['right_eye']
+            self.assertEqual(right, result['sdk_geometry']['lens']['right_eye'])
+            self.assertEqual({k: v for k, v in lens.items() if k != 'right_eye'}, result['runtime_adjustment']['lens'])
+            geometry = dict(screen_fixture(), schema_version=2, separate_distortion=True,
+                right_meters_per_tan_angle=right['meters_per_tan_angle'], lens_separation_m=lens['lens_separation_m'],
+                meters_per_tan_angle=lens['meters_per_tan_angle_at_center'], fov=result['sdk_geometry']['projection']['fov'])
+            screen = save('screen.json', dict(geometry, right_meters_per_tan_angle=.04))
+            def command():
+                return base+['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            self.assertNotEqual(subprocess.run(command(), capture_output=True, timeout=5).returncode, 0)
+            self.assertFalse(output.exists())
+            save('screen.json', geometry)
+            subprocess.run(command(), check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['screen_grid']['views'][1]['analytic_distortion'], OPT.analytic_parameters(lens, geometry, 1))
+            self.assertFalse(result['runtime_usable'])

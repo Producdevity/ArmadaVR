@@ -128,12 +128,15 @@ def screen_parameters(data):
     expected = {'schema_version', 'layout', 'width_pixels', 'height_pixels', 'width_m',
                 'lens_separation_m', 'horizontal_offset_m', 'meters_per_tan_angle',
                 'optical_offsets_mm', 'hwc_reverse', 'separate_distortion', 'fov'}
+    if isinstance(screen, dict) and screen.get('schema_version') == 2:
+        expected.add('right_meters_per_tan_angle')
     if not isinstance(screen, dict) or set(screen) != expected:
         raise ValueError('Missing or unexpected screen parameter')
-    if type(screen['schema_version']) is not int or screen['schema_version'] != 1:
+    if type(screen['schema_version']) is not int or screen['schema_version'] not in (1, 2):
         raise ValueError('Unsupported screen schema')
-    if screen['layout'] != 'side-by-side' or screen['separate_distortion'] is not False:
-        raise ValueError('Only the shared-coefficient side-by-side lens model is supported')
+    if (screen['layout'] != 'side-by-side' or
+            screen['separate_distortion'] is not (screen['schema_version'] == 2)):
+        raise ValueError('Screen schema must explicitly select shared or separate-eye side-by-side distortion')
     for key in ('width_pixels', 'height_pixels'):
         if type(screen[key]) is not int or not 2 <= screen[key] <= 16384:
             raise ValueError('Invalid screen dimensions')
@@ -146,6 +149,10 @@ def screen_parameters(data):
         value = screen[key]
         if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
             raise ValueError('Invalid physical screen parameter')
+    if screen['schema_version'] == 2:
+        right = screen['right_meters_per_tan_angle']
+        if type(right) not in (int, float) or not math.isfinite(right) or not .001 <= right <= 1:
+            raise ValueError('Invalid right-eye tangent scale')
     offsets = screen['optical_offsets_mm']
     if (not isinstance(offsets, list) or len(offsets) != 4 or
             any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1 for v in offsets)):
@@ -159,6 +166,20 @@ def screen_parameters(data):
                 not (-1.57 < fov[0] < 0 < fov[1] < 1.57 and -1.57 < fov[3] < 0 < fov[2] < 1.57)):
             raise ValueError('Expected finite left, right, up, down FOV angles in radians')
     return screen
+
+
+def lens_for_eye(lens, screen, eye):
+    if type(eye) is not int or eye not in (0, 1):
+        raise ValueError('Expected left or right eye index')
+    if screen['separate_distortion']:
+        right = lens.get('right_eye')
+        if (not isinstance(right, dict) or set(right) != {'meters_per_tan_angle', 'radial_coefficients'} or
+                not isinstance(right['radial_coefficients'], list) or len(right['radial_coefficients']) != 11 or
+                any(type(v) not in (int, float) or not math.isfinite(v) for v in right['radial_coefficients'])):
+            raise ValueError('Separate-eye mapping requires an explicit resolved right lens')
+        if eye == 1:
+            lens = dict(lens, distortion_coefficients=right['radial_coefficients'] + lens['distortion_coefficients'][11:])
+    return lens
 
 
 def screen_tangents(lens, screen, eye, u, v):
@@ -176,9 +197,11 @@ def screen_tangents(lens, screen, eye, u, v):
     if screen['hwc_reverse'] == 180:
         u, v, dx, dy = 1 - u, 1 - v, -dx, -dy
     aspect = screen['width_pixels'] * .5 / screen['height_pixels']
-    x = (dx + (2 * u - 1) * quarter_width) / screen['meters_per_tan_angle']
-    y = (dy + (2 * v - 1) * quarter_width / aspect) / screen['meters_per_tan_angle']
-    return sample_tangents(lens, x, y)
+    scale = (screen['right_meters_per_tan_angle'] if screen['separate_distortion'] and eye == 1
+             else screen['meters_per_tan_angle'])
+    x = (dx + (2 * u - 1) * quarter_width) / scale
+    y = (dy + (2 * v - 1) * quarter_width / aspect) / scale
+    return sample_tangents(lens_for_eye(lens, screen, eye), x, y)
 
 
 def project_tangents(tangents, fov):
@@ -194,6 +217,7 @@ def project_tangents(tangents, fov):
 def analytic_parameters(lens, screen, eye):
     origin = screen_tangents(lens, screen, eye, 0, 0)['input']
     corner = screen_tangents(lens, screen, eye, 1, 1)['input']
+    lens = lens_for_eye(lens, screen, eye)
     return {'type': 'pico-radial-2', 'tangent_scale': [b - a for a, b in zip(origin, corner)],
             'tangent_offset': origin, 'radial_coefficients': lens['distortion_coefficients'][:11],
             'chromatic_coefficients': lens['chromatic_aberration'] + lens['distortion_coefficients'][18:20]}
@@ -521,13 +545,16 @@ def sdk_geometry_parameters(data):
     fields = {'schema_version', 'equation_type', 'separate_distortion', 'disable_lens_correction',
               'lens_separation_m', 'meters_per_tan_angle', 'radial_coefficients',
               'chromatic_coefficients', 'left_frustum', 'right_frustum'}
+    separate = isinstance(settings, dict) and settings.get('schema_version') == 2
+    if separate:
+        fields.update({'right_lens', 'right_meters_per_tan_angle', 'right_radial_coefficients'})
     if not isinstance(settings, dict) or set(settings) != fields:
         raise ValueError('Expected explicit SDK mode and nullable geometry overrides')
-    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+    if type(settings['schema_version']) is not int or settings['schema_version'] not in (1, 2):
         raise ValueError('Unsupported SDK geometry schema')
     if (type(settings['equation_type']) is not int or settings['equation_type'] != 2 or
-            settings['separate_distortion'] is not False or settings['disable_lens_correction'] is not False):
-        raise ValueError('Only enabled shared-coefficient equation-2 distortion is supported')
+            settings['separate_distortion'] is not separate or settings['disable_lens_correction'] is not False):
+        raise ValueError('SDK schema must explicitly select enabled shared or separate-eye equation-2 distortion')
     for name, count in [('radial_coefficients', 11), ('chromatic_coefficients', 6),
                         ('left_frustum', 6), ('right_frustum', 6)]:
         values = settings[name]
@@ -540,6 +567,23 @@ def sdk_geometry_parameters(data):
         if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or
                                   not .001 <= binary32(value) <= high):
             raise ValueError('Invalid SDK lens separation or tangent scale')
+    if separate:
+        right = settings['right_lens']
+        if not isinstance(right, dict) or set(right) != {'meters_per_tan_angle', 'radial_coefficients'}:
+            raise ValueError('Expected an explicit base right-eye lens')
+        radial = right['radial_coefficients']
+        if (not isinstance(radial, list) or len(radial) != 11 or
+                any(type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e6 for v in radial)):
+            raise ValueError('Expected eleven bounded base right-eye coefficients')
+        for value, nullable in ((right['meters_per_tan_angle'], False), (settings['right_meters_per_tan_angle'], True)):
+            if value is None and nullable:
+                continue
+            if type(value) not in (int, float) or not math.isfinite(value) or not .001 <= binary32(value) <= 1:
+                raise ValueError('Invalid base or override right-eye tangent scale')
+        overrides = settings['right_radial_coefficients']
+        if (not isinstance(overrides, list) or len(overrides) != 11 or
+                any(v is not None and (type(v) not in (int, float) or not math.isfinite(v) or abs(v) > 1e6) for v in overrides)):
+            raise ValueError('Expected eleven nullable right-eye coefficient overrides')
     return settings
 
 
@@ -562,6 +606,11 @@ def resolve_sdk_geometry(lens, projection, settings):
                         settings['chromatic_coefficients'])
     resolved['chromatic_aberration'] = chromatic[:4]
     resolved['distortion_coefficients'][18:20] = chromatic[4:]
+    if settings['schema_version'] == 2:
+        right = settings['right_lens']
+        resolved['right_eye'] = {
+            'meters_per_tan_angle': replace([right['meters_per_tan_angle']], [settings['right_meters_per_tan_angle']])[0],
+            'radial_coefficients': replace(right['radial_coefficients'], settings['right_radial_coefficients'])}
     frustums = {'schema_version': 1}
     for eye in ('left', 'right'):
         frustums[eye] = replace(projection[eye], settings[eye + '_frustum'])
@@ -745,7 +794,7 @@ def main():
     parser.add_argument('--display-scaling-sha256')
     parser.add_argument('--startup-model', type=Path, help='Explicit configuration branch and lens-query status JSON')
     parser.add_argument('--startup-sha256')
-    parser.add_argument('--sdk-geometry', type=Path, help='Explicit shared-lens SDK overrides JSON')
+    parser.add_argument('--sdk-geometry', type=Path, help='Explicit shared or separate-eye SDK overrides JSON')
     parser.add_argument('--sdk-geometry-sha256')
     parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
     parser.add_argument('--projection-sha256')
@@ -823,7 +872,10 @@ def main():
             if selection['effective_lens_source'] == 'vr-service':
                 if 'runtime_adjustment' not in result:
                     raise ValueError('VR-service startup requires resolved service lens settings')
+                right = lens.get('right_eye')
                 lens = result['runtime_adjustment']['lens']
+                if right is not None:
+                    lens = dict(lens, right_eye=right)
             result['startup_selection'] = selection
             result['effective_lens'] = lens
             result['files']['startup_model'] = {'name': args.startup_model.name, 'sha256': args.startup_sha256}
@@ -855,6 +907,13 @@ def main():
             if ('sdk_geometry' in result and not math.isclose(screen['meters_per_tan_angle'],
                     lens['meters_per_tan_angle_at_center'], rel_tol=0, abs_tol=1e-8)):
                 raise ValueError('Screen tangent scale disagrees with resolved SDK geometry')
+            if 'sdk_geometry' in result:
+                separate = result['sdk_geometry']['settings']['separate_distortion']
+                if screen['separate_distortion'] != separate:
+                    raise ValueError('Screen distortion mode disagrees with SDK geometry')
+                if separate and not math.isclose(screen['right_meters_per_tan_angle'],
+                        lens['right_eye']['meters_per_tan_angle'], rel_tol=0, abs_tol=1e-8):
+                    raise ValueError('Screen right-eye tangent scale disagrees with SDK geometry')
             result['screen_grid'] = screen_grid(lens, screen, *args.grid_size)
             result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
         if args.render_size is not None or args.max_error_pixels is not None:
