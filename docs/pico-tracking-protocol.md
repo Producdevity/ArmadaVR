@@ -797,3 +797,28 @@ The payload matches the stock CamX ARM64 encoder in 1,412 offline comparisons,
 including valid lane permutations, both PHY types, combo mode and timing/flag
 boundaries. Host and ARM64 sanitizer tests also pass. These tests do not select
 an active camera module, establish correct physical wiring or configure a PHY.
+
+### Sensor module inventory
+
+`tools/pico-camera-module.py` reads the version 2 camera module format from an
+explicitly hash-checked local firmware file:
+
+```sh
+python3 -B tools/pico-camera-module.py /path/to/private/sensormodule.bin \
+    --sha256 EXPECTED_SHA256 > sensor-module.json
+```
+
+It validates section bounds, symbol identity and typed references, then reports
+sensor identity, stream dimensions/format, mode timing, PHY fields, capabilities,
+MIPI flags, initialization tables and register settings. Register order, optional
+slave addresses, value arrays and delays are preserved. The decoder handles this
+subset of the b1977 schema; its output is an inventory, not a complete executable
+camera configuration. It does not open a device or distribute the firmware data.
+
+The decoded fields match the original ARM64 CamX parsers for eight retained
+modules containing 32 modes and 7,217 register settings. The comparison also
+covers initialization selectors and register counts. The saved firmware includes
+OV6211, OV7251 and IMX476 variants; file names alone do not establish which
+sensors are fitted, their port/lane mapping or their active calibration. Camera
+selection, power sequencing and request submission remain separate integration
+requirements.
