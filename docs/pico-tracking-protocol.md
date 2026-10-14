@@ -1053,3 +1053,29 @@ sequence wrap, alternating event order, per-request timing offsets and poisoned
 released buffers. It produces the same 185-pose trajectory as direct input.
 Events, cache synchronization and timing offsets in that replay are simulated;
 physical camera timing, DMA completion and Pico calibration remain unverified.
+
+### Camera buffer lifetime and sensor requests
+
+The camera buffer owner combines CRM command allocation or ION pixel allocation,
+CRM import, a shared CPU mapping and explicit DMA-BUF CPU synchronization. It
+refuses submission during CPU access and refuses CPU access or release while a
+buffer is in flight. Only a matching fence or independently established device
+quiescence permits completion. Failed creation retains returned resources for
+cleanup; failed CPU synchronization prevents reuse.
+
+The retained memory manager can destroy a handle before returning a cache cleanup
+error. The owner therefore retains an uncertain release and refuses a second CRM
+release, which could target a reused handle. Successful CRM release precedes CPU
+unmap and fd close; a failed unmap can be retried without releasing CRM twice.
+Linux close is attempted once, including when it returns `EINTR`. The enclosing
+session must recover uncertain kernel state before discarding retained resources.
+Host and ARM64 sanitizer tests cover 600 allocation/capture lifetimes and ten
+failure cases with interposed syscalls. Physical cache coherence is unverified.
+
+Sensor no-op packets notify CRM of a positive request ID without carrying register
+writes. They require an already configured/linked sensor; the retained parser
+silently ignores them in its initial and acquired states. An ARM64 harness feeds
+1,000 generated packets through the retained packet validator, sensor parser and
+notification helper, observes 2,000 notifications in configured/started states,
+and confirms no I2C parser calls. Kernel memory lookup and CRM delivery are stubs;
+this does not establish sensor streaming or successful physical synchronization.

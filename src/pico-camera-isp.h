@@ -68,6 +68,7 @@ enum pico_camera_packet_opcode {
     PICO_CAMERA_PACKET_SENSOR_PROBE,
     PICO_CAMERA_PACKET_SENSOR_CONFIGURE,
     PICO_CAMERA_PACKET_SENSOR_STREAM_OFF,
+    PICO_CAMERA_PACKET_SENSOR_NOP = 0x0100007f,
     PICO_CAMERA_PACKET_PHY_CONFIGURE = 0x05000000,
     PICO_CAMERA_PACKET_IFE_INITIALIZE = 0x0f000000,
     PICO_CAMERA_PACKET_IFE_UPDATE,
@@ -93,6 +94,8 @@ struct pico_camera_packet_config {
  * one optional RDI image. IFE packets require a kernel-write region immediately
  * after the used bytes of one command buffer. Other packets use index -1.
  * Callers retain every referenced allocation until completion or quiescence.
+ * Sensor NOP packets have no command or image references and a positive request
+ * ID. They notify CRM without changing registers; the sensor must be linked.
  * Inputs/output must not overlap. No patch list, device I/O or ownership change. */
 size_t pico_camera_packet_size(const struct pico_camera_packet_config *config);
 size_t pico_camera_packet_encode(const struct pico_camera_packet_config *config,

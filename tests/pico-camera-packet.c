@@ -46,7 +46,7 @@ int main(int argc, char **argv)
 #define BAD_CMD(field, value) do { struct pico_camera_command_buffer saved = commands[0]; commands[0].field = value; refused(c); commands[0] = saved; } while (0)
     BAD(commands, NULL); BAD(command_count, 0); BAD(command_count, 9); BAD(kernel_command_index, -1);
     BAD(kernel_command_index, 2); BAD(kernel_command_offset, 124); BAD(kernel_command_offset, 132);
-    BAD(request_id, 0); BAD(image, NULL); BAD(opcode, (enum pico_camera_packet_opcode)0);
+    BAD(request_id, UINT64_MAX); BAD(request_id, 0); BAD(image, NULL); BAD(opcode, (enum pico_camera_packet_opcode)0);
     BAD(opcode, PICO_CAMERA_PACKET_IFE_INITIALIZE);
     BAD_CMD(memory_handle, 0); BAD_CMD(memory_handle, -1); BAD_CMD(memory_handle, 17); BAD_CMD(memory_handle, 101);
     BAD_CMD(capacity, 0); BAD_CMD(capacity, 4); BAD_CMD(capacity, UINT32_MAX);
@@ -74,6 +74,19 @@ int main(int argc, char **argv)
         if (emit) { for (size_t i = 0; i < size; ++i) printf("%02x", out[1 + i]); putchar('\n'); }
         ++cases;
     }
+    c = (struct pico_camera_packet_config){.opcode = PICO_CAMERA_PACKET_SENSOR_NOP,
+        .request_id = INT64_MAX, .kernel_command_index = -1};
+    memset(out, 0xa5, sizeof(out));
+    assert(pico_camera_packet_encode(&c, out + 1, 56) == 56);
+    assert(out[0] == 0xa5 && out[57] == 0xa5);
+    assert(get32(out + 1) == 0x0100007f && get32(out + 5) == 56);
+    assert(get32(out + 9) == UINT32_MAX && get32(out + 13) == 0x7fffffff);
+    for (unsigned i = 17; i < 49; ++i) assert(!out[i]);
+    assert(get32(out + 49) == UINT32_MAX && !get32(out + 53));
+    memcpy(before, out, sizeof(out));
+    assert(!pico_camera_packet_encode(&c, out + 1, 55)); assert(!memcmp(before, out, sizeof(out)));
+    BAD(request_id, 0); BAD(request_id, UINT64_MAX); BAD(commands, commands);
+    BAD(command_count, 1); BAD(image, &image); BAD(kernel_command_index, 0); BAD(kernel_command_offset, 4);
     if (!emit) printf("PICO_CAMERA_PACKET_PASS matrix=%u\n", cases);
     return 0;
 }

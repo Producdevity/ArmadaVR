@@ -30,6 +30,20 @@ static bool owned(const struct ion_buffer *buffer)
            !(buffer->size % PAGE_BYTES);
 }
 
+int ion_buffer_map(int fd, size_t size, struct ion_buffer *buffer)
+{
+    if (!buffer || fd < 0 || !size || size > MAX_BUFFER_BYTES || size % PAGE_BYTES)
+        return -EINVAL;
+    if (!empty(buffer)) return -EBUSY;
+    int flags = fcntl(fd, F_GETFD);
+    if (flags < 0) return -errno;
+    if (!(flags & FD_CLOEXEC)) return -EPROTO;
+    void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED) return -errno;
+    *buffer = (struct ion_buffer){.fd = fd, .data = data, .size = size};
+    return 0;
+}
+
 int ion_buffer_allocate(int ion_fd, uint32_t heap_id, size_t size, bool cached,
                         struct ion_buffer *buffer)
 {
@@ -49,20 +63,9 @@ int ion_buffer_allocate(int ion_fd, uint32_t heap_id, size_t size, bool cached,
     if (request.fd > INT_MAX)
         return -EPROTO;
     int fd = (int)request.fd;
-    int flags = fcntl(fd, F_GETFD);
-    if (flags < 0 || !(flags & FD_CLOEXEC)) {
-        int error = flags < 0 ? errno : EPROTO;
-        close(fd);
-        return -error;
-    }
-    void *data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (data == MAP_FAILED) {
-        int error = errno;
-        close(fd);
-        return -error;
-    }
-    *buffer = (struct ion_buffer){.fd = fd, .data = data, .size = size};
-    return 0;
+    int result = ion_buffer_map(fd, size, buffer);
+    if (result) close(fd);
+    return result;
 }
 
 int ion_buffer_sync(const struct ion_buffer *buffer, enum ion_buffer_access access, bool end)

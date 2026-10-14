@@ -30,6 +30,19 @@ class PicoCameraCaptureTests(unittest.TestCase):
         self.compile_test("pico-camera-stream", "PICO_CAMERA_STREAM_PASS",
                           ["pico-camera-events.c", "pico-camera-capture.c"])
 
+    def test_buffer_ownership(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / "buffer"
+            subprocess.run([
+                "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                str(root / "tests/pico-camera-buffer.c"), str(root / "src/pico-camera-events.c"),
+                "-o", str(binary),
+            ], check=True, capture_output=True, text=True, timeout=30)
+            result = subprocess.run([str(binary)], check=True, capture_output=True, text=True, timeout=30)
+            self.assertIn("PICO_CAMERA_BUFFER_PASS", result.stdout)
+
     def compile_test(self, name, marker, dependencies=(), test_name=None):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

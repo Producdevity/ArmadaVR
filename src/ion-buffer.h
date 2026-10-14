@@ -19,6 +19,12 @@ enum ion_buffer_access { ION_BUFFER_READ = 1, ION_BUFFER_WRITE = 2, ION_BUFFER_R
 int ion_buffer_allocate(int ion_fd, uint32_t heap_id, size_t size, bool cached,
                         struct ion_buffer *buffer);
 
+/* Adopt an already allocated CLOEXEC DMA-BUF, such as a CRM command allocation.
+ * The caller supplies its verified page-aligned allocation size. Success owns
+ * fd and its shared mapping; failure leaves fd owned by the caller and preserves
+ * output. No duplication or closing occurs on failure. Initialize {.fd = -1}. */
+int ion_buffer_map(int fd, size_t size, struct ion_buffer *buffer);
+
 /* Bracket each CPU access, including initial ring clearing, with start/end.
  * Return values are zero or negative errno; interrupted calls are not retried.
  * CPU synchronization does not establish DSP mapping or device coherency. */

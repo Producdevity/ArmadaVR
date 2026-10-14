@@ -147,6 +147,28 @@ int main(void)
                        calls == before);
                 close_error = 0;
             }
+    unsigned before = calls, before_closes = closes;
+    assert(ion_buffer_map(-1, 4096, &buffer) == -EINVAL);
+    assert(ion_buffer_map(17, 0, &buffer) == -EINVAL);
+    assert(ion_buffer_map(17, 4097, &buffer) == -EINVAL);
+    assert(ion_buffer_map(17, MAX_BUFFER_BYTES + 4096, &buffer) == -EINVAL);
+    assert(ion_buffer_map(17, 4096, NULL) == -EINVAL);
+    assert(calls == before && closes == before_closes && empty(&buffer));
+    last_allocation.length = 4096; next_fd = 17;
+    descriptor_error = EBADF;
+    assert(ion_buffer_map(17, 4096, &buffer) == -EBADF);
+    descriptor_error = 0; descriptor_flags = 0;
+    assert(ion_buffer_map(17, 4096, &buffer) == -EPROTO);
+    descriptor_flags = FD_CLOEXEC; mapping_error = ENOMEM;
+    assert(ion_buffer_map(17, 4096, &buffer) == -ENOMEM);
+    assert(empty(&buffer) && closes == before_closes);
+    mapping_error = 0;
+    assert(!ion_buffer_map(17, 4096, &buffer));
+    assert(ion_buffer_map(17, 4096, &buffer) == -EBUSY);
+    assert(calls == before && closes == before_closes);
+    assert(!ion_buffer_sync(&buffer, ION_BUFFER_WRITE, false));
+    assert(!ion_buffer_sync(&buffer, ION_BUFFER_WRITE, true));
+    assert(!ion_buffer_release(&buffer) && closes == before_closes + 1);
     assert(ion_buffer_release(NULL) == -EINVAL);
     puts("ION_BUFFER_UNIT_PASS allocations=384 failure_paths=5 sync_modes=6");
     return 0;

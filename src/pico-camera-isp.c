@@ -134,7 +134,11 @@ bool pico_camera_rdi_buffer_configure(const struct pico_camera_rdi_buffer *b,
 
 size_t pico_camera_packet_size(const struct pico_camera_packet_config *c)
 {
-    if (!c || !c->commands || !c->command_count || c->command_count > PICO_CAMERA_PACKET_MAX_COMMANDS) return 0;
+    if (!c || c->request_id > INT64_MAX) return 0;
+    if (c->opcode == PICO_CAMERA_PACKET_SENSOR_NOP)
+        return c->request_id && !c->commands && !c->command_count && !c->image &&
+            c->kernel_command_index == -1 && !c->kernel_command_offset ? 56 : 0;
+    if (!c->commands || !c->command_count || c->command_count > PICO_CAMERA_PACKET_MAX_COMMANDS) return 0;
     bool ife = false;
     switch (c->opcode) {
     case PICO_CAMERA_PACKET_IFE_INITIALIZE:
