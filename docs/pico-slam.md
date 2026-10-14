@@ -185,7 +185,11 @@ VM tests use a synthetic estimator, independently of the real Basalt replay.
 
 Its configuration requires explicit SUIDs, supported rates, clock calibration,
 axis/unit conversion, camera timing and estimator calibration. Construction
-starts those SSC subscriptions; it does not open, configure or start cameras.
+starts those SSC subscriptions; callers can instead prepare the runtime and
+activate SSC after camera setup. Deferred startup prevents samples from filling
+the bounded queue during configuration. Start is attempted once, and stopping
+before activation prevents a later start. Neither entry point opens, configures
+or starts cameras.
 The auto prober remains disabled for this unverified physical configuration.
 
 ## Remaining integration

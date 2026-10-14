@@ -7,6 +7,8 @@
 
 struct pico_slam_runtime {
     struct ssc_imu_session *sensors;
+    struct ssc_imu_session_config sensor_config;
+    bool sensors_attempted;
     struct pico_slam_imu *queue;
     struct pico_slam_session *session;
     bool (*calibrate)(void *data, struct ssc_clock *clock);
@@ -59,7 +61,7 @@ static void corrected_report(void *data, const struct ssc_bias_sample *sample)
         !pico_slam_imu_push(s->queue, &value, now)) invalidate(s);
 }
 
-bool pico_slam_runtime_create(const struct pico_slam_runtime_config *c,
+bool pico_slam_runtime_prepare(const struct pico_slam_runtime_config *c,
                               struct pico_slam_runtime **runtime)
 {
     if (!c || !runtime || *runtime || !c->generation || !c->sensors.calibrate ||
@@ -84,21 +86,36 @@ bool pico_slam_runtime_create(const struct pico_slam_runtime_config *c,
     struct ssc_imu_session_config sensors = c->sensors;
     sensors.calibrate = calibrate; sensors.report = raw_report;
     sensors.invalidate = invalidate; sensors.bias.report = corrected_report; sensors.data = s;
-    if (!ssc_imu_session_create(&sensors, &s->sensors)) {
-        pico_slam_session_destroy(&s->session);
-        pico_slam_imu_destroy(&s->queue);
-        free(s);
-        return false;
-    }
+    s->sensor_config = sensors;
     *runtime = s;
     return true;
+}
+
+bool pico_slam_runtime_start(struct pico_slam_runtime *s)
+{
+    if (!s || s->sensors_attempted || atomic_load(&s->stopping)) return false;
+    s->sensors_attempted = true;
+    if (!ssc_imu_session_create(&s->sensor_config, &s->sensors)) {
+        invalidate(s);
+        return false;
+    }
+    return true;
+}
+
+bool pico_slam_runtime_create(const struct pico_slam_runtime_config *c,
+                              struct pico_slam_runtime **runtime)
+{
+    if (!pico_slam_runtime_prepare(c, runtime)) return false;
+    if (pico_slam_runtime_start(*runtime)) return true;
+    pico_slam_runtime_destroy(runtime);
+    return false;
 }
 
 void pico_slam_runtime_stop(struct pico_slam_runtime *s)
 {
     if (!s) return;
     invalidate(s);
-    ssc_imu_session_stop(s->sensors);
+    if (s->sensors) ssc_imu_session_stop(s->sensors);
     pico_slam_session_stop(s->session);
 }
 
@@ -153,7 +170,7 @@ struct pico_slam_tracking *pico_slam_runtime_tracking(struct pico_slam_runtime *
 
 void pico_slam_runtime_get_status(struct pico_slam_runtime *s, struct ssc_imu_session_status *status)
 {
-    if (s) ssc_imu_session_get_status(s->sensors, status);
+    if (s && s->sensors) ssc_imu_session_get_status(s->sensors, status);
 }
 
 bool pico_slam_runtime_destroy(struct pico_slam_runtime **runtime)

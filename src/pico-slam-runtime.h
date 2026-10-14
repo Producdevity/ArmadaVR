@@ -26,6 +26,12 @@ struct pico_slam_runtime_config {
  * No camera, link, DMA buffer or device configuration is created here. */
 bool pico_slam_runtime_create(const struct pico_slam_runtime_config *config,
                               struct pico_slam_runtime **runtime);
+/* Allocate the queue and estimator interface without subscribing to SSC. This
+ * permits camera configuration before live samples can fill the bounded queue.
+ * Start performs the sensor-session validation and is attempted once. */
+bool pico_slam_runtime_prepare(const struct pico_slam_runtime_config *config,
+                               struct pico_slam_runtime **runtime);
+bool pico_slam_runtime_start(struct pico_slam_runtime *runtime);
 
 /* 0: waiting for paired IMU, 1: estimator running, negative errno: stopped.
  * Poll regularly, even without frames. Drain at most 128 IMU pairs and 32 poses.

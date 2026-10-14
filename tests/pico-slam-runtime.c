@@ -243,7 +243,28 @@ int main(void)
         assert(pico_slam_runtime_destroy(&s));
     }
     assert(pico_slam_runtime_destroy(&s));
+    unsigned before_sensors=sensor_created,before_trackers=created;
+    assert(pico_slam_runtime_prepare(&c,&s) && !mock && sensor_created==before_sensors);
+    assert(!pico_slam_runtime_prepare(&c,&s));
+    assert(pico_slam_runtime_poll(s,base,&poses)==0 && !poses && created==before_trackers);
+    assert(pico_slam_runtime_destroy(&s) && !mock && sensor_created==before_sensors);
+    assert(pico_slam_runtime_prepare(&c,&s));
+    pico_slam_runtime_stop(s);
+    assert(!pico_slam_runtime_start(s) && !mock);
+    assert(pico_slam_runtime_destroy(&s));
+    assert(pico_slam_runtime_prepare(&c,&s));
+    fail_create=true;assert(!pico_slam_runtime_start(s) && s && !mock);fail_create=false;
+    assert(!pico_slam_runtime_start(s) && !mock);
+    assert(pico_slam_runtime_poll(s,base,&poses)<0 && !poses);
+    assert(pico_slam_runtime_destroy(&s));
+    assert(pico_slam_runtime_prepare(&c,&s) && sensor_created==before_sensors);
+    assert(pico_slam_runtime_poll(s,base,&poses)==0 && !poses);
+    assert(pico_slam_runtime_start(s) && sensor_created==before_sensors+1);
+    assert(!pico_slam_runtime_start(s) && sensor_created==before_sensors+1);
+    assert(feed(s,c.generation,base+10000,0));
+    assert(pico_slam_runtime_destroy(&s));
+    assert(!pico_slam_runtime_start(NULL));
     assert(created==destroyed && created==stopped && pose_created==pose_destroyed);
     assert(sensor_created==sensor_destroyed);
-    printf("PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 joined=%u trackers=%u poses=%u\n",sensor_destroyed,destroyed,pose_destroyed);
+    printf("PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=%u trackers=%u poses=%u\n",sensor_destroyed,destroyed,pose_destroyed);
 }

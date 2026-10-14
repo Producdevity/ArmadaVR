@@ -129,7 +129,7 @@ def main():
         run([args.cxx, *sanitize, *objects, *link_flags, '-pthread', '-lm', collect, '-o', str(binary)], 'link.log')
         run([str(binary)] + (['no-qrtr'] if args.sensors else []), 'test.log', env=environment)
         log = (output / 'test.log').read_text()
-        expected = 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 joined=215' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
+        expected = 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=216' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
         if expected not in log or (not args.session and not args.imu and not args.runtime and not args.sensors and 'generations=1000 poses=10000 reader_queries=20000' not in log):
             raise ValueError('Tracking tests did not complete')
         if args.sensors and ssc.package(bundle) != record:
