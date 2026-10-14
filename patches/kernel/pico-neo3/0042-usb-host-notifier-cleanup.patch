@@ -1,0 +1,10 @@
+--- a/drivers/usb/dwc3/dwc3-msm.c
++++ b/drivers/usb/dwc3/dwc3-msm.c
+@@ -4219,6 +4219,7 @@
+ 		usb_register_atomic_notify(&mdwc->usbdev_nb);
+ 		ret = dwc3_host_init(dwc);
+ 		if (ret) {
++			usb_unregister_atomic_notify(&mdwc->usbdev_nb);
+ 			dev_err(mdwc->dev,
+ 				"%s: failed to add XHCI pdev ret=%d\n",
+ 				__func__, ret);

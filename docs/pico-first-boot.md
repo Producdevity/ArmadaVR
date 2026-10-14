@@ -284,3 +284,32 @@ recovery sequence remain physical acceptance requirements.
 
 Private audit and current-source receipts:
 `output/pico-flash-path-20261013-v1/`. No image has been flashed.
+
+
+## USB host startup cleanup
+
+The pinned Pico kernel registers a global USB host-death callback before creating
+its xHCI device. If creation fails, the original error path leaves that callback
+registered. Subsequent startup attempts trigger the notifier core's duplicate
+registration warning. Patch `0042-usb-host-notifier-cleanup.patch` unregisters the
+callback before unwinding a failed start. Normal startup and shutdown retain
+their existing registration order.
+
+The source-matched regression executes the actual host start/stop functions and
+notifier list insertion/removal, with hardware operations, callback bodies and
+locking modeled. Across 256 failure/retry/lifecycle cases, the original fails
+1,792 ownership checks; the patch passes every check on macOS and native ARM64
+Linux under ASan/UBSan. An unrelated controller remains registered throughout.
+Regulator refusal and deferred probe do not register callbacks.
+
+```sh
+python3 -B tools/test-pico-usb-host.py PINNED_UNMODIFIED_KERNEL_SOURCE \
+  --output NEW_TEST_DIRECTORY
+```
+
+This does not verify interrupt concurrency, physical USB operation or recovery.
+The saved stock device tree connects the primary controller to the USB-PD PHY
+and EUD extcon providers; its USB-PD node gets VBUS from the SMB5 regulator.
+The QEMU xHCI storage tests bypass those physical drivers and power negotiation.
+A working emulated USB root therefore does not establish a usable root medium
+on the headset.
