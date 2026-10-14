@@ -295,12 +295,20 @@ registration warning. Patch `0042-usb-host-notifier-cleanup.patch` unregisters t
 callback before unwinding a failed start. Normal startup and shutdown retain
 their existing registration order.
 
+Patch `0043-usb-host-power-cleanup.patch` also checks runtime-resume errors before
+notifying PHYs or accessing the controller. Failed resumes balance their usage
+reference without requesting another idle transition. Both successful return
+values, zero and one, are accepted even when the optional VBUS supply is absent.
+VBUS-enable and xHCI-creation failures now disconnect the PHYs before clearing
+host flags and releasing the power reference.
+
 The source-matched regression executes the actual host start/stop functions and
 notifier list insertion/removal, with hardware operations, callback bodies and
-locking modeled. Across 256 failure/retry/lifecycle cases, the original fails
-1,792 ownership checks; the patch passes every check on macOS and native ARM64
-Linux under ASan/UBSan. An unrelated controller remains registered throughout.
-Regulator refusal and deferred probe do not register callbacks.
+locking modeled. Across 608 failure/retry/lifecycle cases, the original fails
+6,208 checks; the notifier-only patch still fails 2,624 power/PHY checks. Both
+patches pass on macOS and native ARM64 Linux under ASan/UBSan. An unrelated
+controller remains registered throughout. The suite covers negative resume
+results, already-active success, both USB speeds, optional VBUS and retries.
 
 ```sh
 python3 -B tools/test-pico-usb-host.py PINNED_UNMODIFIED_KERNEL_SOURCE \
@@ -313,3 +321,24 @@ and EUD extcon providers; its USB-PD node gets VBUS from the SMB5 regulator.
 The QEMU xHCI storage tests bypass those physical drivers and power negotiation.
 A working emulated USB root therefore does not establish a usable root medium
 on the headset.
+
+
+## Checking the runtime display pair
+
+The runtime boot assembler preserves the complete stock base-DTB pack. Its boot
+image alone does not install the candidate panel selection or native mux binding;
+those changes are in a separate unsigned DTBO image. The first KMS-disabled
+RAM diagnostic continues to use the stock display configuration.
+
+For the later display bring-up, `tools/verify-pico-display-set.py` verifies the
+actual boot image and DTBO together against independently hashed stock originals.
+It extracts the explicitly selected base and original overlay, rebuilds the
+requested panel/mux binding, and requires the entire candidate DTBO to equal that
+result. Every other base tree, overlay and table identifier must remain stock.
+It refuses mismatched hashes, indices, extra trailers and unrelated tree changes.
+The resulting merged tree retains the stock memory and reservation description.
+
+All four container paths and hashes, the two indices, and the panel, bridge,
+display and expected previous panel are required CLI inputs; `--help` lists them.
+The report establishes offline correspondence only. It does not establish live
+board selection, panel operation, signature acceptance, recovery or flash readiness.
