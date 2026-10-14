@@ -117,6 +117,31 @@ operations. The output contains the device serial and belongs in private
 evidence. It describes stock service state, not independently measured silicon
 or analog calibration, and must not become a default for another unit.
 
+The optional `--motion-status` switch also calls station transaction 19 twice.
+The hash-pinned stock implementation only copies its cached controller status;
+it does not connect, pair, reset or subscribe to a controller. The collector
+additionally verifies the station client, tracking library and Binder library
+before any Binder transaction. Both replies must have a successful status,
+present parcelable of type 18, and two complete 48-byte controller records.
+It retains both raw records, requires connection states 0 or 1, and rejects a
+change in connection, revision byte, scale byte or axis-reversal byte between
+reads. Other changing status fields are retained without interpretation.
+
+```sh
+python3 tools/pico-controller-config.py --serial DEVICE_SERIAL --motion-status \
+  --output output/pico-controller-motion-status.json
+```
+
+In each record, the tracking parser reads byte 15 to select a hardware axis
+branch, doubles its IMU conversion factors only when byte 42 equals 1, and
+bypasses hardware axis reversal when byte 43 is nonzero. These names describe
+observed code behavior; they do not establish a particular controller model.
+Disconnected status cannot establish a connected controller's calibration.
+The collector does not install these values, convert motion samples or enable
+controller poses. Native execution of the stock serializer and deserializer
+and 256 comparisons with the collector pass offline. Transaction access and
+actual controller settings still require a capture on the device.
+
 The connected Neo3 Pro Eye running 5.8.4.0 reports **MCU type 1, radio type 2,
 touch enabled**. The stored touch property is empty while the live getter
 returns 1; an empty property must not be interpreted as disabled. The MCU type
