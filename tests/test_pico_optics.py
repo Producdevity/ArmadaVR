@@ -1193,3 +1193,111 @@ class PicoSeparateEyeTests(unittest.TestCase):
             result = json.loads(output.read_text())
             self.assertEqual(result['screen_grid']['views'][1]['analytic_distortion'], OPT.analytic_parameters(lens, geometry, 1))
             self.assertFalse(result['runtime_usable'])
+
+
+class PicoSdkDisplayTests(unittest.TestCase):
+    def setUp(self):
+        incoming = {'width_pixels': 3200, 'height_pixels': 1600, 'width_m': .16,
+                    'height_m': .08, 'screen_gap_m': .002, 'horizontal_offset_m': .001}
+        self.settings = {'schema_version': 1, 'incoming': incoming,
+            'overrides': {key: None for key in incoming}, 'service_display': None,
+            'ipd_mode': None, 'fixed_lens_separation_m': None}
+        self.startup = {'schema_version': 2, 'config_service_enabled': True, 'service_mode': 1,
+            'use_service_parameters': True, 'config_file_compatible': True,
+            'lens_query_succeeded': False, 'display_query_succeeded': False}
+
+    def test_sdk_absence_resets_ipd_defaults_but_preserves_display_fields(self):
+        result = OPT.sdk_display_parameters(json.dumps(self.settings).encode())
+        self.assertEqual(result['ipd_mode'], 0)
+        self.assertEqual(result['fixed_lens_separation_m'], OPT.binary32(.046))
+        self.assertEqual(result['display']['width_m'], OPT.binary32(.16))
+        self.assertFalse(result['runtime_usable'])
+        self.settings['overrides'].update(width_pixels=3520, screen_gap_m=0, horizontal_offset_m=0)
+        self.settings.update(ipd_mode=1, fixed_lens_separation_m=.07)
+        result = OPT.sdk_display_parameters(json.dumps(self.settings).encode())
+        self.assertEqual(result['display']['width_pixels'], 3520)
+        self.assertEqual(result['display']['height_pixels'], 1600)
+        self.assertEqual(result['display']['screen_gap_m'], 0)
+        self.assertEqual(result['display']['horizontal_offset_m'], 0)
+        self.assertEqual(result['fixed_lens_separation_m'], OPT.binary32(.07))
+
+    def test_display_reload_is_independent_of_lens_query_and_preserves_other_fields(self):
+        self.settings['overrides'].update(width_m=.14, height_m=.07, horizontal_offset_m=.003)
+        self.settings.update(ipd_mode=1, fixed_lens_separation_m=.069)
+        self.settings['service_display'] = {'width_pixels': 2880, 'height_pixels': 1440,
+                                            'width_m': .12, 'screen_gap_m': .004}
+        data = json.dumps(self.settings).encode()
+        failed = OPT.sdk_display_parameters(data, self.startup)
+        self.assertFalse(failed['service_display_applied'])
+        self.assertEqual(failed['display']['width_m'], OPT.binary32(.14))
+        self.startup['display_query_succeeded'] = True
+        passed = OPT.sdk_display_parameters(data, self.startup)
+        self.assertTrue(passed['service_display_applied'])
+        self.assertEqual(passed['display']['width_m'], OPT.binary32(.12))
+        self.assertEqual(passed['display']['width_pixels'], 2880)
+        self.assertEqual(passed['display']['height_m'], OPT.binary32(.07))
+        self.assertEqual(passed['display']['horizontal_offset_m'], OPT.binary32(.003))
+        self.assertEqual(passed['fixed_lens_separation_m'], OPT.binary32(.069))
+        self.settings['service_display'] = None
+        with self.assertRaises(ValueError):
+            OPT.sdk_display_parameters(json.dumps(self.settings).encode(), self.startup)
+        schema1 = dict(self.startup, schema_version=1); schema1.pop('display_query_succeeded')
+        with self.assertRaises(ValueError):
+            OPT.sdk_display_parameters(data, schema1)
+        with self.assertRaises(ValueError):
+            OPT.sdk_display_parameters(data, dict(self.startup, config_service_enabled=False))
+        with self.assertRaises(ValueError):
+            OPT.startup_selection(json.dumps(dict(self.startup, service_mode=2)).encode())
+
+    def test_display_refuses_unsupported_modes_odd_width_and_nonfinite_values(self):
+        for field, value in [('schema_version', True), ('ipd_mode', True), ('ipd_mode', 2),
+                             ('fixed_lens_separation_m', 0), ('fixed_lens_separation_m', float('nan')),
+                             ('service_display', {}), ('incoming', {}), ('overrides', {})]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                OPT.sdk_display_parameters(json.dumps(dict(self.settings, **{field: value})).encode())
+        for field, value in [('width_pixels', 3199), ('height_pixels', 0), ('width_m', float('inf')),
+                             ('screen_gap_m', -.001), ('horizontal_offset_m', True)]:
+            settings = copy.deepcopy(self.settings); settings['overrides'][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                OPT.sdk_display_parameters(json.dumps(settings).encode())
+        for data in (b'{}', b' ' * 4097, json.dumps(self.settings).encode()+b'\0',
+                     json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()):
+            with self.assertRaises(ValueError):
+                OPT.sdk_display_parameters(data)
+
+    def test_cli_checks_final_dimensions_and_fixed_separation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp); config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axes.txt'; offsets.write_bytes(b'0,0,0,0')
+            def save(name, obj):
+                p = d/name; p.write_text(json.dumps(obj)); return p
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            runtime = save('runtime.json', {'schema_version': 1, 'ipd_enabled': False,
+                'ipd_correction_enabled': False, 'ipd_correction_mm': 0, 'screen_gap_m': 0,
+                'axis_corrections_mm': [0, 0, 0, 0]})
+            self.settings['overrides'].update(width_pixels=3520, height_pixels=1760, width_m=.14, horizontal_offset_m=0)
+            self.settings['ipd_mode'] = 1
+            display = save('display.json', self.settings)
+            geometry = dict(screen_fixture(), width_pixels=3520, height_pixels=1760,
+                            width_m=OPT.binary32(.14), lens_separation_m=OPT.binary32(.046))
+            screen = save('screen.json', geometry); output = d/'result.json'
+            base = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                    '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                    '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output),
+                    '--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime),
+                    '--sdk-display', str(display), '--sdk-display-sha256', digest(display)]
+            def command():
+                return base+['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            for key, value in [('width_m', .16), ('width_pixels', 3200), ('height_pixels', 1600),
+                               ('horizontal_offset_m', .001), ('lens_separation_m', .0634)]:
+                save('screen.json', dict(geometry, **{key: value}))
+                self.assertNotEqual(subprocess.run(command(), capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            save('screen.json', geometry)
+            subprocess.run(command(), check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['sdk_display']['ipd_mode'], 1)
+            self.assertEqual(result['runtime_adjustment']['lens']['lens_separation_m'], OPT.binary32(.0634))
+            self.assertEqual(result['screen_grid']['views'][0]['analytic_distortion'],
+                             OPT.analytic_parameters(result['runtime_adjustment']['lens'], geometry, 0))
+            self.assertFalse(result['runtime_usable'])

@@ -449,6 +449,79 @@ def projection_parameters(data):
     return {'frustums': model, 'fov': fovs, 'active_settings_verified': False, 'runtime_usable': False}
 
 
+def sdk_display_parameters(data, startup=None):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate SDK display parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid SDK display size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed SDK display') from error
+    fields = {'schema_version', 'incoming', 'overrides', 'service_display', 'ipd_mode', 'fixed_lens_separation_m'}
+    if not isinstance(settings, dict) or set(settings) != fields:
+        raise ValueError('Expected explicit incoming display, SDK overrides and optional service display')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported SDK display schema')
+    names = {'width_pixels', 'height_pixels', 'width_m', 'height_m', 'screen_gap_m', 'horizontal_offset_m'}
+    service_names = {'width_pixels', 'height_pixels', 'width_m', 'screen_gap_m'}
+
+    def validate(record, fields, nullable=False):
+        if not isinstance(record, dict) or set(record) != fields:
+            raise ValueError('Missing or unexpected display geometry field')
+        result = {}
+        for key, value in record.items():
+            if nullable and value is None:
+                result[key] = None
+                continue
+            if key.endswith('_pixels'):
+                if type(value) is not int or not 2 <= value <= 16384 or key == 'width_pixels' and value % 2:
+                    raise ValueError('Invalid side-by-side display resolution')
+                result[key] = value
+            else:
+                low, high = {'screen_gap_m': (0, .05), 'horizontal_offset_m': (-.1, .1)}.get(key, (.001, 1))
+                if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
+                    raise ValueError('Invalid display geometry value')
+                result[key] = binary32(value)
+        return result
+
+    incoming = validate(settings['incoming'], names)
+    overrides = validate(settings['overrides'], names, True)
+    resolved = {k: incoming[k] if overrides[k] is None else overrides[k] for k in sorted(names)}
+    service = settings['service_display']
+    if service is not None:
+        service = validate(service, service_names)
+    mode = settings['ipd_mode']
+    if mode is not None and (type(mode) is not int or mode not in (0, 1)):
+        raise ValueError('Expected absent, dynamic or fixed IPD mode')
+    fixed = settings['fixed_lens_separation_m']
+    if fixed is not None and (type(fixed) not in (int, float) or not math.isfinite(fixed) or not .001 <= fixed <= .2):
+        raise ValueError('Invalid fixed lens separation')
+    service_applied = False
+    if startup is not None:
+        startup = startup_selection(json.dumps(startup).encode())
+        if startup['initial_source'] != 'config-service':
+            raise ValueError('SDK display requires the config-service branch')
+        if startup['service_reload_requested']:
+            if startup['settings']['schema_version'] != 2:
+                raise ValueError('Display reload requires an explicit display-query result in startup schema 2')
+            service_applied = startup['settings']['display_query_succeeded']
+            if service_applied:
+                if service is None:
+                    raise ValueError('Successful display reload requires the explicit service display record')
+                resolved.update(service)
+    return {'settings': settings, 'display': resolved, 'service_display_applied': service_applied,
+            'ipd_mode': 0 if mode is None else mode,
+            'fixed_lens_separation_m': binary32(.046 if fixed is None else fixed),
+            'active_settings_verified': False, 'runtime_usable': False}
+
+
 def display_scaling(data):
     def unique(pairs):
         result = {}
@@ -509,9 +582,11 @@ def startup_selection(data):
         raise ValueError('Malformed startup selection') from error
     flags = {'config_service_enabled', 'use_service_parameters', 'config_file_compatible',
              'lens_query_succeeded'}
+    if isinstance(settings, dict) and settings.get('schema_version') == 2:
+        flags.add('display_query_succeeded')
     if not isinstance(settings, dict) or set(settings) != flags | {'schema_version', 'service_mode'}:
         raise ValueError('Expected explicit startup branch and lens-query result')
-    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+    if type(settings['schema_version']) is not int or settings['schema_version'] not in (1, 2):
         raise ValueError('Unsupported startup selection schema')
     if any(type(settings[key]) is not bool for key in flags):
         raise ValueError('Expected explicit startup flags')
@@ -519,8 +594,8 @@ def startup_selection(data):
         raise ValueError('Unsupported startup service mode')
     reload = (settings['service_mode'] == 1 and settings['use_service_parameters'] and
               (not settings['config_service_enabled'] or settings['config_file_compatible']))
-    if settings['lens_query_succeeded'] and not reload:
-        raise ValueError('Lens query cannot succeed on a branch that does not call it')
+    if (settings['lens_query_succeeded'] or settings.get('display_query_succeeded', False)) and not reload:
+        raise ValueError('Service query cannot succeed on a branch that does not call it')
     source = 'config-service' if settings['config_service_enabled'] else 'config-file'
     return {'settings': settings, 'initial_source': source, 'service_reload_requested': reload,
             'effective_lens_source': 'vr-service' if settings['lens_query_succeeded'] else source,
@@ -790,6 +865,8 @@ def main():
     parser.add_argument('--selection-sha256')
     parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
     parser.add_argument('--compositor-axes-sha256')
+    parser.add_argument('--sdk-display', type=Path, help='Explicit SDK display geometry and fixed-IPD overrides JSON')
+    parser.add_argument('--sdk-display-sha256')
     parser.add_argument('--display-scaling', type=Path, help='Explicit stock g-prefixed display scaling settings JSON')
     parser.add_argument('--display-scaling-sha256')
     parser.add_argument('--startup-model', type=Path, help='Explicit configuration branch and lens-query status JSON')
@@ -879,6 +956,12 @@ def main():
             result['startup_selection'] = selection
             result['effective_lens'] = lens
             result['files']['startup_model'] = {'name': args.startup_model.name, 'sha256': args.startup_sha256}
+        if args.sdk_display is not None or args.sdk_display_sha256 is not None:
+            if args.sdk_display is None or args.sdk_display_sha256 is None:
+                raise ValueError('SDK display settings and SHA-256 are required together')
+            startup = result['startup_selection']['settings'] if 'startup_selection' in result else None
+            result['sdk_display'] = sdk_display_parameters(read_file(args.sdk_display, args.sdk_display_sha256, 4096), startup)
+            result['files']['sdk_display'] = {'name': args.sdk_display.name, 'sha256': args.sdk_display_sha256}
         if args.display_scaling is not None or args.display_scaling_sha256 is not None:
             if args.display_scaling is None or args.display_scaling_sha256 is None:
                 raise ValueError('Display scaling settings and SHA-256 are required together')
@@ -901,7 +984,10 @@ def main():
                 resolved = result['runtime_adjustment'] if service_wins else result.get('compositor_axes', result['runtime_adjustment'])
                 if 'compositor_axes' in result and screen['hwc_reverse'] != result['compositor_axes']['effective_hwc_reverse']:
                     raise ValueError('Screen HWC reversal disagrees with the compositor axis stage')
-                if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or
+                separation = lens['lens_separation_m']
+                if result.get('sdk_display', {}).get('ipd_mode') == 1:
+                    separation = result['sdk_display']['fixed_lens_separation_m']
+                if (not math.isclose(screen['lens_separation_m'], separation, rel_tol=0, abs_tol=1e-8) or
                         any(not math.isclose(a, b, rel_tol=0, abs_tol=1e-6) for a, b in zip(screen['optical_offsets_mm'], resolved['optical_offsets_mm']))):
                     raise ValueError('Screen model disagrees with resolved IPD/axis adjustments')
             if ('sdk_geometry' in result and not math.isclose(screen['meters_per_tan_angle'],
@@ -914,6 +1000,15 @@ def main():
                 if separate and not math.isclose(screen['right_meters_per_tan_angle'],
                         lens['right_eye']['meters_per_tan_angle'], rel_tol=0, abs_tol=1e-8):
                     raise ValueError('Screen right-eye tangent scale disagrees with SDK geometry')
+            if 'sdk_display' in result:
+                display = result['sdk_display']['display']
+                if any(screen[k] != display[k] for k in ('width_pixels', 'height_pixels')) or any(
+                        not math.isclose(screen[k], display[k], rel_tol=0, abs_tol=1e-8)
+                        for k in ('width_m', 'horizontal_offset_m')):
+                    raise ValueError('Screen geometry disagrees with the resolved SDK display')
+                if (result['sdk_display']['ipd_mode'] == 1 and not math.isclose(screen['lens_separation_m'],
+                        result['sdk_display']['fixed_lens_separation_m'], rel_tol=0, abs_tol=1e-8)):
+                    raise ValueError('Screen separation disagrees with fixed SDK IPD mode')
             result['screen_grid'] = screen_grid(lens, screen, *args.grid_size)
             result['files']['screen_model'] = {'name': args.screen_model.name, 'sha256': args.screen_sha256}
         if args.render_size is not None or args.max_error_pixels is not None:

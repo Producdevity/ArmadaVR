@@ -355,6 +355,47 @@ at initialization. Original ARM64 branch and lens-copy execution covers 864
 cases across 27 branch/query combinations. Transport and unrelated setup are
 isolated; headset startup and the active branch remain unverified.
 
+## SDK display geometry and fixed IPD
+
+`--sdk-display FILE --sdk-display-sha256 SHA256` accepts schema 1 with:
+
+- `incoming`: explicit `width_pixels`, `height_pixels`, `width_m`, `height_m`,
+  `screen_gap_m`, and `horizontal_offset_m`.
+- `overrides`: the same six fields, each nullable to preserve its incoming value.
+- `service_display`: `null`, or the independently saved service record containing
+  `width_pixels`, `height_pixels`, `width_m`, and `screen_gap_m`.
+- `ipd_mode`: `null`, 0 (dynamic), or 1 (fixed).
+- `fixed_lens_separation_m`: a nullable positive separation.
+
+The original SDK reader defaults absent IPD mode to 0 and absent fixed separation
+to 0.046 metres; unlike the nullable display fields, these do not preserve their
+previous values. Fixed mode selects that separate separation for mesh generation.
+The underlying service/SDK lens record is retained. Screen resolution, physical
+width, horizontal offset and selected separation must match the resolved values.
+Physical height and screen gap remain in the report: the tested radial mesh uses
+pixel aspect for height, and this stage does not subtract screen gap again.
+
+When a startup branch can reload display information, startup schema 2 adds the
+required boolean `display_query_succeeded`. It is independent of
+`lens_query_succeeded`. Successful display reload replaces only the four fields
+provided by that API; physical height, horizontal offset and fixed-IPD settings
+survive. Missing service data or an unspecified query result is refused rather
+than assumed. Original-code tests cover 2,048 SDK display settings and 864 startup
+cases, including independent display/lens query results and right-bank retention.
+These explicit snapshots do not establish current hardware settings.
+
+A combined 192-case test includes 47 fixed-IPD cases and separate-eye optics.
+All 68,544 vertices pass an independent native-equation check (maximum normalized
+error 5.95e-8), and all sampled visible components pass the existing stock
+comparison threshold. Maximum visible stock difference is 0.009195 pixels at
+1920 pixels. One outside-texture component differs by 1.046e-5 normalized,
+slightly above the unchanged 1e-5 stock threshold; the all-sample stock test
+therefore remains a recorded failure. The native value is within 5.8e-9 of the
+independent equation at that point. Neither production bounds nor test tolerances
+were relaxed. Exact hexadecimal float transport avoids a separately diagnosed
+decimal midpoint rounding difference between C and Python. These results do not
+establish clipping equivalence, physical calibration or scanout.
+
 ## Display scaling inspection
 
 `--display-scaling FILE --display-scaling-sha256 SHA256` resolves the separate
