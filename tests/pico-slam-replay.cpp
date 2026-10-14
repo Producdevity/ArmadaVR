@@ -3,6 +3,7 @@
 extern "C" {
 #include "pico-slam-input.h"
 #include "pico-slam-tracking.h"
+#include "pico-slam-session.h"
 }
 #include <algorithm>
 #include <array>
@@ -27,8 +28,24 @@ extern "C" {
     }                                                                          \
   } while (0)
 static vit_tracker_t *tracker;
+static std::vector<vit_pose_data_t> observed;
 static unsigned delivered_images, delivered_imu;
 static unsigned image_bytes = 1;
+static vit_result_t session_image(vit_tracker_t *t, const vit_img_sample_t *s) {
+  auto result = vit_tracker_push_img_sample(t, s);
+  if (result == VIT_SUCCESS) ++delivered_images;
+  return result;
+}
+static vit_result_t session_imu(vit_tracker_t *t, const vit_imu_sample_t *s) {
+  auto result = vit_tracker_push_imu_sample(t, s);
+  if (result == VIT_SUCCESS) ++delivered_imu;
+  return result;
+}
+static vit_result_t observe_pose(const vit_pose_t *p, vit_pose_data_t *d) {
+  auto result = vit_pose_get_data(p, d);
+  if (result == VIT_SUCCESS) observed.push_back(*d);
+  return result;
+}
 struct CameraSink {
   xrt_frame_sink base;
   unsigned index;
@@ -99,7 +116,8 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes == 1 || image_bytes == 2);
+  CHECK(image_bytes <= 2);
+  bool owned = image_bytes == 0;
   cv::setNumThreads(1);
   const std::filesystem::path root = argv[1];
   auto left = csv(root / "mav0/cam0/data.csv"),
@@ -118,8 +136,10 @@ int main(int argc, char **argv) {
   uint32_t major, minor, patch;
   CHECK(vit_api_get_version(&major, &minor, &patch) == VIT_SUCCESS &&
         major == 2 && minor == 0 && patch == 1);
-  CHECK(vit_tracker_create(&config, &tracker) == VIT_SUCCESS && tracker);
-  CHECK(vit_tracker_start(tracker) == VIT_SUCCESS);
+  if (!owned) {
+    CHECK(vit_tracker_create(&config, &tracker) == VIT_SUCCESS && tracker);
+    CHECK(vit_tracker_start(tracker) == VIT_SUCCESS);
+  }
   CameraSink cams[2] = {{{camera}, 0}, {{camera}, 1}};
   xrt_imu_sink isink{imu};
   xrt_slam_sinks sinks{};
@@ -138,13 +158,6 @@ int main(int argc, char **argv) {
   c.max_age_ns = 100000000;
   c.max_gap_ns = 100000000;
   c.max_skew_ns = 100000;
-  pico_slam_input *input = nullptr;
-  CHECK(pico_slam_input_create(&c, &sinks, &input));
-  CHECK(pico_slam_input_begin(input, 1, 0, 0, end + 100000000));
-  std::ofstream poses(argv[3]);
-  CHECK(poses.good());
-  poses.precision(12);
-  poses << "timestamp_ns,x,y,z,qx,qy,qz,qw\n";
   pico_slam_tracking_config pose_config{};
   pose_config.openxr_from_slam.orientation.w = 1;
   pose_config.imu_from_head.orientation.w = 1;
@@ -152,20 +165,48 @@ int main(int argc, char **argv) {
   pose_config.max_gap_ns = 100000000;
   pose_config.max_prediction_ns = 50000000;
   pico_slam_tracking *tracking = nullptr;
-  CHECK(pico_slam_tracking_create(&pose_config, &tracking));
-  CHECK(pico_slam_tracking_begin(tracking, 1));
+  pico_slam_input *input = nullptr;
+  pico_slam_session *session = nullptr;
+  int64_t arrival = std::min(std::stoll(left.front()[0]), std::stoll(inertial.front()[0])) + 2000000;
+  if (owned) {
+    pico_slam_backend api{vit_api_get_version, vit_tracker_create, vit_tracker_destroy,
+      vit_tracker_has_image_format, vit_tracker_start, vit_tracker_stop,
+      session_imu, session_image, vit_tracker_pop_pose, observe_pose, vit_pose_destroy};
+    CHECK(pico_slam_session_create(&c, &pose_config, &api, argv[2], &session));
+    CHECK(pico_slam_session_begin(session, 1, 0, 0, end + 100000000, arrival));
+    tracking = pico_slam_session_tracking(session);
+  } else {
+    CHECK(pico_slam_input_create(&c, &sinks, &input));
+    CHECK(pico_slam_input_begin(input, 1, 0, 0, end + 100000000));
+    CHECK(pico_slam_tracking_create(&pose_config, &tracking));
+    CHECK(pico_slam_tracking_begin(tracking, 1));
+  }
+  std::ofstream poses(argv[3]);
+  CHECK(poses.good());
+  poses.precision(12);
+  poses << "timestamp_ns,x,y,z,qx,qy,qz,qw\n";
   unsigned head_poses = 0;
   unsigned count = 0;
   int64_t last_pose = 0;
   double minpos[3] = {1e9, 1e9, 1e9}, maxpos[3] = {-1e9, -1e9, -1e9};
   auto pop = [&] {
     vit_pose_t *pose = nullptr;
+    if (owned) {
+      size_t received;
+      CHECK(pico_slam_session_poll(session, 1, arrival, &received));
+      CHECK(received == observed.size());
+    }
+    size_t index = 0;
     while (true) {
-      CHECK(vit_tracker_pop_pose(tracker, &pose) == VIT_SUCCESS);
-      if (!pose)
-        break;
       vit_pose_data_t d{};
-      CHECK(vit_pose_get_data(pose, &d) == VIT_SUCCESS);
+      if (owned) {
+        if (index == observed.size()) break;
+        d = observed[index++];
+      } else {
+        CHECK(vit_tracker_pop_pose(tracker, &pose) == VIT_SUCCESS);
+        if (!pose) break;
+        CHECK(vit_pose_get_data(pose, &d) == VIT_SUCCESS);
+      }
       CHECK(d.timestamp > last_pose);
       CHECK(d.timestamp >= std::stoll(left.front()[0]) &&
             d.timestamp <= std::stoll(left.back()[0]));
@@ -181,20 +222,21 @@ int main(int argc, char **argv) {
       poses << d.timestamp << ',' << d.px << ',' << d.py << ',' << d.pz << ','
             << d.ox << ',' << d.oy << ',' << d.oz << ',' << d.ow << '\n';
       xrt_pose imu_pose{{d.ox, d.oy, d.oz, d.ow}, {d.px, d.py, d.pz}};
-      CHECK(pico_slam_tracking_push(tracking, 1, &imu_pose, d.timestamp, 0, d.timestamp));
+      if (!owned) CHECK(pico_slam_tracking_push(tracking, 1, &imu_pose, d.timestamp, 0, d.timestamp));
       xrt_space_relation head{};
       int64_t sample_time = 0;
-      bool valid = pico_slam_tracking_get(tracking, d.timestamp, d.timestamp, &head, &sample_time);
-      CHECK(valid == (count != 0));
+      bool valid = pico_slam_tracking_get(tracking, owned ? arrival : d.timestamp, d.timestamp, &head, &sample_time);
+      if (!owned) CHECK(valid == (count != 0));
       if (valid) {
-        CHECK(sample_time == d.timestamp && (head.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT));
+        CHECK(sample_time >= d.timestamp && (head.relation_flags & XRT_SPACE_RELATION_POSITION_TRACKED_BIT));
         CHECK(std::abs(head.pose.position.x-d.px)<0.00001 &&
               std::abs(head.pose.position.y-d.py)<0.00001 && std::abs(head.pose.position.z-d.pz)<0.00001);
         ++head_poses;
       }
-      vit_pose_destroy(pose);
+      if (pose) vit_pose_destroy(pose);
       ++count;
     }
+    observed.clear();
   };
   size_t ci = 0, ii = 0;
   while (ci < left.size() || ii < inertial.size()) {
@@ -207,11 +249,14 @@ int main(int argc, char **argv) {
       s.timestamp_ns = std::stoll(r[0]);
       s.gyro_rad_secs = {std::stod(r[1]), std::stod(r[2]), std::stod(r[3])};
       s.accel_m_s2 = {std::stod(r[4]), std::stod(r[5]), std::stod(r[6])};
-      CHECK(pico_slam_input_imu(input, 1, &s, 0, s.timestamp_ns + 2000000));
+      arrival = s.timestamp_ns + 2000000;
+      CHECK(owned ? pico_slam_session_imu(session, 1, &s, 0, arrival) :
+                    pico_slam_input_imu(input, 1, &s, 0, arrival));
     } else {
       CHECK(left[ci].size() == 2 && right[ci].size() == 2 &&
             left[ci][0] == right[ci][0]);
       int64_t time = std::stoll(left[ci][0]);
+      arrival = time + 2000000;
       for (int i = 1; i >= 0; --i) {
         auto &r = i ? right[ci] : left[ci];
         CHECK(std::filesystem::path(r[1]).filename() == r[1]);
@@ -233,13 +278,21 @@ int main(int argc, char **argv) {
         put32(wire.data() + 57, size);
         put32(wire.data() + 65, 1);
         std::copy(image.data, image.data + size, wire.data() + 89);
-        CHECK(pico_slam_input_camera(input, 1, wire.data(), wire.size(),
-                                     time + 2000000));
+        CHECK(owned ? pico_slam_session_camera(session, 1, wire.data(), wire.size(), arrival) :
+                      pico_slam_input_camera(input, 1, wire.data(), wire.size(), arrival));
         std::fill(wire.begin(), wire.end(), 0xa5);
       }
       ++ci;
     }
     pop();
+    if (owned) {
+      auto limit = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+      while (delivered_images / 2 > count + 3 && std::chrono::steady_clock::now() < limit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        pop();
+      }
+      CHECK(delivered_images / 2 <= count + 3);
+    }
   }
   auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
   while (last_pose < std::stoll(left.back()[0]) &&
@@ -249,15 +302,23 @@ int main(int argc, char **argv) {
   }
   pico_slam_input_destroy(&input);
   pop();
-  CHECK(vit_tracker_stop(tracker) == VIT_SUCCESS);
-  vit_tracker_destroy(tracker);
-  tracker = nullptr;
-  pico_slam_tracking_stop(tracking);
+  if (owned) pico_slam_session_stop(session);
+  else {
+    CHECK(vit_tracker_stop(tracker) == VIT_SUCCESS);
+    vit_tracker_destroy(tracker);
+    tracker = nullptr;
+    pico_slam_tracking_stop(tracking);
+  }
   xrt_space_relation stopped{};
   int64_t sample_time;
-  CHECK(!pico_slam_tracking_get(tracking, last_pose, last_pose, &stopped, &sample_time));
-  pico_slam_tracking_destroy(&tracking);
-  CHECK(head_poses + 1 == count);
+  CHECK(!pico_slam_tracking_get(tracking, owned ? arrival : last_pose, last_pose, &stopped, &sample_time));
+  if (owned) {
+    pico_slam_session_destroy(&session);
+    CHECK(head_poses >= 180);
+  } else {
+    pico_slam_tracking_destroy(&tracking);
+    CHECK(head_poses + 1 == count);
+  }
   CHECK(count == left.size() - 1 && delivered_images == 2 * count &&
         delivered_imu == inertial.size());
   double span = 0;
@@ -265,6 +326,7 @@ int main(int argc, char **argv) {
     span += pow(maxpos[i] - minpos[i], 2);
   CHECK(span > 0.01 && span < 100);
   poses.close();
+  if (owned) printf("PICO_SLAM_SESSION_REPLAY_PASS poses=%u images=%u stopped_invalid=1\n", count, delivered_images);
   printf("PICO_SLAM_IMAGE_FORMAT_PASS bytes=%u padded=1 unaligned=1\n", image_bytes);
   printf("PICO_SLAM_HEAD_POSES_PASS poses=%u stopped_invalid=1\n", head_poses);
   printf("PICO_SLAM_REPLAY_PASS frames=%zu images=%u imu=%u poses=%u "

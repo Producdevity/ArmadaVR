@@ -118,6 +118,23 @@ Basalt replay additionally yields 184 usable head poses after initialization
 in each run and clears the provider on stop. These tests use synthetic transforms
 and replay time, not measured Pico axes or on-device latency.
 
+## Capture session ownership
+
+`pico-slam-session` owns the input adapter, VIT estimator and HMD pose provider.
+It recreates the estimator for each newer stream generation and invalidates
+poses on camera/IMU gaps, expired clock mappings, rejected input, exhausted
+backend queues or invalid output. Obsolete callbacks cannot reset a newer
+stream. Its owner serializes capture calls and polls regularly, including when
+capture is silent; HMD readers use the provider's independent lock. Stop capture
+and release the HMD before destroying the session. The backend library and
+explicit configuration must remain available, with nonblocking input enabled.
+
+Host and ARM64 sanitizer tests cover 1,013 generations and balanced estimator,
+frame and pose lifetimes. A separate native recorded-data run through this owner
+produces all 185 estimator poses and 184 usable head poses, then invalidates the
+provider on shutdown. Its producer is paced against the estimator, using recorded
+time. This establishes session integration, not real-time Pico throughput.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.
@@ -125,8 +142,8 @@ and replay time, not measured Pico axes or on-device latency.
   transforms; the retained older XML is not established as the active profile.
 - Bind camera and IMU clocks with measured uncertainty, and reset the estimator
   whenever a stream generation changes.
-- Own camera capture and estimator lifetimes together, connect pose draining to
-  the HMD provider, and invalidate it on capture loss or backend failure.
+- Connect the native capture loop to the owned session, supplying its verified
+  backend configuration, calibration, clock mapping and regular polling.
 - Validate camera coverage, real motion, loss/recovery and display-time prediction
   on the device after the boot/recovery gates pass.
 

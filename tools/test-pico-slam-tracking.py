@@ -22,6 +22,7 @@ def main():
     parser.add_argument('archive', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--eigen', type=Path, help='Optional Eigen header directory')
+    parser.add_argument('--session', action='store_true', help='Test owned VIT session lifecycle')
     parser.add_argument('--cc', default='cc')
     parser.add_argument('--cxx', default='c++')
     parser.add_argument('--sanitizer', choices=('address,undefined', 'undefined', 'thread', 'none'), default='address,undefined')
@@ -41,7 +42,10 @@ def main():
     for name in ('xrt_config_build.h', 'xrt_config_have.h'):
         template = (include / ('xrt/' + name + '.cmake_in')).read_text()
         (generated / name).write_text(re.sub(r'^#cmakedefine .+$', '', template, flags=re.MULTILINE))
-    inputs = [ROOT / name for name in ['tests/pico-slam-tracking.c', 'src/pico-slam-tracking.c']]
+    local = ['tests/pico-slam-tracking.c', 'src/pico-slam-tracking.c']
+    if args.session:
+        local = ['tests/pico-slam-session.c', 'src/pico-slam-session.c', 'src/pico-camera.c', 'src/pico-slam-input.c', 'src/pico-slam-tracking.c']
+    inputs = [ROOT / name for name in local]
     inputs += [auxiliary / ('math/' + name) for name in ['m_base.cpp', 'm_predict.c', 'm_relation_history.cpp', 'm_quatexpmap.cpp']]
     inputs += [auxiliary / ('util/' + name) for name in ['u_logging.c', 'u_debug.c']]
     inputs.append(source / 'src/external/cjson/cjson/cJSON.c')
@@ -49,7 +53,8 @@ def main():
     flags = ['-O1', '-g1', '-ffunction-sections', '-fdata-sections', '-pthread',
              *eigen, '-I', str(ROOT / 'src'), '-I', str(output / 'include'),
              '-isystem', str(include), '-isystem', str(auxiliary),
-             '-isystem', str(source / 'src/external/cjson')]
+             '-isystem', str(source / 'src/external/cjson'),
+             '-isystem', str(source / 'src/external/vit_includes')]
     sanitize = [] if args.sanitizer == 'none' else ['-fsanitize=' + args.sanitizer, '-fno-sanitize-recover=all']
     report = {'status': 'started', 'monado_commit': profile['commit'], 'archive_sha256': digest(args.archive),
               'commands': [], 'sanitizer': args.sanitizer, 'hardware_verified': False,
@@ -67,7 +72,7 @@ def main():
             obj = output / (name + '.o')
             compiler = args.cxx if path.suffix == '.cpp' else args.cc
             standard = '-std=c++17' if path.suffix == '.cpp' else '-std=gnu11'
-            warning = ['-Wall', '-Wextra', '-Werror'] if path in inputs[:2] else ['-w']
+            warning = ['-Wall', '-Wextra', '-Werror'] if path in inputs[:len(local)] else ['-w']
             run([compiler, standard, *flags, *sanitize, *warning, '-c', str(path), '-o', str(obj)], name + '-compile.log', timeout=180)
             objects.append(str(obj))
         binary = output / 'pico-slam-tracking'
@@ -75,7 +80,8 @@ def main():
         run([args.cxx, *sanitize, *objects, '-pthread', '-lm', collect, '-o', str(binary)], 'link.log')
         run([str(binary)], 'test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1', TSAN_OPTIONS='halt_on_error=1', ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
         log = (output / 'test.log').read_text()
-        if 'PICO_SLAM_TRACKING_PASS' not in log or 'generations=1000 poses=10000 reader_queries=20000' not in log:
+        expected = 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
+        if expected not in log or (not args.session and 'generations=1000 poses=10000 reader_queries=20000' not in log):
             raise ValueError('Tracking tests did not complete')
         report['binary_sha256'] = digest(binary)
         print(log, end='')
