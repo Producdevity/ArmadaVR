@@ -66,7 +66,9 @@
     "pico-camera-sensor-setup.c",
     "pico-camera-sensor-setup.h",
     "pico-camera-ife.c",
-    "pico-camera-ife.h"
+    "pico-camera-ife.h",
+    "pico-camera-front-end.c",
+    "pico-camera-front-end.h"
   ],
   "full_source": {
     "url": "https://gitlab.freedesktop.org/api/v4/projects/monado%2Fmonado/repository/archive.tar.gz?sha=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",

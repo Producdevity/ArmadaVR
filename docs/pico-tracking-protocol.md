@@ -1153,3 +1153,25 @@ throttle boundary cases also match the stock command builder. Host and ARM64
 sanitizer tests cover malformed arguments and unchanged output on refusal.
 CSID pixel/line subsampling and physical hardware selection are separate work;
 these comparisons do not establish image capture or camera calibration.
+
+### Owned IFE and PHY setup
+
+`pico-camera-front-end` prepares and submits separate owned IFE initialization
+and CSI-PHY configuration packets. IFE setup accepts only one acquired Titan480
+RDI0 path on a full or Lite IFE. It rejects split, mixed and unknown paths before
+allocation. It copies explicit clock/bandwidth votes, hardware sample pattern and
+optional throttle settings into commands and reserves kernel scratch space after
+the direct commands. HFR and direct commands both select one image per frame.
+Crop, batching and CSID subsampling remain disabled. The retained kernel's core
+configuration handler addresses CAMIF/PDLIB resources only, so this RDI-only setup
+does not send a pixel-path core blob.
+
+Both setup types borrow already acquired descriptors and handles, submit once,
+and retain attempted buffers until independently established quiescence. No
+module, lane timing, clock vote or physical calibration is selected implicitly.
+Host and ARM64 sanitizer tests cover 548 lifetimes and 22 fault positions. The
+same 550 submitted configurations pass the retained kernel packet validator;
+IFE commands also pass its scratch-space and generic-blob parsers, and PHY
+commands pass its configuration and lane-enable parsers. Kernel memory lookup,
+device-handle lookup and hardware operations are stubbed. This verifies packet
+integration, not sensor startup, CSI signalling or sustainable capture.
