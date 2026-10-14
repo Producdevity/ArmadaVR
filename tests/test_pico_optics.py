@@ -717,3 +717,87 @@ class PicoCompositorAxisTests(unittest.TestCase):
             self.assertEqual(result['screen_grid']['screen_model'], geometry)
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+
+class PicoConfigurationSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.inputs = {'schema_version': 1, 'product_property': 'A7H10', 'glasses_property': '',
+                       'holder_file': '1\r\n', 'available_profiles': ['A7H10_0.ini', 'A7H10_1.ini']}
+
+    def test_property_then_holder_then_default_precedence(self):
+        for product in ('', 'A7H10'):
+            for prop, holder, source, selected in [('0', '1\n', 'glasses-property', '0'),
+                                                    ('1', '0\n', 'glasses-property', '1'),
+                                                    ('', '1\n \t\r', 'holder-file', '1'),
+                                                    ('', None, 'stock-default', '0'),
+                                                    ('', '', 'stock-default', '0')]:
+                inputs = dict(self.inputs, product_property=product, glasses_property=prop, holder_file=holder)
+                result = OPT.configuration_selection(json.dumps(inputs).encode())
+                self.assertEqual(result['selected_profile'], f'A7H10_{selected}.ini')
+                self.assertEqual(result['selected_glasses_type'], int(selected))
+                self.assertEqual(result['glasses_source'], source)
+                self.assertFalse(result['fallback_used'])
+                self.assertTrue(result['selected_profile_available'])
+                self.assertFalse(result['configuration_selection_verified'])
+                self.assertFalse(result['runtime_usable'])
+
+    def test_missing_candidate_falls_back_without_changing_requested_holder(self):
+        inputs = dict(self.inputs, available_profiles=['A7H10_0.ini'])
+        result = OPT.configuration_selection(json.dumps(inputs).encode())
+        self.assertEqual(result['candidate_profile'], 'A7H10_1.ini')
+        self.assertEqual(result['selected_profile'], 'A7H10_0.ini')
+        self.assertEqual(result['selected_glasses_type'], 1)
+        self.assertTrue(result['fallback_used'])
+        self.assertTrue(result['selected_profile_available'])
+        inputs['available_profiles'] = []
+        result = OPT.configuration_selection(json.dumps(inputs).encode())
+        self.assertEqual(result['selected_profile'], 'A7H10_0.ini')
+        self.assertFalse(result['selected_profile_available'])
+
+    def test_ambiguous_unsupported_and_malformed_snapshots_refused(self):
+        for key, value in [('schema_version', True), ('schema_version', 2), ('product_property', 'PICO'),
+                           ('product_property', None), ('glasses_property', 1), ('glasses_property', '2'),
+                           ('glasses_property', '1\n'), ('holder_file', ' \t\r\n'), ('holder_file', ' 1'),
+                           ('holder_file', True), ('holder_file', '1\v'), ('holder_file', '0\0'),
+                           ('holder_file', '1'+' '*32), ('available_profiles', None),
+                           ('available_profiles', [['A7H10_0.ini']]), ('available_profiles', ['../A7H10_0.ini']),
+                           ('available_profiles', ['A7H10_0.ini']*2)]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                OPT.configuration_selection(json.dumps(dict(self.inputs, **{key: value})).encode())
+        for key in self.inputs:
+            invalid = dict(self.inputs); del invalid[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                OPT.configuration_selection(json.dumps(invalid).encode())
+        for data in [b'[]', b'null', b' '*4097, b'{}\0', b'\xff', json.dumps(dict(self.inputs, extra=0)).encode(),
+                     json.dumps(self.inputs).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()]:
+            with self.subTest(data=data[:40]), self.assertRaises(ValueError):
+                OPT.configuration_selection(data)
+
+    def test_cli_binds_selection_to_the_explicit_file_without_promoting_readiness(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axisOffset.txt'; offsets.write_text('0,0,0,0')
+            selection = d/'selection.json'; selection.write_text(json.dumps(self.inputs))
+            output = d/'result.json'; digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            command = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                       '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                       '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
+            extra = ['--selection-model', str(selection), '--selection-sha256', digest(selection)]
+            for args in [extra[:2], extra[2:], extra[:3]+['0'*64], extra]:
+                result = subprocess.run(command+args, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0); self.assertFalse(output.exists())
+            selection.write_text(json.dumps(dict(self.inputs, available_profiles=[])))
+            extra[3] = digest(selection)
+            self.assertNotEqual(subprocess.run(command+extra, capture_output=True, timeout=5).returncode, 0)
+            self.assertFalse(output.exists())
+            selection.write_text(json.dumps(dict(self.inputs, available_profiles=['A7H10_0.ini'])))
+            extra[3] = digest(selection)
+            subprocess.run(command+extra, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['files']['selection_model']['sha256'], digest(selection))
+            self.assertTrue(result['configuration_selection']['fallback_used'])
+            self.assertEqual(result['configuration_selection']['selected_glasses_type'], 1)
+            self.assertFalse(result['configuration_selection_verified'])
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)

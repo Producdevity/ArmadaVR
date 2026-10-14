@@ -133,6 +133,35 @@ physical RGB grids. Camera calibration XML describes a
 separate camera system; its coefficients are not display-lens calibration.
 
 
+## Profile selection inspection
+
+`--selection-model FILE --selection-sha256 SHA256` checks a supplied profile
+against an explicit saved selection snapshot. The JSON contains exactly:
+
+- `schema_version`: 1.
+- `product_property`: `A7H10`, or an empty string for the stock default.
+- `glasses_property`: `0`, `1`, or an empty string.
+- `holder_file`: the saved holder file contents, or `null` if unavailable.
+- `available_profiles`: a unique list containing zero, one or both supported
+  filenames, `A7H10_0.ini` and `A7H10_1.ini`.
+
+The glasses property takes precedence over the holder file. A missing or empty
+holder with no property selects holder type 0. Trailing spaces, tabs, CR and LF
+are removed from a numeric holder. Whitespace-only and unsupported contents are
+refused: stock can use a whitespace-only holder literally in a filename.
+
+If the requested file is absent, stock attempts `A7H10_0.ini` while retaining the
+requested holder type. The report therefore keeps the candidate, selected file,
+holder source, fallback flag and selected-file availability separately. The CLI
+refuses a supplied configuration that differs from the selected filename or is
+absent from the snapshot. This does not establish the snapshot's freshness or
+the active headset selection; verification and runtime-usable flags remain false.
+
+The original ARM64 selector was run through the point of INI loading for 240
+synthetic snapshots. All 216 supported cases match; the other 24 contain
+whitespace-only holders and are intentionally refused. File access, property
+writes and short-string operations were isolated in the test process.
+
 ## IPD and axis adjustments
 
 `--runtime-settings FILE --runtime-sha256 SHA256` resolves the FalconCV3 lens

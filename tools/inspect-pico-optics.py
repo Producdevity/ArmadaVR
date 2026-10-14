@@ -304,6 +304,47 @@ def binary32(value):
         raise ValueError('Optical calculation exceeds binary32 range') from error
 
 
+def configuration_selection(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate configuration selection input')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid configuration selection size or NUL')
+    try:
+        inputs = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed configuration selection inputs') from error
+    if not isinstance(inputs, dict) or set(inputs) != {'schema_version', 'product_property', 'glasses_property', 'holder_file', 'available_profiles'}:
+        raise ValueError('Expected explicit product, glasses, holder and available-profile inputs')
+    if type(inputs['schema_version']) is not int or inputs['schema_version'] != 1:
+        raise ValueError('Unsupported configuration selection schema')
+    if inputs['product_property'] not in ('', 'A7H10') or inputs['glasses_property'] not in ('', '0', '1'):
+        raise ValueError('Unsupported product or glasses property')
+    holder = inputs['holder_file']
+    if holder is not None and (not isinstance(holder, str) or len(holder) > 32 or
+                               (holder != '' and holder.rstrip(' \t\n\r') not in ('0', '1'))):
+        raise ValueError('Unsupported holder file contents')
+    available = inputs['available_profiles']
+    if (not isinstance(available, list) or len(available) > 2 or
+            any(v not in ('A7H10_0.ini', 'A7H10_1.ini') for v in available) or len(set(available)) != len(available)):
+        raise ValueError('Expected an explicit unique list of supported profile filenames')
+    holder = '' if holder is None else holder.rstrip(' \t\n\r')
+    glasses = inputs['glasses_property'] or holder or '0'
+    source = 'glasses-property' if inputs['glasses_property'] else 'holder-file' if holder else 'stock-default'
+    candidate = f'A7H10_{glasses}.ini'
+    fallback = candidate not in available
+    selected = 'A7H10_0.ini' if fallback else candidate
+    return {'inputs': inputs, 'glasses_source': source, 'selected_glasses_type': int(glasses),
+            'candidate_profile': candidate, 'selected_profile': selected, 'fallback_used': fallback,
+            'selected_profile_available': selected in available,
+            'configuration_selection_verified': False, 'active_settings_verified': False, 'runtime_usable': False}
+
+
 def compositor_axis_parameters(data):
     def unique(pairs):
         result = {}
@@ -551,6 +592,8 @@ def main():
     parser.add_argument('--ipd-range-limit', type=int, help='Resolved limit for the current IPD state')
     parser.add_argument('--runtime-settings', type=Path, help='Explicit IPD/gap/axis settings JSON; no property defaults')
     parser.add_argument('--runtime-sha256', help='Independently retained runtime-settings SHA-256')
+    parser.add_argument('--selection-model', type=Path, help='Explicit product/glasses/holder/profile snapshot JSON')
+    parser.add_argument('--selection-sha256')
     parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
     parser.add_argument('--compositor-axes-sha256')
     parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
@@ -567,6 +610,14 @@ def main():
         result = inspect(args.config, args.config_sha256, args.offsets, args.offsets_sha256,
                          args.model, args.ipd_state)
         lens = result['stock_lens']
+        if args.selection_model is not None or args.selection_sha256 is not None:
+            if args.selection_model is None or args.selection_sha256 is None:
+                raise ValueError('Configuration selection model and SHA-256 are required together')
+            selection = configuration_selection(read_file(args.selection_model, args.selection_sha256, 4096))
+            if not selection['selected_profile_available'] or selection['selected_profile'] != args.config.name:
+                raise ValueError('Display configuration disagrees with the explicit selection snapshot')
+            result['configuration_selection'] = selection
+            result['files']['selection_model'] = {'name': args.selection_model.name, 'sha256': args.selection_sha256}
         lookup_args = (args.ipd_table, args.ipd_table_sha256, args.ipd_sample, args.ipd_offset, args.ipd_range_limit)
         if any(value is not None for value in lookup_args):
             if any(value is None for value in lookup_args):
