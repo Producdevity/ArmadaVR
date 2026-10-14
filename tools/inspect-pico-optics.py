@@ -298,7 +298,45 @@ def axis_offsets(data, model, ipd_state):
 
 
 def binary32(value):
-    return struct.unpack('<f', struct.pack('<f', value))[0]
+    try:
+        return struct.unpack('<f', struct.pack('<f', value))[0]
+    except OverflowError as error:
+        raise ValueError('Optical calculation exceeds binary32 range') from error
+
+
+def projection_parameters(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate projection parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid projection model size or NUL')
+    try:
+        model = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed projection model') from error
+    if not isinstance(model, dict) or set(model) != {'schema_version', 'left', 'right'}:
+        raise ValueError('Expected two explicit projection frustums')
+    if type(model['schema_version']) is not int or model['schema_version'] != 1:
+        raise ValueError('Unsupported projection schema')
+    fovs = []
+    for eye in ('left', 'right'):
+        raw = model[eye]
+        if (not isinstance(raw, list) or len(raw) != 6 or
+                any(type(v) not in (int, float) or abs(v) > 1e6 or not math.isfinite(v) for v in raw)):
+            raise ValueError('Expected finite left/right/top/bottom/near/far frustum values')
+        left, right, top, bottom, near, far = map(binary32, raw)
+        if not (left < 0 < right and bottom < 0 < top and 0 < near < far):
+            raise ValueError('Invalid frustum bounds after binary32 conversion')
+        angles = [binary32(math.atan(binary32(v / near))) for v in (left, right, top, bottom)]
+        if any(not 0 < abs(v) < 1.57 for v in angles):
+            raise ValueError('Frustum FOV is outside the supported screen range')
+        fovs.append(angles)
+    return {'frustums': model, 'fov': fovs, 'active_settings_verified': False, 'runtime_usable': False}
 
 
 def ipd_offset_table(data):
@@ -468,6 +506,8 @@ def main():
     parser.add_argument('--ipd-range-limit', type=int, help='Resolved limit for the current IPD state')
     parser.add_argument('--runtime-settings', type=Path, help='Explicit IPD/gap/axis settings JSON; no property defaults')
     parser.add_argument('--runtime-sha256', help='Independently retained runtime-settings SHA-256')
+    parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
+    parser.add_argument('--projection-sha256')
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
     parser.add_argument('--screen-sha256', help='Independently retained screen-model SHA-256')
     parser.add_argument('--grid-size', type=int, nargs=2, metavar=('WIDTH', 'HEIGHT'))
@@ -501,6 +541,11 @@ def main():
             result['runtime_adjustment'] = resolved
             lens = resolved['lens']
             result['files']['runtime_settings'] = {'name': args.runtime_settings.name, 'sha256': args.runtime_sha256}
+        if args.projection_model is not None or args.projection_sha256 is not None:
+            if args.projection_model is None or args.projection_sha256 is None:
+                raise ValueError('Projection model and SHA-256 are required together')
+            result['projection'] = projection_parameters(read_file(args.projection_model, args.projection_sha256, 4096))
+            result['files']['projection_model'] = {'name': args.projection_model.name, 'sha256': args.projection_sha256}
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
         result['tangent_samples'] = [sample_tangents(lens, x, y) for x, y in args.sample_tangent]
@@ -508,6 +553,11 @@ def main():
             if any(value is None for value in (args.screen_model, args.screen_sha256, args.grid_size)):
                 raise ValueError('Screen model, SHA-256 and grid size are required together')
             screen = screen_parameters(read_file(args.screen_model, args.screen_sha256, 16384))
+            if 'projection' in result:
+                expected = result['projection']['fov']
+                if any(not math.isclose(a, b, rel_tol=0, abs_tol=2e-7)
+                       for actual, wanted in zip(screen['fov'], expected) for a, b in zip(actual, wanted)):
+                    raise ValueError('Screen FOV disagrees with the explicit projection frustums')
             if 'runtime_adjustment' in result:
                 resolved = result['runtime_adjustment']
                 if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or

@@ -211,6 +211,36 @@ their correction must agree with the table result. `ipd_lookup_verified` then
 means agreement with that explicit table and sample, while active-setting and
 table-selection verification remain false.
 
+## Projection inspection
+
+`--projection-model FILE --projection-sha256 SHA256` accepts a bounded JSON
+object with `schema_version: 1`, `left` and `right`. Each eye contains six values
+in `[left, right, top, bottom, near, far]` order, using the same length unit.
+Horizontal and vertical bounds must straddle zero, with `0 < near < far`.
+Degenerate float conversions, unsupported FOVs and non-finite values are refused.
+
+The stock compositor converts each extent into an angle with `atan(extent/near)`.
+The inspector preserves the binary32 input, division and result conventions and
+returns `[left, right, up, down]` radians for each eye. A supplied screen model
+must agree with these angles. It does not derive a symmetric projection from
+the scalar lens FOV: stock permits independent eye frustums and application
+FOV changes, so those settings must be established separately.
+
+The original ARM64 `pxr_get_deviceinfo` function and its context-copy helper were
+executed with 1,024 synthetic asymmetric stereo frustums. All 8,192 angle
+components match the inspector bit-for-bit. The test resolves `atanf` to native
+Linux libm; it does not compare the original Android Bionic implementation.
+The saved Ghidra project and stock binary remain unchanged. These checks verify
+conversion and ordering, not the projection matrices active on a headset.
+
+A combined test carries resolved settings and per-eye frustums through the native
+HMD callback for 192 configurations, including both model types, three IPD
+states, both eyes and HWC reversal. Across 68,544 stock mesh vertices, the largest
+visible difference is 0.001915 pixels at a 1920-pixel render size. Existing
+normalized numerical tolerances pass. This is a sampled comparison with stock
+floating-point calculations, not a continuous error bound or physical optical
+calibration. Both saved profile files contain the same parsed lens values.
+
 ## Screen-to-texture inspection
 
 The inspector also accepts `--screen-model FILE --screen-sha256 SHA256

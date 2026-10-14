@@ -548,3 +548,71 @@ class PicoIpdTableTests(unittest.TestCase):
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(result['files']['ipd_table']['sha256'], digest(table))
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+
+
+class PicoProjectionTests(unittest.TestCase):
+    def setUp(self):
+        self.model = {'schema_version': 1, 'left': [-.1, .1, .1, -.1, .1, 100],
+                      'right': [-.2, .4, .3, -.1, .2, 10]}
+
+    def test_distinct_eye_frustums_preserve_order_and_near_plane(self):
+        result = OPT.projection_parameters(json.dumps(self.model).encode())
+        for actual, expected in zip(result['fov'][0], [-math.pi/4, math.pi/4, math.pi/4, -math.pi/4]):
+            self.assertAlmostEqual(actual, expected, delta=5e-8)
+        for actual, expected in zip(result['fov'][1], [-math.pi/4, math.atan(2), math.atan(1.5), -math.atan(.5)]):
+            self.assertAlmostEqual(actual, expected, delta=1e-7)
+        self.assertFalse(result['runtime_usable'])
+        self.assertFalse(result['active_settings_verified'])
+        self.assertEqual(result['frustums'], self.model)
+        scaled = copy.deepcopy(self.model)
+        scaled['right'] = [v*2 for v in scaled['right']]
+        self.assertEqual(OPT.projection_parameters(json.dumps(scaled).encode())['fov'], result['fov'])
+
+    def test_malformed_unbounded_and_degenerate_frustums_refused(self):
+        for values in [[0, .1, .1, -.1, .1, 100], [-.1, .1, -.1, .1, .1, 100],
+                       [-.1, .1, .1, -.1, 0, 100], [-.1, .1, .1, -.1, .1, .1],
+                       [-.1, .1, .1, -.1, 1e-100, 100], [-.1, .1, .1, -.1, 1e-20, 100],
+                       [-.1, .1, .1, -.1, 1e-40, 100],
+                       [-.1, .1, .1, -.1, .1, .1000000001],
+                       [-1e-100, .1, .1, -.1, .1, 100], [-.1, .1, .1, -.1, .1],
+                       [-.1, .1, .1, -.1, .1, float('inf')],
+                       [-.1, .1, .1, -.1, .1, 10**400], [-.1, .1, True, -.1, .1, 100]]:
+            model = dict(self.model, left=values)
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                OPT.projection_parameters(json.dumps(model).encode())
+        for data in [b'[]', b'{}', b'null', b' '*4097, b'{}\0', b'\xff',
+                     json.dumps(dict(self.model, schema_version=True)).encode(),
+                     json.dumps(dict(self.model, unexpected=1)).encode(),
+                     json.dumps(self.model).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()]:
+            with self.subTest(data=data[:40]), self.assertRaises(ValueError):
+                OPT.projection_parameters(data)
+
+    def test_cli_requires_hash_and_screen_fov_agreement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axisOffset.txt'; offsets.write_text('0,0,0,0')
+            projection = d/'projection.json'; projection.write_text(json.dumps(self.model))
+            screen = d/'screen.json'; screen.write_text(json.dumps(screen_fixture()))
+            output = d/'resolved.json'
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            command = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                       '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                       '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
+            extra = ['--projection-model', str(projection), '--projection-sha256', digest(projection)]
+            for partial in [extra[:2], extra[2:], extra[:3]+['0'*64]]:
+                self.assertNotEqual(subprocess.run(command+partial, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            screen_args = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            result = subprocess.run(command+extra+screen_args, capture_output=True, timeout=5)
+            self.assertNotEqual(result.returncode, 0); self.assertIn(b'disagrees', result.stderr)
+            self.assertFalse(output.exists())
+            geometry = screen_fixture()
+            geometry['fov'] = OPT.projection_parameters(projection.read_bytes())['fov']
+            screen.write_text(json.dumps(geometry)); screen_args[3] = digest(screen)
+            subprocess.run(command+extra+screen_args, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['files']['projection_model']['sha256'], digest(projection))
+            self.assertEqual(result['screen_grid']['screen_model']['fov'], result['projection']['fov'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)
+            self.assertFalse(result['runtime_usable'])
