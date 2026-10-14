@@ -45,7 +45,7 @@ that preserved early boot chain, not recovery from arbitrary storage damage.
 
 ## Available originals
 
-The October 14 audit passes for all 21 saved partitions and all six pairs of
+The October 15 audit passes for all 21 saved partitions and all six pairs of
 GPT copies. ABL, ABL backup, devinfo, boot, recovery and calibration originals
 are available. The audit identifies five additional state partitions without
 backups: `misc`, `frp`, `metadata`, `uefivarstore` and `secdata`. This does not
@@ -296,7 +296,7 @@ Private audit and current-source receipts:
 ## Prepared artifact set
 
 The current private runtime set is
-`output/pico-controller-motion-20261014-v1/first-boot-set.json`; its matching
+`output/pico-camera-tracking-20261014-v1/first-boot-set.json`; its matching
 recovery references are in `recovery-session-set.json` in the same directory.
 The set binds the diagnostic, kernel, runtime container, external root, panel
 overlay, native package receipts and verification reports by size and SHA-256.
@@ -305,9 +305,11 @@ newer runtime receipt. The diagnostic remains the KMS-disabled RAM-only stage
 from `output/pico-usb-power-20261014-v1/`, with stock DTBO. The Sharp120 overlay
 belongs to the later display stage.
 
-The current root includes display-time head-orientation prediction and raw
-controller IMU decoding. It has no automatic physical HMD configuration and
-cannot supply missing sensor identities or calibration. The opt-in
+The current root includes display-time head-orientation prediction, raw
+controller IMU decoding, Basalt and the native stereo camera/6DoF runtime.
+Camera startup, continuous request refill and IMU-to-pose delivery pass the
+[offline replay](pico-slam.md#continuous-capture). Physical HMD and camera
+activation still require explicit, verified configuration. The opt-in
 `pico-controller-config.py --motion-status` getter is prepared for a later stock
 capture. It has only been tested offline. Capture connected controllers'
 configuration before selecting their scale and axis branches; do not copy
@@ -316,6 +318,28 @@ synthetic test settings into the runtime.
 Recovery, native USB power/role, panel scanout, Adreno buffer sharing and sensor
 clock/axis acceptance still need the unit. None of the prepared receipts marks
 these physical gates as passed or authorizes a bootloader write.
+
+## Camera bring-up inputs
+
+Before activating native camera capture, retain the device build and establish
+these inputs from the active stock configuration or measured device data:
+
+| Input | Required correspondence |
+| --- | --- |
+| Sensor selection | Physical sensor and PHY slots, module hash, configuration/group/mode/init indices, stereo order and synchronization role |
+| Sensor programming | Probe identity, power sequences, I2C address, CSI lane map, per-lane data rate and clock/bandwidth votes |
+| Tracking calibration | Intrinsics, distortion, IMU-to-camera transforms, sensor axes/units and the estimator's camera order |
+| Timing | Camera and SSC clock origins, measured conversion uncertainty/expiry, frame period and exposure-center offsets |
+
+The retained kernel skips chip-ID reads for ordinary tracking cameras, so a
+successful probe is not hardware identification. The saved module variants and
+older XML also do not establish the active pair or calibration. Do not enable
+the native camera path with the replay's synthetic configuration.
+
+The first physical camera milestone is bounded, timestamped stereo capture with
+verified stop/quiescence, followed by IMU alignment and real-motion tracking.
+It comes after the boot/recovery and essential USB/DSP bring-up gates; a replay
+trajectory cannot establish any of those physical results.
 
 ## USB host startup cleanup
 
