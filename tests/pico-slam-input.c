@@ -128,5 +128,38 @@ int main(void)
     value=sample(t+1000);assert(pico_slam_input_imu(s,1,&value,0,now));assert(images==before+2);
     pico_slam_input_destroy(&s);
     for(unsigned i=0;i<2;++i)xrt_frame_reference(&receivers[i].retained,NULL);
-    printf("PICO_SLAM_INPUT_PASS checks=%u images=%u imu=%u generations=1010\n",checks,images,imus);
+    for (unsigned cameras=2; cameras<=4; cameras+=2) {
+        c.count=cameras; sinks.cam_count=(int)cameras;
+        assert(pico_slam_input_create(&c,&sinks,&s));
+        for (uint64_t gen=1; gen<=1000; ++gen) {
+            order=0; before=images;
+            assert(pico_slam_input_begin(s,gen,-100,0,now+10000000));
+            value=sample(t-1000); assert(pico_slam_input_imu(s,gen,&value,0,now));
+            uint8_t padded[33];
+            struct pico_slam_mono8_frame view={c.camera_ids[0],3,2,16,19,padded+1,t+100,5};
+            assert(!pico_slam_input_mono8(s,gen,NULL,now));
+#define BAD_VIEW(field, v) do { struct pico_slam_mono8_frame bad=view; bad.field=v; assert(!pico_slam_input_mono8(s,gen,&bad,now)); } while(0)
+            BAD_VIEW(pixels,NULL); BAD_VIEW(width,0); BAD_VIEW(height,4097); BAD_VIEW(stride,2);
+            BAD_VIEW(stride,SIZE_MAX); BAD_VIEW(size,18); BAD_VIEW(center_ns,0); BAD_VIEW(center_ns,INT64_MAX);
+            BAD_VIEW(camera_id,99);
+            assert(!pico_slam_input_mono8(s,gen+1,&view,now));
+            for (unsigned i=0; i<cameras; ++i) {
+                memset(padded,0xee,sizeof(padded));memcpy(padded+1,"abc",3);memcpy(padded+17,"def",3);
+                view.camera_id=c.camera_ids[i];
+                assert(pico_slam_input_mono8(s,gen,&view,now)); memset(padded,0xa5,sizeof(padded));
+                assert(!pico_slam_input_mono8(s,gen,&view,now));
+            }
+            assert(images==before);
+            value=sample(t+1000);assert(pico_slam_input_imu(s,gen,&value,0,now));
+            assert(images==before+cameras);
+            for (unsigned i=0; i<cameras; ++i) {
+                assert(!memcmp(receivers[i].retained->data,"abcdef",6));
+                assert(receivers[i].retained->timestamp==t&&receivers[i].retained->source_timestamp==t+100);
+            }
+            pico_slam_input_stop(s);assert(!pico_slam_input_mono8(s,gen,&view,now));
+        }
+        pico_slam_input_destroy(&s);
+        for(unsigned i=0;i<cameras;++i)xrt_frame_reference(&receivers[i].retained,NULL);
+    }
+    printf("PICO_SLAM_INPUT_PASS checks=%u images=%u imu=%u generations=3010\n",checks,images,imus);
 }

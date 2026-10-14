@@ -116,8 +116,9 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes <= 2);
-  bool owned = image_bytes == 0;
+  CHECK(image_bytes <= 3);
+  bool native_input = image_bytes == 3;
+  bool owned = image_bytes == 0 || native_input;
   cv::setNumThreads(1);
   const std::filesystem::path root = argv[1];
   auto left = csv(root / "mav0/cam0/data.csv"),
@@ -265,22 +266,33 @@ int main(int argc, char **argv) {
         CHECK(image.cols == first.cols && image.rows == first.rows &&
               image.isContinuous());
         size_t size = image.total();
-        std::vector<uint8_t> wire(89 + size);
-        wire[0] = c.camera_ids[i];
-        put32(wire.data() + 1, image.cols);
-        put32(wire.data() + 5, image.rows);
-        put32(wire.data() + 9, 0x123);
-        put32(wire.data() + 13, 1);
-        put64(wire.data() + 25, time + 52000);
-        put64(wire.data() + 33, time);
-        put64(wire.data() + 41, 1);
-        put64(wire.data() + 49, ci);
-        put32(wire.data() + 57, size);
-        put32(wire.data() + 65, 1);
-        std::copy(image.data, image.data + size, wire.data() + 89);
-        CHECK(owned ? pico_slam_session_camera(session, 1, wire.data(), wire.size(), arrival) :
-                      pico_slam_input_camera(input, 1, wire.data(), wire.size(), arrival));
-        std::fill(wire.begin(), wire.end(), 0xa5);
+        if (native_input) {
+          size_t stride = image.cols + 17;
+          std::vector<uint8_t> padded(stride * image.rows + 1, 0xee);
+          for (int row = 0; row < image.rows; ++row)
+            std::copy(image.ptr(row), image.ptr(row) + image.cols, padded.data() + 1 + row * stride);
+          pico_slam_mono8_frame view{c.camera_ids[i], static_cast<uint32_t>(image.cols),
+            static_cast<uint32_t>(image.rows), stride, padded.size() - 1, padded.data() + 1, time, ci};
+          CHECK(pico_slam_session_mono8(session, 1, &view, arrival));
+          std::fill(padded.begin(), padded.end(), 0xa5);
+        } else {
+          std::vector<uint8_t> wire(89 + size);
+          wire[0] = c.camera_ids[i];
+          put32(wire.data() + 1, image.cols);
+          put32(wire.data() + 5, image.rows);
+          put32(wire.data() + 9, 0x123);
+          put32(wire.data() + 13, 1);
+          put64(wire.data() + 25, time + 52000);
+          put64(wire.data() + 33, time);
+          put64(wire.data() + 41, 1);
+          put64(wire.data() + 49, ci);
+          put32(wire.data() + 57, size);
+          put32(wire.data() + 65, 1);
+          std::copy(image.data, image.data + size, wire.data() + 89);
+          CHECK(owned ? pico_slam_session_camera(session, 1, wire.data(), wire.size(), arrival) :
+                        pico_slam_input_camera(input, 1, wire.data(), wire.size(), arrival));
+          std::fill(wire.begin(), wire.end(), 0xa5);
+        }
       }
       ++ci;
     }
@@ -326,8 +338,9 @@ int main(int argc, char **argv) {
     span += pow(maxpos[i] - minpos[i], 2);
   CHECK(span > 0.01 && span < 100);
   poses.close();
+  if (native_input) printf("PICO_SLAM_NATIVE_INPUT_PASS padded=1 unaligned=1 poisoned=1\n");
   if (owned) printf("PICO_SLAM_SESSION_REPLAY_PASS poses=%u images=%u stopped_invalid=1\n", count, delivered_images);
-  printf("PICO_SLAM_IMAGE_FORMAT_PASS bytes=%u padded=1 unaligned=1\n", image_bytes);
+  if (!owned) printf("PICO_SLAM_IMAGE_FORMAT_PASS bytes=%u padded=1 unaligned=1\n", image_bytes);
   printf("PICO_SLAM_HEAD_POSES_PASS poses=%u stopped_invalid=1\n", head_poses);
   printf("PICO_SLAM_REPLAY_PASS frames=%zu images=%u imu=%u poses=%u "
          "position_span=%.6f api=%u.%u.%u\n",

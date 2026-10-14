@@ -145,6 +145,16 @@ bool pico_slam_session_camera(struct pico_slam_session *s, uint64_t generation,
     return true;
 }
 
+bool pico_slam_session_mono8(struct pico_slam_session *s, uint64_t generation,
+                             const struct pico_slam_mono8_frame *frame, int64_t now)
+{
+    if (!current(s, generation, now)) return false;
+    if (!pico_slam_input_mono8(s->input, generation, frame, now) || s->failed) {
+        invalidate(s); return false;
+    }
+    return true;
+}
+
 bool pico_slam_session_imu(struct pico_slam_session *s, uint64_t generation,
                            const struct xrt_imu_sample *sample, int64_t uncertainty, int64_t now)
 {

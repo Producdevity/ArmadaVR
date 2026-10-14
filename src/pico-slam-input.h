@@ -33,6 +33,23 @@ bool pico_slam_input_begin(struct pico_slam_input *input, uint64_t generation,
 bool pico_slam_input_camera(struct pico_slam_input *input, uint64_t generation,
                             const void *snapshot, size_t size, int64_t now_ns);
 
+struct pico_slam_mono8_frame {
+    uint8_t camera_id;
+    uint32_t width, height;
+    size_t stride, size;
+    const uint8_t *pixels;
+    int64_t center_ns;
+    uint64_t frame_number;
+};
+
+/* Native capture input after completion-fence and cache synchronization. The
+ * center time must already be corrected to exposure center in the configured
+ * camera clock domain. This function does not infer timing from SOF or select
+ * cameras. Copy visible pixels from each padded row before returning; preserve
+ * the same clock, ordering, IMU-bracketing and generation rules as snapshots. */
+bool pico_slam_input_mono8(struct pico_slam_input *input, uint64_t generation,
+                           const struct pico_slam_mono8_frame *frame, int64_t now_ns);
+
 /* Already calibrated and paired SI vectors in the tracker's IMU coordinates,
  * with CLOCK_MONOTONIC capture time. Nonfinite, stale, duplicate or future data
  * is rejected. Excessive per-stream gaps invalidate this generation. */

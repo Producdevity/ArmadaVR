@@ -53,7 +53,18 @@ static bool feed(struct pico_slam_session *s,uint64_t gen,int64_t t,uint64_t seq
     uint8_t raw[95];
     struct xrt_imu_sample v={.timestamp_ns=t-1000,.accel_m_s2={0,9.8,0},.gyro_rad_secs={0,0,0.1}};
     if(!pico_slam_session_imu(s,gen,&v,0,t))return false;
-    for(unsigned i=0;i<2;++i){snapshot(raw,i,t,seq);if(!pico_slam_session_camera(s,gen,raw,sizeof(raw),t+10000))return false;memset(raw,0xa5,sizeof(raw));}
+    for(unsigned i=0;i<2;++i) {
+        snapshot(raw,i,t,seq);
+        if(gen&1) {
+            if(!pico_slam_session_camera(s,gen,raw,sizeof(raw),t+10000))return false;
+        } else {
+            uint8_t padded[32]={0};memcpy(padded+1,"abc",3);memcpy(padded+17,"def",3);
+            struct pico_slam_mono8_frame view={(uint8_t)i,3,2,16,19,padded+1,t,seq};
+            if(!pico_slam_session_mono8(s,gen,&view,t+10000))return false;
+            memset(padded,0xa5,sizeof(padded));
+        }
+        memset(raw,0xa5,sizeof(raw));
+    }
     v.timestamp_ns=t+1000;return pico_slam_session_imu(s,gen,&v,0,t+10000);
 }
 static bool tracked(struct pico_slam_session *s,int64_t now)

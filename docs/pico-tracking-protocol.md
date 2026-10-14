@@ -891,3 +891,22 @@ packet fields. Memory-handle resolution is a host stub; this does not prove DMA
 mapping, fence completion, CRM scheduling or physical camera capture. Referenced
 allocations must remain alive until the stream owner establishes completion or
 quiescence.
+
+### Native frames into 6DoF tracking
+
+`pico_slam_input_mono8` and the owned session wrapper accept a borrowed mono8
+plane with explicit stride, accessible byte count, camera identity, sequence and
+exposure-center time. They copy visible pixels from each row before returning;
+padding is excluded. Native frames use the same camera ordering, clock mapping,
+IMU bracketing, expiry and generation checks as retained Android snapshots.
+Capture must establish fence completion and cache visibility before calling,
+and provide a verified exposure-center correction in the configured camera
+clock domain. A raw SOF timestamp alone does not establish that correction.
+
+Host and ARM64 sanitizer runs exercise 3,010 input generations and 1,013 owned
+session generations, including padded/unaligned planes and immediate source
+buffer overwrites. The actual Basalt backend also accepts 370 native-path images
+from the pinned Valve Index reference recording and produces 185 poses. Its
+rigid-aligned positional error matches the snapshot path: 6.413 mm RMS and
+16.598 mm maximum, with no fitted scale. These are short reference-recording
+results, not Pico camera, calibration or physical tracking accuracy.

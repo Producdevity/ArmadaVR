@@ -107,13 +107,12 @@ static void submit(struct pico_slam_input *s, int64_t now)
 
 static void destroy_frame(struct xrt_frame *f) { free(f); }
 
-bool pico_slam_input_camera(struct pico_slam_input *s, uint64_t generation,
-                            const void *snapshot, size_t size, int64_t now)
+static bool accept_camera(struct pico_slam_input *s, const struct pico_slam_mono8_frame *view, int64_t now)
 {
-    if (!current(s,generation,now)) return false;
-    struct pico_camera_frame image;
-    if (!pico_camera_decode(snapshot,size,&image) || image.classification!=1 ||
-        !image.exposure_lines || image.exposure_lines>737 || image.line_ns<=0) return false;
+    if (!view || !view->pixels || !view->width || view->width > 4096 || !view->height ||
+        view->height > 4096 || view->stride < view->width || view->stride > SIZE_MAX / view->height ||
+        view->size < (view->height - 1) * view->stride + view->width || view->center_ns <= 0) return false;
+    struct pico_slam_mono8_frame image = *view;
     size_t index=0;
     while (index<s->config.count && s->config.camera_ids[index]!=image.camera_id) ++index;
     if (index==s->config.count || image.width!=s->config.width[index] || image.height!=s->config.height[index] ||
@@ -125,11 +124,14 @@ bool pico_slam_input_camera(struct pico_slam_input *s, uint64_t generation,
     if (s->last_camera[index] && time-s->last_camera[index]>s->config.max_gap_ns) {
         pico_slam_input_stop(s); return false;
     }
-    struct xrt_frame *f=calloc(1,sizeof(*f)+image.size);
+    size_t pixel_size=(size_t)image.width*image.height;
+    struct xrt_frame *f=calloc(1,sizeof(*f)+pixel_size);
     if (!f) return false;
     f->reference.count=1; f->destroy=destroy_frame;
-    f->width=image.width; f->height=image.height; f->stride=image.width; f->size=image.size;
-    f->data=(uint8_t *)(f+1); memcpy(f->data,image.pixels,image.size);
+    f->width=image.width; f->height=image.height; f->stride=image.width; f->size=pixel_size;
+    f->data=(uint8_t *)(f+1);
+    for (uint32_t row=0; row<image.height; ++row)
+        memcpy(f->data+(size_t)row*image.width,image.pixels+(size_t)row*image.stride,image.width);
     f->format=XRT_FORMAT_L8; f->stereo_format=XRT_STEREO_FORMAT_NONE;
     f->timestamp=time; f->source_timestamp=image.center_ns;
     f->source_sequence=image.frame_number; f->source_id=image.camera_id;
@@ -137,6 +139,24 @@ bool pico_slam_input_camera(struct pico_slam_input *s, uint64_t generation,
     s->last_camera[index]=time; s->last_sequence[index]=image.frame_number;
     submit(s,now);
     return true;
+}
+
+bool pico_slam_input_mono8(struct pico_slam_input *s, uint64_t generation,
+                           const struct pico_slam_mono8_frame *image, int64_t now)
+{
+    return current(s,generation,now) && accept_camera(s,image,now);
+}
+
+bool pico_slam_input_camera(struct pico_slam_input *s, uint64_t generation,
+                            const void *snapshot, size_t size, int64_t now)
+{
+    if (!current(s,generation,now)) return false;
+    struct pico_camera_frame image;
+    if (!pico_camera_decode(snapshot,size,&image) || image.classification!=1 ||
+        !image.exposure_lines || image.exposure_lines>737 || image.line_ns<=0) return false;
+    struct pico_slam_mono8_frame view = {image.camera_id, image.width, image.height,
+        image.width, image.size, image.pixels, image.center_ns, image.frame_number};
+    return accept_camera(s,&view,now);
 }
 
 bool pico_slam_input_imu(struct pico_slam_input *s, uint64_t generation,

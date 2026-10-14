@@ -122,6 +122,7 @@ for n in 1 2; do
     /out/replay /dataset /out/reference.toml /out/poses-$n.csv $n > /out/replay-$n.log 2>&1
 done
 /out/replay /dataset /out/bounded.toml /out/poses-session.csv 0 > /out/session-replay.log 2>&1
+/out/replay /dataset /out/bounded.toml /out/poses-native.csv 3 > /out/native-replay.log 2>&1
 '''
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
@@ -163,12 +164,21 @@ done
                 session_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
                 session_metrics['max_error_m'] > dataset['max_rigid_error_m']):
             raise ValueError('Owned session trajectory acceptance failed')
+        native_log = (args.output / 'native-replay.log').read_text()
+        if ('PICO_SLAM_SESSION_REPLAY_PASS poses=185 images=370 stopped_invalid=1' not in native_log or
+                'PICO_SLAM_NATIVE_INPUT_PASS padded=1 unaligned=1 poisoned=1' not in native_log):
+            raise ValueError('Native frame session replay did not finish')
+        native_metrics = trajectory_metrics(args.output / 'poses-native.csv', reference / 'mav0/gt/data.csv')
+        if (native_metrics['poses'] != dataset['poses'] or
+                native_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
+                native_metrics['max_error_m'] > dataset['max_rigid_error_m']):
+            raise ValueError('Native frame trajectory acceptance failed')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')
         if build['stage_sha256'] != basalt.tree_digest(prefix):
             raise ValueError('Basalt bundle changed during replay')
         basalt.verify(args.basalt_source, profile)
-        report.update(status='passed', trajectories=results, session_trajectory=session_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
+        report.update(status='passed', trajectories=results, session_trajectory=session_metrics, native_trajectory=native_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
                       input_test_binary_sha256=digest(args.output / 'input-test'),
                       lifecycle_binary_sha256=digest(args.output / 'lifecycle'),
                       binary_sha256=digest(args.output / 'replay'),

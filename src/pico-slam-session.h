@@ -38,6 +38,8 @@ bool pico_slam_session_begin(struct pico_slam_session *session, uint64_t generat
                              int64_t expires_ns, int64_t now_ns);
 bool pico_slam_session_camera(struct pico_slam_session *session, uint64_t generation,
                               const void *snapshot, size_t size, int64_t now_ns);
+bool pico_slam_session_mono8(struct pico_slam_session *session, uint64_t generation,
+                             const struct pico_slam_mono8_frame *frame, int64_t now_ns);
 bool pico_slam_session_imu(struct pico_slam_session *session, uint64_t generation,
                            const struct xrt_imu_sample *sample, int64_t uncertainty_ns, int64_t now_ns);
 /* Call regularly even when capture is silent. Drain at most 32 poses per call.
