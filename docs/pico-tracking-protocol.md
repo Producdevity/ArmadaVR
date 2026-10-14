@@ -1119,3 +1119,22 @@ and retains an uncertain owner on any failure; it never retries a failed stop.
 Successful stop ioctls do not establish DMA quiescence or permit automatic buffer
 release. Initialization packets, sensor pairing, synchronization, calibration and
 physical completion remain separate requirements.
+
+### Native sensor initialization
+
+`pico-camera-sensor-setup` copies explicit initialization, mode, optional
+synchronization and stream-on/off tables into owned CRM command and packet
+allocations. It submits initialization, mode, optional synchronization, then
+stream-on and stream-off tables, matching the saved QuickCamera sequence.
+Register writes use the existing sensor encoder; command memory is CPU-mapped
+and cache access is bracketed. Preparing the tables does not select a physical
+module, probe, acquire or start the sensor.
+
+The setup has one submission attempt. A partial failure retains every attempted
+allocation until the caller establishes quiescence. Inputs can be overwritten
+immediately after preparation. Host and ARM64 sanitizer tests cover 400 lifetimes
+and 81 failures across allocation, cache access, submission and ioctl positions.
+A separate harness routes 1,857 configurations through the retained kernel's
+packet validator, sensor settings selector and random-write/delay handlers.
+Memory and hardware calls are stubbed; this does not verify physical I2C writes,
+sensor timing, camera pairing or image capture.
