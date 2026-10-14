@@ -148,3 +148,102 @@ int pico_camera_fence_destroy(int fd, int32_t *fence)
     if (!result) *fence = 0;
     return result;
 }
+
+int pico_camera_sensor_query(int fd, struct pico_camera_sensor_capabilities *caps)
+{
+    if (!caps) return -EINVAL;
+    struct pico_camera_sensor_capabilities data = {0};
+    _Static_assert(sizeof(data) == 40, "sensor query ABI");
+    int result = submit(fd, 0x101, &data, sizeof(data), false);
+    if (!result) *caps = data;
+    return result;
+}
+int pico_camera_phy_query(int fd, struct pico_camera_phy_capabilities *caps)
+{
+    if (!caps) return -EINVAL;
+    uint32_t data[4] = {0};
+    int result = submit(fd, 0x101, data, sizeof(data), false);
+    if (!result) *caps = (struct pico_camera_phy_capabilities){data[0], data[1], data[2]};
+    return result;
+}
+int pico_camera_ife_query(int fd, struct pico_camera_ife_capabilities *caps)
+{
+    if (!caps) return -EINVAL;
+    struct {
+        int32_t device_mmu[2], cdm_mmu[2], count;
+        uint32_t reserved;
+        struct { uint32_t type, reserved, major, minor, increment, version_reserved; } devices[5];
+    } data = {{-1, -1}, {-1, -1}, 0, 0, {{0}}};
+    _Static_assert(sizeof(data) == 144, "ISP query ABI");
+    struct { uint32_t size, type; uint64_t pointer; } query = {sizeof(data), 1, (uintptr_t)&data};
+    int result = submit(fd, 0x101, &query, sizeof(query), false);
+    if (result) return result;
+    if (data.count < 0 || data.count > 5) return -EPROTO;
+    struct pico_camera_ife_capabilities output = {0};
+    output.device_mmu = data.device_mmu[0]; output.cdm_mmu = data.cdm_mmu[0];
+    output.device_count = (uint32_t)data.count;
+    for (int i = 0; i < data.count; ++i) {
+        output.devices[i].type = data.devices[i].type;
+        output.devices[i].major = data.devices[i].major;
+        output.devices[i].minor = data.devices[i].minor;
+        output.devices[i].increment = data.devices[i].increment;
+    }
+    *caps = output;
+    return 0;
+}
+int pico_camera_sensor_probe_submit(int fd, int32_t packet)
+{
+    if (fd < 0 || packet <= 0) return -EINVAL;
+    struct control_command command = {0x10a, 8, 2, 0, (uint32_t)packet};
+    int result = ioctl(fd, 0xc01856c0UL, &command);
+    return result < 0 ? -errno : result ? -EPROTO : 0;
+}
+static int acquire_device(int fd, int32_t session, uint32_t count, void *info, int32_t *device)
+{
+    if (session <= 0 || !device || *device) return -EINVAL;
+    struct { int32_t session, device; uint32_t type, count; uint64_t pointer; } data = {
+        session, 0, 1, count, (uintptr_t)info};
+    _Static_assert(sizeof(data) == 24, "camera acquire ABI");
+    int result = submit(fd, 0x102, &data, sizeof(data), false);
+    if (data.device > 0) *device = data.device;
+    return result ? result : data.device > 0 ? 0 : -EPROTO;
+}
+int pico_camera_sensor_acquire(int fd, int32_t session, int32_t *device)
+{
+    return acquire_device(fd, session, 0, NULL, device);
+}
+int pico_camera_phy_acquire(int fd, int32_t session, bool combo, int32_t *device)
+{
+    uint32_t info[2] = {combo, 0};
+    return acquire_device(fd, session, 0, info, device);
+}
+int pico_camera_ife_device_acquire(int fd, int32_t session, int32_t *device)
+{
+    return acquire_device(fd, session, 0xfefefefe, NULL, device);
+}
+int pico_camera_ife_hardware_acquire(int fd, int32_t session, int32_t device,
+                                    const void *resource, size_t size,
+                                    struct pico_camera_ife_hardware *hardware)
+{
+    if (session <= 0 || device <= 0 || !resource || size != 264 || !hardware) return -EINVAL;
+    struct {
+        uint32_t version, reserved;
+        int32_t session, device;
+        uint32_t type, size;
+        uint64_t pointer;
+        struct pico_camera_ife_hardware hardware;
+    } data;
+    _Static_assert(sizeof(data) == 120, "ISP acquire hardware v2 ABI");
+    memset(&data, 0, sizeof(data));
+    data.version = 2; data.session = session; data.device = device;
+    data.type = 1; data.size = (uint32_t)size; data.pointer = (uintptr_t)resource;
+    int result = submit(fd, 0x151, &data, sizeof(data), false);
+    if (!result) *hardware = data.hardware;
+    return result;
+}
+int pico_camera_ife_hardware_release(int fd, int32_t session, int32_t device)
+{
+    if (session <= 0 || device <= 0) return -EINVAL;
+    int32_t data[4] = {1, 0, session, device};
+    return submit(fd, 0x152, data, sizeof(data), false);
+}

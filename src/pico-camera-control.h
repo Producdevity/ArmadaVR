@@ -29,4 +29,41 @@ int pico_camera_fence_create(int sync_fd, const char *name, int32_t *fence);
 int pico_camera_fence_register(int sync_fd, int32_t fence, uint64_t generation, uint64_t request_id);
 int pico_camera_fence_destroy(int sync_fd, int32_t *fence);
 
+struct pico_camera_sensor_capabilities {
+    uint32_t slot, secure, pitch, roll, yaw;
+    uint32_t actuator_slot, eeprom_slot, ois_slot, flash_slot, phy_slot;
+};
+struct pico_camera_phy_capabilities { uint32_t slot, version, clock_lane; };
+struct pico_camera_ife_capabilities {
+    int32_t device_mmu, cdm_mmu;
+    uint32_t device_count;
+    struct { uint32_t type, major, minor, increment; } devices[5];
+};
+struct pico_camera_ife_hardware {
+    uint32_t id[5], paths[5][3], valid;
+};
+
+/* Queries preserve output on failure. MMU handles come from the device query;
+ * absent MMUs remain negative. These calls do not acquire or start devices. */
+int pico_camera_sensor_query(int sensor_fd, struct pico_camera_sensor_capabilities *caps);
+int pico_camera_phy_query(int phy_fd, struct pico_camera_phy_capabilities *caps);
+int pico_camera_ife_query(int ife_fd, struct pico_camera_ife_capabilities *caps);
+
+/* Probe uses a packet at offset zero with kernel-mapped command buffers.
+ * Probing powers the sensor; this is not a read-only device operation. */
+int pico_camera_sensor_probe_submit(int sensor_fd, int32_t packet);
+
+/* Acquisition outputs start at zero. A returned positive handle is preserved
+ * even on ioctl failure: the sensor kernel copies it before powering up.
+ * Such failure requires shutdown before reuse, not an acquisition retry.
+ * PHY handles must not be included in CRM links. IFE device acquisition uses
+ * the split API and must be followed by hardware acquisition before config. */
+int pico_camera_sensor_acquire(int sensor_fd, int32_t session, int32_t *device);
+int pico_camera_phy_acquire(int phy_fd, int32_t session, bool combo, int32_t *device);
+int pico_camera_ife_device_acquire(int ife_fd, int32_t session, int32_t *device);
+int pico_camera_ife_hardware_acquire(int ife_fd, int32_t session, int32_t device,
+                                    const void *resource, size_t size,
+                                    struct pico_camera_ife_hardware *hardware);
+int pico_camera_ife_hardware_release(int ife_fd, int32_t session, int32_t device);
+
 #endif

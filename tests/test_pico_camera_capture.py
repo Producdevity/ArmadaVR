@@ -14,7 +14,11 @@ class PicoCameraCaptureTests(unittest.TestCase):
     def test_control_ioctls(self):
         self.compile_test("pico-camera-control", "PICO_CAMERA_CONTROL_PASS", ["pico-camera-events.c"])
 
-    def compile_test(self, name, marker, dependencies=()):
+    def test_device_acquisition(self):
+        self.compile_test("pico-camera-control", "PICO_CAMERA_ACQUIRE_PASS",
+                          ["pico-camera-events.c"], "pico-camera-acquire")
+
+    def compile_test(self, name, marker, dependencies=(), test_name=None):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:
             binary = Path(temp) / "capture"
@@ -22,7 +26,7 @@ class PicoCameraCaptureTests(unittest.TestCase):
                 "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-I", str(root / "src"), str(root / "src" / (name + ".c")),
-                str(root / "tests" / (name + ".c")),
+                str(root / "tests" / ((test_name or name) + ".c")),
                 *[str(root / "src" / dependency) for dependency in dependencies], "-o", str(binary),
             ], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True, timeout=30)
