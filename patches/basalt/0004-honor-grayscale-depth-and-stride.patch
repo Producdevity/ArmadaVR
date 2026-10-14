@@ -1,0 +1,50 @@
+--- a/src/vit/vit_tracker.cpp
++++ b/src/vit/vit_tracker.cpp
+@@ -55,6 +55,7 @@
+ #include <sophus/se3.hpp>
+ 
+ #include <cstdio>
++#include <cstring>
+ #include <memory>
+ #include <string>
+ #include <thread>
+@@ -474,7 +475,17 @@
+   vit::Result push_frame(const vit::ImgSample *s) {
+     if (!running || input_failed || s == nullptr) return vit::Result::VIT_ERROR_INVALID_VALUE;
+     uint32_t i = s->cam_index;
+-    ASSERT(expecting_frame == i, "Expected cam%d frame, received cam%d", expecting_frame, i);
++    uint32_t pixel_bytes = s->format == VIT_IMAGE_FORMAT_L8 ? 1 : 2;
++    if (i >= cam_count || i != expecting_frame || s->data == nullptr || s->timestamp <= 0 ||
++        (s->format != VIT_IMAGE_FORMAT_L8 && s->format != VIT_IMAGE_FORMAT_L16) ||
++        (s->mask_count != 0 && s->masks == nullptr) ||
++        s->width != (uint32_t)calib.resolution[i][0] || s->height != (uint32_t)calib.resolution[i][1] ||
++        s->stride < (uint64_t)s->width * pixel_bytes ||
++        s->size < (uint64_t)s->stride * s->height ||
++        (i != 0 && (!partial_frame || partial_frame->t_ns != s->timestamp))) {
++      input_failed = true;
++      return vit::Result::VIT_ERROR_INVALID_VALUE;
++    }
+ 
+     expecting_frame = (expecting_frame + 1) % cam_count;
+ 
+@@ -509,11 +520,15 @@
+       partial_frame->masks[i].masks.emplace_back(r.x, r.y, r.w, r.h);
+     }
+ 
+-    // TODO figure out format copy to avoid using a cv::Mat
+-    int type = s->format == VIT_IMAGE_FORMAT_L8 ? CV_8UC1 : CV_8UC3;
+-    cv::Mat img{(int)s->height, (int)s->width, type, s->data, s->stride};
+-
+-    for (uint32_t j = 0; j < s->width * s->height; j++) { mimg->ptr[j] = img.at<uchar>(j) << 8; }
++    for (uint32_t y = 0; y < s->height; ++y) {
++      const uint8_t *row = static_cast<const uint8_t *>(s->data) + (size_t)y * s->stride;
++      for (uint32_t x = 0; x < s->width; ++x) {
++        uint16_t value;
++        if (s->format == VIT_IMAGE_FORMAT_L8) value = (uint16_t)row[x] << 8;
++        else std::memcpy(&value, row + 2 * x, sizeof(value));
++        mimg->ptr[(size_t)y * s->width + x] = value;
++      }
++    }
+ 
+     if (i == cam_count - 1) {
+       partial_frame->addTime("frames_read");

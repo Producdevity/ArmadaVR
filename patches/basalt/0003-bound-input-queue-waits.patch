@@ -1,0 +1,102 @@
+--- a/src/vit/vit_tracker.cpp
++++ b/src/vit/vit_tracker.cpp
+@@ -137,6 +137,8 @@
+ 
+   // Queues
+   std::atomic<bool> running = false;
++  std::atomic<bool> input_failed = false;
++  bool nonblocking_input = false;
+   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr> out_state_queue;
+   tbb::concurrent_bounded_queue<PoseVelBiasState<double>::Ptr> monado_out_state_queue;
+   tbb::concurrent_bounded_queue<OpticalFlowInput::Ptr> *image_data_queue = nullptr;  // Invariant: not null after ctor
+@@ -222,6 +224,7 @@
+     app.add_option("--use-double", use_double, "Whether to use a double or single precision pipeline.");
+     app.add_option("--deterministic", deterministic, "Make the pipeline output reproducible (some performance impact)");
+     app.add_option("--num-threads", num_threads, "Number of threads. 0 for all available. 1 by default.");
++    app.add_option("--nonblocking-input", nonblocking_input, "Fail a stream instead of waiting on full input queues");
+ 
+     try {
+       // While --config-path sets the VIO configuration, --config sets the
+@@ -234,6 +237,9 @@
+       app.exit(e);
+       ASSERT(false, "Config file error (%s)", unified_config.c_str());
+     }
++
++    if (nonblocking_input && deterministic)
++      throw std::invalid_argument("nonblocking-input requires deterministic=0");
+ 
+     if (num_threads > 0)
+       tbb_global_control =
+@@ -444,7 +450,8 @@
+ 
+   void reset() { vio->scheduleResetState(); }
+ 
+-  void push_imu_sample(const vit::ImuSample *s) {
++  vit::Result push_imu_sample(const vit::ImuSample *s) {
++    if (!running || input_failed || s == nullptr) return vit::Result::VIT_ERROR_INVALID_VALUE;
+     // concurrent_bounded_queue expects Erasable and Allocator named
+     // requirements for the type, using a pointer because it already is. This is
+     // done in the others examples as well but it is far from optimal.
+@@ -452,11 +459,20 @@
+     data->t_ns = s->timestamp;
+     data->accel = {s->ax, s->ay, s->az};
+     data->gyro = {s->wx, s->wy, s->wz};
+-    imu_data_queue->push(data);
+-    opt_flow_ptr->input_imu_queue.push(data);
+-  }
+-
+-  void push_frame(const vit::ImgSample *s) {
++    if (nonblocking_input) {
++      if (!imu_data_queue->try_push(data) || !opt_flow_ptr->input_imu_queue.try_push(data)) {
++        input_failed = true;
++        return vit::Result::VIT_ERROR_ALLOCATION_FAILURE;
++      }
++    } else {
++      imu_data_queue->push(data);
++      opt_flow_ptr->input_imu_queue.push(data);
++    }
++    return vit::Result::VIT_SUCCESS;
++  }
++
++  vit::Result push_frame(const vit::ImgSample *s) {
++    if (!running || input_failed || s == nullptr) return vit::Result::VIT_ERROR_INVALID_VALUE;
+     uint32_t i = s->cam_index;
+     ASSERT(expecting_frame == i, "Expected cam%d frame, received cam%d", expecting_frame, i);
+ 
+@@ -502,10 +518,19 @@
+     if (i == cam_count - 1) {
+       partial_frame->addTime("frames_read");
+       partial_frame->addTime("frames_pushed");
+-      image_data_queue->push(partial_frame);
++      if (nonblocking_input) {
++        if (!image_data_queue->try_push(partial_frame)) {
++          input_failed = true;
++          partial_frame.reset();
++          return vit::Result::VIT_ERROR_ALLOCATION_FAILURE;
++        }
++      } else {
++        image_data_queue->push(partial_frame);
++      }
+       if (show_gui) ui.update_last_image(partial_frame);
+       if (deterministic) pop_state();
+     }
++    return vit::Result::VIT_SUCCESS;
+   }
+ 
+   vit::Result pop_pose(vit::Pose **pose) {
+@@ -627,13 +652,11 @@
+ }
+ 
+ vit::Result Tracker::push_imu_sample(const vit::ImuSample *sample) {
+-  impl_->push_imu_sample(sample);
+-  return vit::Result::VIT_SUCCESS;
++  return impl_->push_imu_sample(sample);
+ }
+ 
+ vit::Result Tracker::push_img_sample(const vit::ImgSample *sample) {
+-  impl_->push_frame(sample);
+-  return vit::Result::VIT_SUCCESS;
++  return impl_->push_frame(sample);
+ }
+ 
+ vit::Result Tracker::pop_pose(vit::Pose **pose) { return impl_->pop_pose(pose); }

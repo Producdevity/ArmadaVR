@@ -70,6 +70,23 @@ calibration. They do not measure Pico accuracy, latency, camera availability,
 relocalization, thermal behavior or sustained on-device performance. Reference
 calibration is never substituted for Pico calibration.
 
+## Input pressure and image formats
+
+For live capture, set `nonblocking-input=1` and `deterministic=0` in the Basalt
+configuration. The VIT input contract requires nonblocking delivery, but the
+pinned upstream implementation waits when an input queue fills. With no camera
+frames, its IMU producer stopped at sample 302 in the isolated reproduction.
+The patch reports queue exhaustion and refuses further input until the owner
+stops and recreates the tracker. It does not silently discard sensor samples
+and continue reporting tracking. Offline accelerated replay retains the legacy
+blocking mode to pace its producer against the estimator.
+
+Six queue-exhaustion and 24 malformed-image cases stop cleanly under native
+sanitizer instrumentation of the caller. The image copy also honors row stride
+and reads full 16-bit grayscale samples; upstream's advertised L16 path instead
+read bytes. Padded, unaligned L8 and L16 replays now produce identical trajectories
+for the checked recording. Basalt itself remains a Release build.
+
 ## Offline root package
 
 Pass `--basalt VERIFIED_BUNDLE` to `tools/build-headset-root.py` to include the

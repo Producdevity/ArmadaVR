@@ -85,6 +85,14 @@
     {
       "path": "patches/basalt/0002-report-supported-image-formats.patch",
       "sha256": "8e409ac330302d24fb2e0120e68ff9a5da241fbb0395362a642cc40cd7b2749f"
+    },
+    {
+      "path": "patches/basalt/0003-bound-input-queue-waits.patch",
+      "sha256": "cde7b9f7dc3524044daa164b2415e93c722d391a269c5d3240bf5c6816219110"
+    },
+    {
+      "path": "patches/basalt/0004-honor-grayscale-depth-and-stride.patch",
+      "sha256": "21aa8fb5ab0f0689625f86e9d79fdb3ff4888a7dc3e678925f9ff6b6f3901cb7"
     }
   ]
 }

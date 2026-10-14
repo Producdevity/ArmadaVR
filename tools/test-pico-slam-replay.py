@@ -93,8 +93,9 @@ def main():
     (args.output / 'reference.toml').write_text(
         'show-gui=0\ncam-calib="/source/' + dataset['calibration'] + '"\nconfig-path="/source/' +
         dataset['configuration'] + '"\nmarg-data=""\nprint-queue=0\nuse-double=0\ndeterministic=0\nnum-threads=1\n')
+    (args.output / 'bounded.toml').write_text((args.output / 'reference.toml').read_text() + 'nonblocking-input=1\n')
     source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h', 'src/pico-slam-tracking.c', 'src/pico-slam-tracking.h',
-                    'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
+                    'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/out/include -isystem /monado/src/xrt/include"
@@ -111,11 +112,13 @@ done
 cc -std=gnu11 $mathflags -w -c /monado/src/external/cjson/cjson/cJSON.c -o /out/cJSON.o
 c++ -std=c++17 $flags -pthread -Wl,--gc-sections -I/source/thirdparty/vit /repo/tests/pico-slam-replay.cpp /out/*.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/replay
 c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-lifecycle.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/lifecycle
+c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-input.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/input-test
 export LD_LIBRARY_PATH=/opt/reframed-vr/basalt/lib64
 export ASAN_OPTIONS=detect_leaks=1
 /out/lifecycle /out/reference.toml > /out/lifecycle.log 2>&1
+/out/input-test /out/bounded.toml > /out/input-test.log 2>&1
 for n in 1 2; do
-    /out/replay /dataset /out/reference.toml /out/poses-$n.csv > /out/replay-$n.log 2>&1
+    /out/replay /dataset /out/reference.toml /out/poses-$n.csv $n > /out/replay-$n.log 2>&1
 done
 '''
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
@@ -137,11 +140,15 @@ done
             subprocess.run(command, check=True, stdout=log, stderr=subprocess.STDOUT, timeout=300)
         if 'BASALT_LIFECYCLE_PASS stopped=70' not in (args.output / 'lifecycle.log').read_text():
             raise ValueError('Estimator lifecycle checks did not finish')
+        if 'BASALT_INPUT_PASS exhausted=6 malformed=24 stopped=30' not in (args.output / 'input-test.log').read_text():
+            raise ValueError('Bounded input checks did not finish')
         results = []
         for index in (1, 2):
             log = (args.output / f'replay-{index}.log').read_text()
             if 'PICO_SLAM_REPLAY_PASS' not in log or 'PICO_SLAM_HEAD_POSES_PASS poses=184 stopped_invalid=1' not in log:
                 raise ValueError('Replay did not finish')
+            if f'PICO_SLAM_IMAGE_FORMAT_PASS bytes={index} padded=1 unaligned=1' not in log:
+                raise ValueError('Image format replay did not finish')
             metrics = trajectory_metrics(args.output / f'poses-{index}.csv', reference / 'mav0/gt/data.csv')
             if (metrics['poses'] != dataset['poses'] or metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
                     metrics['max_error_m'] > dataset['max_rigid_error_m']):
@@ -152,7 +159,8 @@ done
         if build['stage_sha256'] != basalt.tree_digest(prefix):
             raise ValueError('Basalt bundle changed during replay')
         basalt.verify(args.basalt_source, profile)
-        report.update(status='passed', trajectories=results, lifecycle_cycles=70,
+        report.update(status='passed', trajectories=results, lifecycle_cycles=70, bounded_input_cycles=30,
+                      input_test_binary_sha256=digest(args.output / 'input-test'),
                       lifecycle_binary_sha256=digest(args.output / 'lifecycle'),
                       binary_sha256=digest(args.output / 'replay'),
                       output_sha256={path.name: digest(path) for path in args.output.glob('poses-*.csv')})

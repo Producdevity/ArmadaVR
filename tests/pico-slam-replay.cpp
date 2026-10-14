@@ -8,6 +8,7 @@ extern "C" {
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -27,6 +28,7 @@ extern "C" {
   } while (0)
 static vit_tracker_t *tracker;
 static unsigned delivered_images, delivered_imu;
+static unsigned image_bytes = 1;
 struct CameraSink {
   xrt_frame_sink base;
   unsigned index;
@@ -36,13 +38,22 @@ static void camera(xrt_frame_sink *sink, xrt_frame *f) {
   vit_img_sample_t image{};
   image.cam_index = s->index;
   image.timestamp = f->timestamp;
-  image.data = f->data;
   image.width = f->width;
   image.height = f->height;
-  image.stride = f->stride;
-  image.size = f->size;
-  image.format = VIT_IMAGE_FORMAT_L8;
+  image.stride = f->width * image_bytes + 13;
+  image.size = image.stride * image.height;
+  std::vector<uint8_t> padded(image.size + 1, 0x5a);
+  image.data = padded.data() + 1;
+  image.format = image_bytes == 1 ? VIT_IMAGE_FORMAT_L8 : VIT_IMAGE_FORMAT_L16;
+  for (unsigned y = 0; y < image.height; ++y)
+    for (unsigned x = 0; x < image.width; ++x) {
+      uint16_t value = (uint16_t)f->data[y * f->stride + x] << 8;
+      auto *pixel = image.data + y * image.stride + x * image_bytes;
+      if (image_bytes == 1) *pixel = value >> 8;
+      else std::memcpy(pixel, &value, sizeof(value));
+    }
   CHECK(vit_tracker_push_img_sample(tracker, &image) == VIT_SUCCESS);
+  std::fill(padded.begin(), padded.end(), 0xa5);
   ++delivered_images;
 }
 static void imu(xrt_imu_sink *, xrt_imu_sample *s) {
@@ -86,7 +97,9 @@ static void put64(uint8_t *p, uint64_t n) {
     p[i] = n >> (8 * i);
 }
 int main(int argc, char **argv) {
-  CHECK(argc == 4);
+  CHECK(argc == 5);
+  image_bytes = std::stoi(argv[4]);
+  CHECK(image_bytes == 1 || image_bytes == 2);
   cv::setNumThreads(1);
   const std::filesystem::path root = argv[1];
   auto left = csv(root / "mav0/cam0/data.csv"),
@@ -252,6 +265,7 @@ int main(int argc, char **argv) {
     span += pow(maxpos[i] - minpos[i], 2);
   CHECK(span > 0.01 && span < 100);
   poses.close();
+  printf("PICO_SLAM_IMAGE_FORMAT_PASS bytes=%u padded=1 unaligned=1\n", image_bytes);
   printf("PICO_SLAM_HEAD_POSES_PASS poses=%u stopped_invalid=1\n", head_poses);
   printf("PICO_SLAM_REPLAY_PASS frames=%zu images=%u imu=%u poses=%u "
          "position_span=%.6f api=%u.%u.%u\n",
