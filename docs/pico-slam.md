@@ -227,6 +227,36 @@ remaining queued pair. The trajectory has 6.41 mm rigid RMS error and 16.60 mm
 maximum error without fitted scale, matching the earlier bounded-queue replay.
 This recording uses Valve Index calibration and is not Pico accuracy evidence.
 
+## Installed camera runtime
+
+The Pico build installs `libpico_tracking.so` alongside Monado. Both the service
+and CLI link to it; the library retains the camera setup, continuous capture,
+SSC handoff, pose provider and HMD factory entry points. A static driver archive
+was insufficient because the linker discarded capture functions that the
+automatic prober does not call. Bundle verification now checks the exported
+functions, executable dependencies and a device-free library load.
+
+Add `--monado-bundle VERIFIED_MONADO_BUNDLE --ssc-bundle VERIFIED_SSC_BUNDLE`
+to the replay command to test that installed library. This variant links only
+the harness and simulated hardware transport locally; camera/runtime/HMD code
+comes from the installed library. Its function-resolution check confirms that
+origin. The library and Basalt are Release builds; the harness and hardware
+fixture use ASan/UBSan.
+
+The installed-library replay also creates the actual HMD with synthetic optics
+and the live owner's borrowed pose provider. It checks tracked head poses,
+stereo views, current-input activity, accepted and refused predictions, and
+pose invalidation after capture stops. The fixture refuses a duplicate SSC
+subscription. Input is paced separately for this test so the estimator can
+produce poses within the production prediction window; this is not a headset
+throughput measurement.
+
+This is an internal interface tied to the exact Monado headers and driver
+revision. It does not enable camera capture in the automatic prober or provide
+physical calibration. A physical owner still needs exclusive device access,
+verified settings, regular polling and independently established DMA shutdown.
+Do not call the quiescence acknowledgment solely because a stop ioctl succeeded.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.

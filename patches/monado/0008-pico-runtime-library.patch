@@ -1,0 +1,22 @@
+--- a/src/xrt/drivers/CMakeLists.txt
++++ b/src/xrt/drivers/CMakeLists.txt
+@@ -78,7 +78,7 @@
+ 		message(FATAL_ERROR "Provide the verified SSC header directory and library")
+ 	endif()
+ 	pkg_check_modules(PICO_GIO REQUIRED IMPORTED_TARGET gio-2.0)
+-	add_library(drv_pico_ssc STATIC
++	add_library(drv_pico_ssc SHARED
+ 		pico_ssc/pico-monado-prober.c pico_ssc/pico-ssc-session.c
+ 		pico_ssc/pico-monado-device.c pico_ssc/pico-monado-input.c
+ 		pico_ssc/pico-controller.c pico_ssc/pico-controller-stream.c
+@@ -96,6 +96,10 @@
+         target_sources(drv_pico_ssc PRIVATE pico_ssc/pico-slam-session.c pico_ssc/pico-slam-runtime.c pico_ssc/pico-slam-live.c)
+         target_link_libraries(drv_pico_ssc PRIVATE xrt-external-vit)
+     endif()
++    set_target_properties(drv_pico_ssc PROPERTIES OUTPUT_NAME pico_tracking
++        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};/opt/reframed-vr/ssc/lib64")
++    install(TARGETS drv_pico_ssc LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
++
+ 	list(APPEND ENABLED_DRIVERS pico_ssc)
+ endif()
+ 

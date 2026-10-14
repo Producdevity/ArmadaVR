@@ -49,8 +49,25 @@ def main():
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--image', required=True)
     parser.add_argument('--engine', default='docker')
+    parser.add_argument('--monado-bundle', type=Path, help='Also replay through the installed Pico runtime library')
+    parser.add_argument('--ssc-bundle', type=Path)
     args = parser.parse_args()
     args.output = args.output.resolve()
+    installed = None
+    if args.monado_bundle:
+        if not args.ssc_bundle:
+            parser.error('--monado-bundle requires its --ssc-bundle')
+        modules = {}
+        for name in ('monado', 'ssc'):
+            spec = importlib.util.spec_from_file_location(name, ROOT / 'tools' / (name + '-artifact.py'))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            modules[name] = module
+        installed = modules['monado'].package(args.monado_bundle)
+        if installed['ssc_dependency'] != modules['ssc'].package(args.ssc_bundle):
+            raise ValueError('Installed Pico runtime SSC dependency differs')
+        runtime_prefix = args.monado_bundle / modules['monado'].PREFIX
+        ssc_prefix = args.ssc_bundle / modules['ssc'].PREFIX
     monado = json.loads((ROOT / 'profiles/monado.json').read_text())
     profile = json.loads((ROOT / 'profiles/basalt.json').read_text())
     dataset = json.loads((ROOT / 'profiles/slam-replay.json').read_text())
@@ -102,7 +119,7 @@ def main():
         source_paths += ['src/pico-camera-' + part + suffix for suffix in ('.c', '.h')]
     for part in ('runtime', 'live'):
         source_paths += ['src/pico-slam-' + part + suffix for suffix in ('.c', '.h')]
-    source_paths += ['src/ssc-imu-session.h', 'tests/pico-slam-live-replay.cpp']
+    source_paths += ['src/pico-monado-hmd.c', 'src/pico-monado-hmd.h', 'src/ssc-imu-session.h', 'tests/pico-slam-live-replay.cpp', 'tools/monado-artifact.py', 'tools/ssc-artifact.py']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/source/thirdparty -I/out/include -isystem /monado/src/xrt/include"
@@ -148,6 +165,12 @@ done
 /out/replay /dataset /out/bounded.toml /out/poses-queued-imu.csv 7 > /out/queued-imu-replay.log 2>&1
 /out/live-replay /dataset /out/bounded.toml /out/poses-live.csv > /out/live-replay.log 2>&1
 '''
+    if installed:
+        script += r"""
+c++ -std=c++17 $flags -DPICO_REPLAY_INSTALLED -pthread -I/source/thirdparty/vit /repo/tests/pico-slam-live-replay.cpp /out/camera-replay.o $(pkg-config --cflags --libs opencv4) -L/pico-runtime/lib64 -lpico_tracking -L/opt/reframed-vr/basalt/lib64 -lbasalt -Wl,-rpath-link,/pico-ssc/lib64 -ldl -o /out/installed-live-replay
+export LD_LIBRARY_PATH=/pico-runtime/lib64:/pico-ssc/lib64:$LD_LIBRARY_PATH
+/out/installed-live-replay /dataset /out/bounded.toml /out/poses-installed-live.csv /pico-runtime/lib64/libpico_tracking.so > /out/installed-live-replay.log 2>&1
+"""
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
                '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges', '--memory', '4g', '--memory-swap', '4g',
@@ -158,6 +181,11 @@ done
         if ',' in str(source):
             raise ValueError('Container bind paths cannot contain commas')
         command += ['--mount', f'type=bind,src={source.resolve()},dst={target}' + (',readonly' if readonly else '')]
+    if installed:
+        for source, target in ((runtime_prefix, '/pico-runtime'), (ssc_prefix, '/pico-ssc')):
+            if ',' in str(source):
+                raise ValueError('Container bind paths cannot contain commas')
+            command += ['--mount', f'type=bind,src={source.resolve()},dst={target},readonly']
     command += ['--entrypoint', 'sh', args.image, '-c', script]
     report = {'status': 'started', 'command': command, 'sources': inputs, 'dataset': dataset,
               'basalt_build_sha256': digest(args.basalt_build / 'build.json'), 'image': image['Id'],
@@ -243,6 +271,22 @@ done
                 live_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
                 live_metrics['max_error_m'] > dataset['max_rigid_error_m']):
             raise ValueError('Continuous camera/SSC/SLAM trajectory acceptance failed')
+        if installed:
+            log = (args.output / 'installed-live-replay.log').read_text()
+            if ('PICO_SLAM_INSTALLED_LIBRARY path=/pico-runtime/lib64/libpico_tracking.so' not in log or
+                    'PICO_SLAM_LIVE_REPLAY_PASS poses=185 images=370 imu=3467' not in log or
+                    not re.search(r'PICO_SLAM_INSTALLED_HMD_PASS poses=184 stereo_views=184 predictions=[1-9][0-9]* rejected_predictions=[0-9]+ active_inputs=[1-9][0-9]* stopped_invalid=1 duplicate_ssc=0 synthetic_optics=1', log) or
+                    'buffers=372 startup_skipped=1 simulated_ioctls=1 simulated_ssc=1 stopped_invalid=1' not in log):
+                raise ValueError('Installed runtime replay did not finish')
+            metrics = trajectory_metrics(args.output / 'poses-installed-live.csv', reference / 'mav0/gt/data.csv')
+            if (metrics['poses'] != dataset['poses'] or metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
+                    metrics['max_error_m'] > dataset['max_rigid_error_m']):
+                raise ValueError('Installed runtime trajectory acceptance failed')
+            if modules['monado'].package(args.monado_bundle) != installed or modules['ssc'].package(args.ssc_bundle) != installed['ssc_dependency']:
+                raise ValueError('Installed runtime changed during replay')
+            report['installed_runtime'] = installed
+            report['installed_live_trajectory'] = metrics
+            report['installed_live_binary_sha256'] = digest(args.output / 'installed-live-replay')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')
         if build['stage_sha256'] != basalt.tree_digest(prefix):

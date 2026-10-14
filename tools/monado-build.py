@@ -157,9 +157,21 @@ def build(profile):
             for name in profile['pico_driver_sources']:
                 if name.endswith('.c') and len([entry for entry in commands if entry['file'].endswith('/pico_ssc/' + name)]) != 1:
                     raise ValueError('Pico driver source omitted: ' + name)
+            library = prefix / 'lib64/libpico_tracking.so'
+            run(['nm', '-D', '--defined-only', str(library)], 'pico-runtime-exports.txt')
+            exported = {line.split()[-1] for line in (output / 'pico-runtime-exports.txt').read_text().splitlines() if line.split()}
+            if not set(profile['pico_runtime_exports']) <= exported:
+                raise ValueError('Installed Pico runtime omits required entry points')
             for name in ('monado-service', 'monado-cli'):
-                if any(marker not in (prefix / 'bin' / name).read_bytes() for marker in (b'PICO_SSC_CONFIG', b'PICO_HMD_CONFIG')):
-                    raise ValueError('Pico prober missing from installed executable: ' + name)
+                run(['readelf', '-d', str(prefix / 'bin' / name)], name + '-dynamic.txt')
+                if 'Shared library: [libpico_tracking.so]' not in (output / (name + '-dynamic.txt')).read_text():
+                    raise ValueError('Installed executable is not linked to the Pico runtime: ' + name)
+            run([sys.executable, '-c',
+                 'import ctypes; lib=ctypes.CDLL(' + repr(str(library)) + '); '
+                 'assert lib.pico_slam_live_prepare(None,None)==-22; '
+                 'assert lib.pico_slam_live_destroy(None)==-22; '
+                 'print("PICO_RUNTIME_LIBRARY_PASS invalid_input_refused=1 device_actions=0")'],
+                'pico-runtime-load.txt')
         if tree_digest(source) != report['source_sha256']:
             raise ValueError('Monado source changed during compilation')
         report['status'] = 'compiled'

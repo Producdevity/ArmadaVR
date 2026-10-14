@@ -2,11 +2,16 @@
 #include "vit_interface.h"
 extern "C" {
 #include "pico-camera-replay.h"
+#ifdef PICO_REPLAY_INSTALLED
+#include "pico-monado-hmd.h"
+#endif
 }
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <dlfcn.h>
 #include <filesystem>
 #include <fstream>
 #include <opencv2/imgcodecs.hpp>
@@ -36,7 +41,13 @@ static std::vector<std::vector<std::string>> csv(const std::filesystem::path &p)
 }
 int main(int argc,char **argv)
 {
-    CHECK(argc==4);cv::setNumThreads(1);std::filesystem::path root=argv[1];
+    CHECK(argc==4 || argc==5);
+    if(argc==5) {
+        Dl_info library{};
+        CHECK(dladdr(dlsym(RTLD_DEFAULT,"pico_slam_live_prepare"),&library) && library.dli_fname && !strcmp(library.dli_fname,argv[4]));
+        printf("PICO_SLAM_INSTALLED_LIBRARY path=%s\n",library.dli_fname);
+    }
+    cv::setNumThreads(1);std::filesystem::path root=argv[1];
     auto left=csv(root/"mav0/cam0/data.csv"),right=csv(root/"mav0/cam1/data.csv"),inertial=csv(root/"mav0/imu0/data.csv");
     CHECK(left.size()==right.size() && left.size()>100 && inertial.size()>1000);
     auto first=cv::imread((root/"mav0/cam0/data"/left[0][1]).string(),cv::IMREAD_GRAYSCALE);CHECK(!first.empty());
@@ -55,6 +66,25 @@ int main(int argc,char **argv)
     pico_slam_live *live=nullptr;CHECK(!pico_slam_live_prepare(&c,&live));
     auto *tracking=pico_slam_live_tracking(live);CHECK(tracking);
     int64_t now=std::min(std::stoll(left.front()[0]),std::stoll(inertial.front()[0]))+2000000;
+#ifdef PICO_REPLAY_INSTALLED
+    pico_hmd_config optics{};
+    optics.serial="recorded-data-fixture";optics.screen_width=1920;optics.screen_height=3664;
+    optics.frame_interval_ns=11111111;optics.visual_tracking=tracking;
+    for(unsigned i=0;i<2;i++) {
+        auto &v=optics.views[i];
+        v.display.viewport={0,i*1832,1920,1832};v.display.display={1832,1920};
+        v.display.rot.v[0]=v.display.rot.v[3]=1;
+        v.fov={-.8f,.8f,.8f,-.8f};v.eye_pose.orientation.w=1;v.eye_pose.position.x=i?.032f:-.032f;
+        v.radial_enabled=true;v.radial.tangent_scale[0]=2;v.radial.tangent_scale[1]=-2;
+        v.radial.tangent_offset[0]=-1;v.radial.tangent_offset[1]=1;v.radial.radial[0]=1;
+    }
+    xrt_device *hmd=nullptr;CHECK(pico_monado_hmd_create(&optics,&hmd));
+    CHECK(hmd->supported.position_tracking && hmd->supported.orientation_tracking);
+    pico_camera_replay_clock(now);
+    CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active);
+    pico_camera_replay_clock(0);
+    unsigned hmd_poses=0,view_pairs=0,predictions=0,rejected_predictions=0,active_inputs=0;
+#endif
     int64_t offsets[2]={-10000,-10000};size_t received;
     CHECK(pico_slam_live_poll(live,offsets,now,&received)==0 && !received);
     std::ofstream output(argv[3]);CHECK(output.good());output.precision(12);
@@ -70,11 +100,47 @@ int main(int argc,char **argv)
                 CHECK(time>=p.timestamp && (h.relation_flags&XRT_SPACE_RELATION_POSITION_TRACKED_BIT));
                 CHECK(std::abs(h.pose.position.x-p.px)<0.00001 && std::abs(h.pose.position.y-p.py)<0.00001 &&
                       std::abs(h.pose.position.z-p.pz)<0.00001);++heads;
+#ifdef PICO_REPLAY_INSTALLED
+                pico_camera_replay_clock(now);
+                xrt_space_relation actual{};
+                CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,p.timestamp,&actual)==XRT_SUCCESS);
+                CHECK(actual.relation_flags==h.relation_flags);
+                CHECK(std::abs(actual.pose.position.x-h.pose.position.x)<.00001 &&
+                      std::abs(actual.pose.position.y-h.pose.position.y)<.00001 &&
+                      std::abs(actual.pose.position.z-h.pose.position.z)<.00001);
+                xrt_space_relation current{};int64_t current_time;
+                bool active=pico_slam_tracking_get(tracking,now,now,&current,&current_time);
+                CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && hmd->inputs[0].active==active && hmd->inputs[0].timestamp==current_time);
+                active_inputs+=active;
+                ++hmd_poses;
+                xrt_pose eyes[2]{};xrt_fov fovs[2]{};xrt_vec3 eye_relation{.064f,0,0};
+                CHECK(hmd->get_view_poses(hmd,&eye_relation,p.timestamp,XRT_VIEW_TYPE_STEREO,2,&actual,fovs,eyes)==XRT_SUCCESS);
+                CHECK(actual.relation_flags==h.relation_flags && eyes[0].position.x==-.032f && eyes[1].position.x==.032f);
+                CHECK(fovs[0].angle_left==-.8f && fovs[1].angle_right==.8f);++view_pairs;
+                xrt_space_relation predicted{};int64_t sample;
+                if(pico_slam_tracking_get(tracking,now,now+10000000,&predicted,&sample)) {
+                    CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,now+10000000,&actual)==XRT_SUCCESS);
+                    CHECK(actual.relation_flags==predicted.relation_flags &&
+                          std::abs(actual.pose.position.x-predicted.pose.position.x)<.00001 &&
+                          std::abs(actual.pose.position.y-predicted.pose.position.y)<.00001 &&
+                          std::abs(actual.pose.position.z-predicted.pose.position.z)<.00001);++predictions;
+                }
+                else {
+                    CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,now+10000000,&actual)==XRT_SUCCESS && !actual.relation_flags);
+                    ++rejected_predictions;
+                }
+                pico_camera_replay_clock(0);
+#endif
             }
             ++poses;
         }
         observed.clear();
     };
+#ifdef PICO_REPLAY_INSTALLED
+    constexpr unsigned allowed_backlog=1;
+#else
+    constexpr unsigned allowed_backlog=3;
+#endif
     size_t ci=0,ii=0;
     while(ci<left.size() || ii<inertial.size()) {
         if(ii<inertial.size() && (ci==left.size() || std::stoll(inertial[ii][0])<=std::stoll(left[ci][0]))) {
@@ -97,13 +163,21 @@ int main(int argc,char **argv)
         }
         poll();
         auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(15);
-        while(images/2>poses+3 && std::chrono::steady_clock::now()<limit){std::this_thread::sleep_for(std::chrono::milliseconds(1));poll();}
-        CHECK(images/2<=poses+3);
+        while(images/2>poses+allowed_backlog && std::chrono::steady_clock::now()<limit){std::this_thread::sleep_for(std::chrono::milliseconds(1));poll();}
+        CHECK(images/2<=poses+allowed_backlog);
     }
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(15);
     while(last<std::stoll(left.back()[0]) && std::chrono::steady_clock::now()<deadline){poll();std::this_thread::sleep_for(std::chrono::milliseconds(10));}
     CHECK(!pico_slam_live_stop(live));xrt_space_relation stopped{};int64_t time;
     CHECK(!pico_slam_tracking_get(tracking,now,last,&stopped,&time));
+#ifdef PICO_REPLAY_INSTALLED
+    pico_camera_replay_clock(now);
+    CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,last,&stopped)==XRT_SUCCESS && !stopped.relation_flags);
+    CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active);
+    hmd->destroy(hmd);pico_camera_replay_clock(0);
+    CHECK(hmd_poses==heads && view_pairs==heads && predictions>0 && active_inputs>0 && predictions+rejected_predictions==heads);
+    printf("PICO_SLAM_INSTALLED_HMD_PASS poses=%u stereo_views=%u predictions=%u rejected_predictions=%u active_inputs=%u stopped_invalid=1 duplicate_ssc=0 synthetic_optics=1\n",hmd_poses,view_pairs,predictions,rejected_predictions,active_inputs);
+#endif
     CHECK(!pico_slam_live_quiesced(live));CHECK(!pico_slam_live_destroy(&live));
     unsigned buffers=pico_camera_replay_finish();
     CHECK(skipped==1 && imus==inertial.size() && poses==left.size()-1 && images==poses*2 && heads>=180);

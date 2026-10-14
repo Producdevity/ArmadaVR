@@ -77,9 +77,20 @@ def validate(directory):
     if pico_enabled != ('ssc_dependency' in report):
         raise ValueError('Monado SSC dependency record disagrees with build configuration')
     if pico_enabled:
+        library = prefix / 'lib64/libpico_tracking.so'
+        data = library.read_bytes()
+        if data[:6] != b'\x7fELF\x02\x01' or data[18:20] != b'\xb7\x00':
+            raise ValueError('Installed Pico runtime is not native ARM64')
+        if any(marker not in data for marker in (b'PICO_SSC_CONFIG', b'PICO_HMD_CONFIG')):
+            raise ValueError('Installed Pico runtime omits its probers')
+        exported = {line.split()[-1] for line in (directory / 'pico-runtime-exports.txt').read_text().splitlines() if line.split()}
+        if not set(identity['profile']['pico_runtime_exports']) <= exported:
+            raise ValueError('Installed Pico runtime omits required entry points')
         for name in ('monado-service', 'monado-cli'):
-            if any(marker not in (prefix / 'bin' / name).read_bytes() for marker in (b'PICO_SSC_CONFIG', b'PICO_HMD_CONFIG')):
-                raise ValueError('Installed Monado executable omits the Pico prober')
+            if 'Shared library: [libpico_tracking.so]' not in (directory / (name + '-dynamic.txt')).read_text():
+                raise ValueError('Installed executable omits the Pico runtime dependency')
+        if 'PICO_RUNTIME_LIBRARY_PASS invalid_input_refused=1 device_actions=0' not in (directory / 'pico-runtime-load.txt').read_text():
+            raise ValueError('Installed Pico runtime loading was not verified')
     tests = ET.parse(directory / 'ctest.xml').getroot()
     if (int(tests.get('tests', '0')) == 0 or int(tests.get('failures', '-1')) != 0 or
             int(tests.get('skipped', '0')) != 0 or any(t.find('failure') is not None for t in tests.findall('testcase'))):

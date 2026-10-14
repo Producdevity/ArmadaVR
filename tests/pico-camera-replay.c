@@ -161,6 +161,7 @@ int fcntl(int fd,int op,...)
 struct ssc_imu_session { struct ssc_imu_session_config config; bool stopped; };
 static struct ssc_imu_session *sensor;
 static _Thread_local int64_t sample_now;
+void pico_camera_replay_clock(int64_t now){assert(now>=0);sample_now=now;}
 int clock_gettime(clockid_t id,struct timespec *ts)
 {
     if(id==CLOCK_MONOTONIC && sample_now){ts->tv_sec=sample_now/1000000000;ts->tv_nsec=sample_now%1000000000;return 0;}
