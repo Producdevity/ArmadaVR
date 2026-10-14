@@ -616,3 +616,104 @@ class PicoProjectionTests(unittest.TestCase):
             self.assertEqual(result['screen_grid']['screen_model']['fov'], result['projection']['fov'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             self.assertFalse(result['runtime_usable'])
+
+
+class PicoCompositorAxisTests(unittest.TestCase):
+    def setUp(self):
+        self.settings = {'schema_version': 1, 'hwc_enabled': True, 'hwc_reverse': 180,
+                         'sdk_axis_overrides_mm': [None, -.6, .8, None]}
+
+    def test_sdk_replacement_precedes_swap_and_negation_without_mutating_inputs(self):
+        service = [.1, .2, .3, .4]
+        original = copy.deepcopy(self.settings)
+        for enabled in (False, True):
+            for reverse in (0, 180):
+                settings = dict(self.settings, hwc_enabled=enabled, hwc_reverse=reverse)
+                result = OPT.resolve_compositor_axes(service, settings)
+                expected = [-.8, -.4, -.1, .6] if enabled and reverse == 180 else [.1, -.6, .8, .4]
+                self.assertEqual(result['optical_offsets_mm'], list(map(OPT.binary32, expected)))
+                self.assertEqual(result['effective_hwc_reverse'], 180 if enabled and reverse == 180 else 0)
+                self.assertEqual(result['before_hwc_mm'], list(map(OPT.binary32, [.1, -.6, .8, .4])))
+                self.assertFalse(result['runtime_usable'])
+                self.assertFalse(result['active_settings_verified'])
+        self.assertEqual(service, [.1, .2, .3, .4])
+        self.assertEqual(self.settings, original)
+
+    def test_zero_override_is_not_absent_and_mesh_reversal_is_a_separate_stage(self):
+        settings = dict(self.settings, sdk_axis_overrides_mm=[0, None, None, None])
+        result = OPT.resolve_compositor_axes([.1, .2, .3, .4], settings)
+        self.assertEqual(result['optical_offsets_mm'][2], 0)
+        self.assertEqual(math.copysign(1, result['optical_offsets_mm'][2]), -1)
+        settings['sdk_axis_overrides_mm'] = [None] * 4
+        result = OPT.resolve_compositor_axes([.1, .2, .3, .4], settings)
+        screen = screen_fixture()
+        screen.update(hwc_reverse=180, optical_offsets_mm=result['optical_offsets_mm'])
+        lens = OPT.lens_parameters(fixture())
+        expected = [[.0075, -.01], [.0025, -.005]]
+        for eye in (0, 1):
+            sample = OPT.screen_tangents(lens, screen, eye, .5, .5)
+            for actual, wanted in zip(sample['input'], expected[eye]):
+                self.assertAlmostEqual(actual, wanted, delta=1e-9)
+
+    def test_ambiguous_invalid_and_out_of_range_settings_refused(self):
+        for key, value in [('schema_version', True), ('schema_version', 2), ('hwc_enabled', 1),
+                           ('hwc_reverse', True), ('hwc_reverse', 90), ('hwc_reverse', 180.0),
+                           ('sdk_axis_overrides_mm', [None]*3), ('sdk_axis_overrides_mm', 'null'),
+                           ('sdk_axis_overrides_mm', [0, 0, 0, 1.001]),
+                           ('sdk_axis_overrides_mm', [0, 0, 0, float('nan')]),
+                           ('sdk_axis_overrides_mm', [0, 0, 0, 10**400]),
+                           ('sdk_axis_overrides_mm', [0, 0, 0, True])]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                OPT.compositor_axis_parameters(json.dumps(dict(self.settings, **{key: value})).encode())
+        for key in self.settings:
+            invalid = dict(self.settings); del invalid[key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                OPT.compositor_axis_parameters(json.dumps(invalid).encode())
+        for data in [b'[]', b'{}', b'null', b' '*4097, b'{}\0', b'\xff',
+                     json.dumps(dict(self.settings, extra=1)).encode(),
+                     json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()]:
+            with self.subTest(data=data[:40]), self.assertRaises(ValueError):
+                OPT.compositor_axis_parameters(data)
+        for offsets in [[0]*3, [0, 0, 0, float('inf')], [0, 0, 0, True], [0, 0, 0, 10**400], [0, 0, 0, -1.01]]:
+            with self.subTest(offsets=offsets), self.assertRaises(ValueError):
+                OPT.resolve_compositor_axes(offsets, self.settings)
+
+    def test_cli_checks_resolved_offsets_hashes_runtime_and_effective_hwc(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axisOffset.txt'; offsets.write_text('.1,.2,.3,.4')
+            runtime = d/'runtime.json'
+            runtime.write_text(json.dumps({'schema_version': 1, 'ipd_enabled': True,
+                               'ipd_correction_enabled': False, 'ipd_correction_mm': 0,
+                               'screen_gap_m': .003, 'axis_corrections_mm': [0]*4}))
+            compositor = d/'compositor.json'; compositor.write_text(json.dumps(self.settings))
+            screen = d/'screen.json'; output = d/'result.json'
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            command = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                       '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                       '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output)]
+            extra = ['--compositor-axes', str(compositor), '--compositor-axes-sha256', digest(compositor)]
+            runtime_args = ['--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime)]
+            for args in [extra, runtime_args+extra[:2], runtime_args+extra[2:], runtime_args+extra[:3]+['0'*64]]:
+                self.assertNotEqual(subprocess.run(command+args, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            geometry = screen_fixture()
+            geometry.update(lens_separation_m=OPT.binary32(OPT.binary32(.0634)-OPT.binary32(.003)),
+                            optical_offsets_mm=list(map(OPT.binary32, [-.8, -.4, -.1, .6])), hwc_reverse=180)
+            for wrong in [dict(geometry, hwc_reverse=0), dict(geometry, optical_offsets_mm=[.1, .2, .3, .4])]:
+                screen.write_text(json.dumps(wrong))
+                args = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+                result = subprocess.run(command+runtime_args+extra+args, capture_output=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0); self.assertIn(b'disagrees', result.stderr)
+                self.assertFalse(output.exists())
+            screen.write_text(json.dumps(geometry))
+            args = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            subprocess.run(command+runtime_args+extra+args, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['files']['compositor_axes']['sha256'], digest(compositor))
+            self.assertEqual(result['compositor_axes']['optical_offsets_mm'], geometry['optical_offsets_mm'])
+            self.assertEqual(result['runtime_adjustment']['optical_offsets_mm'], list(map(OPT.binary32, [.1, .2, .3, .4])))
+            self.assertEqual(result['screen_grid']['screen_model'], geometry)
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)

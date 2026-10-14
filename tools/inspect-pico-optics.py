@@ -304,6 +304,51 @@ def binary32(value):
         raise ValueError('Optical calculation exceeds binary32 range') from error
 
 
+def compositor_axis_parameters(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate compositor axis parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid compositor axis settings size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed compositor axis settings') from error
+    if not isinstance(settings, dict) or set(settings) != {'schema_version', 'hwc_enabled', 'hwc_reverse', 'sdk_axis_overrides_mm'}:
+        raise ValueError('Expected explicit HWC state and SDK axis overrides')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported compositor axis schema')
+    if type(settings['hwc_enabled']) is not bool:
+        raise ValueError('Expected explicit HWC enable flag')
+    if type(settings['hwc_reverse']) is not int or settings['hwc_reverse'] not in (0, 180):
+        raise ValueError('Expected HWC reversal of 0 or 180 degrees')
+    values = settings['sdk_axis_overrides_mm']
+    if (not isinstance(values, list) or len(values) != 4 or
+            any(v is not None and (type(v) not in (int, float) or abs(v) > 1 or not math.isfinite(v)) for v in values)):
+        raise ValueError('Expected four SDK axis overrides within one millimetre, or null for absent')
+    return settings
+
+
+def resolve_compositor_axes(service_offsets, settings):
+    settings = compositor_axis_parameters(json.dumps(settings).encode())
+    if (len(service_offsets) != 4 or
+            any(type(v) not in (int, float) or abs(v) > 1 or not math.isfinite(v) for v in service_offsets)):
+        raise ValueError('Expected four resolved service offsets within one millimetre')
+    values = [binary32(v if override is None else override)
+              for v, override in zip(service_offsets, settings['sdk_axis_overrides_mm'])]
+    reverse = settings['hwc_reverse'] if settings['hwc_enabled'] else 0
+    # The stock config-service stage swaps eyes before the mesh applies reversal.
+    adjusted = [-v for v in values[2:] + values[:2]] if reverse == 180 else list(values)
+    return {'settings': settings, 'service_offsets_mm': list(service_offsets),
+            'before_hwc_mm': values, 'optical_offsets_mm': adjusted, 'effective_hwc_reverse': reverse,
+            'active_settings_verified': False, 'runtime_usable': False, 'calibration_applied': False}
+
+
 def projection_parameters(data):
     def unique(pairs):
         result = {}
@@ -506,6 +551,8 @@ def main():
     parser.add_argument('--ipd-range-limit', type=int, help='Resolved limit for the current IPD state')
     parser.add_argument('--runtime-settings', type=Path, help='Explicit IPD/gap/axis settings JSON; no property defaults')
     parser.add_argument('--runtime-sha256', help='Independently retained runtime-settings SHA-256')
+    parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
+    parser.add_argument('--compositor-axes-sha256')
     parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
     parser.add_argument('--projection-sha256')
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
@@ -541,6 +588,15 @@ def main():
             result['runtime_adjustment'] = resolved
             lens = resolved['lens']
             result['files']['runtime_settings'] = {'name': args.runtime_settings.name, 'sha256': args.runtime_sha256}
+        if args.compositor_axes is not None or args.compositor_axes_sha256 is not None:
+            if args.compositor_axes is None or args.compositor_axes_sha256 is None or 'runtime_adjustment' not in result:
+                raise ValueError('Compositor axes, SHA-256 and resolved runtime settings are required together')
+            settings = compositor_axis_parameters(read_file(args.compositor_axes, args.compositor_axes_sha256, 4096))
+            resolved = resolve_compositor_axes(result['runtime_adjustment']['optical_offsets_mm'], settings)
+            result['compositor_axes'] = resolved
+            lens = dict(lens, distortion_coefficients=list(lens['distortion_coefficients']))
+            lens['distortion_coefficients'][14:18] = resolved['optical_offsets_mm']
+            result['files']['compositor_axes'] = {'name': args.compositor_axes.name, 'sha256': args.compositor_axes_sha256}
         if args.projection_model is not None or args.projection_sha256 is not None:
             if args.projection_model is None or args.projection_sha256 is None:
                 raise ValueError('Projection model and SHA-256 are required together')
@@ -559,7 +615,9 @@ def main():
                        for actual, wanted in zip(screen['fov'], expected) for a, b in zip(actual, wanted)):
                     raise ValueError('Screen FOV disagrees with the explicit projection frustums')
             if 'runtime_adjustment' in result:
-                resolved = result['runtime_adjustment']
+                resolved = result.get('compositor_axes', result['runtime_adjustment'])
+                if 'compositor_axes' in result and screen['hwc_reverse'] != resolved['effective_hwc_reverse']:
+                    raise ValueError('Screen HWC reversal disagrees with the compositor axis stage')
                 if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or
                         any(not math.isclose(a, b, rel_tol=0, abs_tol=1e-6) for a, b in zip(screen['optical_offsets_mm'], resolved['optical_offsets_mm']))):
                     raise ValueError('Screen model disagrees with resolved IPD/axis adjustments')

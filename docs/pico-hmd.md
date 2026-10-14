@@ -211,6 +211,33 @@ their correction must agree with the table result. `ipd_lookup_verified` then
 means agreement with that explicit table and sample, while active-setting and
 table-selection verification remain false.
 
+## Compositor axis inspection
+
+`--compositor-axes FILE --compositor-axes-sha256 SHA256` resolves the stock
+config-service axis stage after `--runtime-settings`. Its JSON contains exactly
+`schema_version: 1`, `hwc_enabled` (boolean), `hwc_reverse` (0 or 180), and
+`sdk_axis_overrides_mm` (four values in left-X, left-Y, right-X, right-Y order).
+Each override is a finite value within ±1 mm or `null` for an absent SDK override.
+An explicit zero replaces the service value; it does not mean absent. Stock
+permits larger overrides, but this inspector refuses them because the current
+screen model supports only that range.
+
+Overrides replace the adjusted service values. If HWC is enabled and reversal
+is 180 degrees, the compositor swaps the two eyes and negates both axes. This
+happens before mesh generation, whose own reversal remains necessary. The
+inspector preserves the service values separately, returns the intermediate
+and final offsets, and requires any supplied screen model to match the final
+offsets and effective HWC orientation. It does not apply this optional stage
+implicitly: the caller must establish that the config-service path is active.
+Other SDK lens, geometry and projection overrides remain separate inputs.
+
+The original ARM64 config-service function was executed with synthetic settings
+for 3,072 cases covering all override masks, enabled/disabled HWC and both
+orientations. All 12,288 output components, including signed zero, match exactly.
+The test isolates the logger, config lookup and unrelated separate-distortion
+helper. It establishes the axis transformation, not the complete SDK settings
+path or the headset's active configuration. Outputs remain inspection-only.
+
 ## Projection inspection
 
 `--projection-model FILE --projection-sha256 SHA256` accepts a bounded JSON
