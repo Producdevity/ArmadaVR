@@ -41,7 +41,7 @@ def validate(directory):
             raise ValueError('Turnip artifact mismatch: ' + name)
         artifacts[name] = item
     required = {LIBRARY, ICD, 'kgsl-compile-command.txt', 'dynamic-dependencies.txt',
-                'kgsl-display', 'tu_kgsl_display.h', 'display-format-under-test.h'}
+                'kgsl-display', 'tu_kgsl_display.h', 'display-format-under-test.h', 'display-image-under-test.h'}
     if not required <= artifacts.keys():
         raise ValueError('Turnip build omits library or compile/link evidence')
     library = (directory / LIBRARY).read_bytes()
@@ -67,6 +67,12 @@ def validate(directory):
             formats['runner_sha256'] != digest(ROOT / 'tests/mesa-display-format-tests.py') or
             formats['model_sha256'] != digest(ROOT / 'tests/mesa-display-format-tests.c')):
         raise ValueError('Turnip display format test sources changed or tests failed')
+    images = report['display_image_tests']
+    if (images.get('status') != 'passed' or
+            images['runner_sha256'] != digest(ROOT / 'tests/mesa-display-image-tests.py') or
+            images['model_sha256'] != digest(ROOT / 'tests/mesa-display-image-tests.c') or
+            images['types_sha256'] != digest(ROOT / 'tests/mesa-display-image-types.h')):
+        raise ValueError('Turnip display image test sources changed or tests failed')
     display = report['kgsl_display_test']
     if (display['source_sha256'] != digest(ROOT / 'tests/kgsl-display.c') or
             display['header_sha256'] != artifacts['tu_kgsl_display.h']['sha256'] or
@@ -74,6 +80,10 @@ def validate(directory):
             formats['helpers_sha256'] != display['format_helper_sha256'] or
             report['kgsl_display_tests']['helpers_sha256'] != display['header_sha256']):
         raise ValueError('Turnip display fixture or header changed since testing')
+    if (display['image_helper_sha256'] != artifacts['display-image-under-test.h']['sha256'] or
+            images['helpers_sha256'] != display['image_helper_sha256'] or
+            images['types_sha256'] != display['image_types_sha256']):
+        raise ValueError('Turnip display image fixture differs from its sanitizer test')
     return {'build_sha256': digest(directory / 'build.json'),
             'files': [{'source': LIBRARY, 'path': PREFIX.lstrip('/') + '/lib64/' + LIBRARY, 'sha256': artifacts[LIBRARY]['sha256']},
                       {'source': ICD, 'path': PREFIX.lstrip('/') + '/share/vulkan/icd.d/' + ICD, 'sha256': artifacts[ICD]['sha256']}],

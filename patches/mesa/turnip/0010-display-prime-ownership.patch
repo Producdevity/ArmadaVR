@@ -1,0 +1,66 @@
+From: Reframed VR contributors
+Subject: [PATCH] wsi/display: own one PRIME handle per image
+
+All image planes use the same dma-buf. Importing it again into the same DRM
+file returns the existing GEM handle, without another handle reference.
+Close that handle once, including on framebuffer creation failure.
+
+--- a/src/vulkan/wsi/wsi_common_display.c
++++ b/src/vulkan/wsi/wsi_common_display.c
+@@ -1780,15 +1780,20 @@
+ 
+    memset(image->buffer, 0, sizeof (image->buffer));
+ 
++   /* All planes share one dma-buf. PRIME reimports return the same handle
++    * without adding a handle reference, so import and close it only once.
++    */
++   int ret = drmPrimeFDToHandle(wsi->fd, image->base.dma_buf_fd,
++                               &image->buffer[0]);
++   if (ret < 0)
++      goto fail_handle;
++
+    /* The kernel expects a modifier for each plane for historical reasons, but
+     * they all have to be the same.
+     */
+    uint64_t drm_modifier[4] = {};
+    for (unsigned int i = 0; i < image->base.num_planes; i++) {
+-      int ret = drmPrimeFDToHandle(wsi->fd, image->base.dma_buf_fd,
+-                                   &image->buffer[i]);
+-      if (ret < 0)
+-         goto fail_handle;
++      image->buffer[i] = image->buffer[0];
+       drm_modifier[i] = image->base.drm_modifier;
+    }
+ 
+@@ -1805,7 +1810,7 @@
+       fb_flags |= DRM_MODE_FB_MODIFIERS;
+    }
+ 
+-   int ret = drmModeAddFB2WithModifiers(wsi->fd,
++   ret = drmModeAddFB2WithModifiers(wsi->fd,
+                                         create_info->imageExtent.width,
+                                         create_info->imageExtent.height,
+                                         drm_format,
+@@ -1823,10 +1828,8 @@
+ 
+ fail_fb:
+ fail_handle:
+-   for (unsigned int i = 0; i < image->base.num_planes; i++) {
+-      if (image->buffer[i])
+-         wsi_display_destroy_buffer(wsi, image->buffer[i]);
+-   }
++   if (image->buffer[0])
++      wsi_display_destroy_buffer(wsi, image->buffer[0]);
+ 
+    wsi_destroy_image(&chain->base, &image->base);
+ 
+@@ -1842,8 +1845,7 @@
+    struct wsi_display *wsi = chain->wsi;
+ 
+    drmModeRmFB(wsi->fd, image->fb_id);
+-   for (unsigned int i = 0; i < image->base.num_planes; i++)
+-      wsi_display_destroy_buffer(wsi, image->buffer[i]);
++   wsi_display_destroy_buffer(wsi, image->buffer[0]);
+    wsi_destroy_image(&chain->base, &image->base);
+ }
+ 

@@ -171,6 +171,18 @@ def build(profile, driver="lavapipe"):
                 "helpers_sha256": digest(output / "display-format-under-test.h"),
                 "executable_sha256": digest(output / "mesa-display-format-tests"),
             }
+            run([sys.executable, str(ROOT / "tests/mesa-display-image-tests.py"),
+                 str(source / "src/vulkan/wsi/wsi_common_display.c"), str(output)],
+                "mesa-display-image-tests.log", timeout=120)
+            report["display_image_tests"] = {
+                "status": "passed",
+                "scope": "actual WSI image lifecycle with modeled DRM and real descriptors",
+                "runner_sha256": digest(ROOT / "tests/mesa-display-image-tests.py"),
+                "model_sha256": digest(ROOT / "tests/mesa-display-image-tests.c"),
+                "types_sha256": digest(ROOT / "tests/mesa-display-image-types.h"),
+                "helpers_sha256": digest(output / "display-image-under-test.h"),
+                "executable_sha256": digest(output / "mesa-display-image-tests"),
+            }
         report["source_sha256"] = stamp.read_text()
         (output / "packages.txt").write_text(subprocess.check_output(["rpm", "-qa"], text=True))
         if not (build_dir / "build.ninja").is_file():
@@ -206,18 +218,21 @@ def build(profile, driver="lavapipe"):
                 "header_sha256": digest(header),
             }
             run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror",
-                 "-I", str(header.parent), "-I", str(output), str(ROOT / "tests/kgsl-display.c"),
+                 "-I", str(header.parent), "-I", str(output), "-I", str(ROOT / "tests"),
+                 str(ROOT / "tests/kgsl-display.c"),
                  *drm_flags, "-o", str(output / "kgsl-display")], "kgsl-display-build.log")
             report["kgsl_display_test"] = {
                 "status": "compiled-not-run",
                 "scope": "real DRM descriptor ownership; requires a diskless QEMU transport kernel",
                 "source_sha256": digest(ROOT / "tests/kgsl-display.c"),
                 "format_helper_sha256": digest(output / "display-format-under-test.h"),
+                "image_helper_sha256": digest(output / "display-image-under-test.h"),
+                "image_types_sha256": digest(ROOT / "tests/mesa-display-image-types.h"),
                 "header_sha256": digest(output / "tu_kgsl_display.h"),
             }
-            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h"]
+            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h", "display-image-under-test.h"]
         for name in names:
-            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h"):
+            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h", "display-image-under-test.h"):
                 shutil.copy2(build_dir / targets / name, output / name)
         for path in (ROOT / "tests/vulkan-external-sync.c", ROOT / "src/vulkan-interop.c"):
             run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror", str(path),

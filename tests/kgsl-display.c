@@ -78,6 +78,89 @@ static void release_blob(drmModePropertyBlobPtr p)
 #undef drmModeFreePropertyBlob
 #undef mesa_loge
 
+#include "mesa-display-image-types.h"
+#include <drm_fourcc.h>
+
+static unsigned image_planes, image_fault, image_imports, image_closes, image_close_errors;
+static unsigned image_creates, image_destroys;
+static int image_dma_fd = -1;
+static VkResult wsi_create_image(struct wsi_swapchain *chain, int *info, struct wsi_image *image)
+{
+   CHECK(info == &chain->image_info);
+   struct wsi_display_swapchain *display = (struct wsi_display_swapchain *)chain;
+   struct drm_mode_create_dumb dumb = {.width=64, .height=64, .bpp=32};
+   CHECK(drmIoctl(display->wsi->fd, DRM_IOCTL_MODE_CREATE_DUMB, &dumb) == 0);
+   CHECK(drmPrimeHandleToFD(display->wsi->fd, dumb.handle, DRM_CLOEXEC | DRM_RDWR, &image_dma_fd) == 0);
+   struct drm_gem_close release = {.handle=dumb.handle};
+   CHECK(drmIoctl(display->wsi->fd, DRM_IOCTL_GEM_CLOSE, &release) == 0);
+   *image = (struct wsi_image){.num_planes=image_planes,
+      .dma_buf_fd=image_fault == 1 ? -1 : image_dma_fd,
+      .drm_modifier=image_fault == 2 ? UINT64_C(0x0bad000000000001) : DRM_FORMAT_MOD_INVALID};
+   for (unsigned i=0; i<image_planes; ++i) {
+      image->row_pitches[i]=dumb.pitch;
+      image->offsets[i]=i*4096;
+   }
+   ++image_creates;
+   return VK_SUCCESS;
+}
+static void wsi_destroy_image(struct wsi_swapchain *chain, struct wsi_image *image)
+{
+   (void)chain; (void)image;
+   CHECK(image_dma_fd >= 0 && close(image_dma_fd) == 0);
+   image_dma_fd=-1; ++image_destroys;
+}
+static int image_import(int fd, int dma_fd, uint32_t *handle)
+{
+   ++image_imports;
+   return drmPrimeFDToHandle(fd, dma_fd, handle);
+}
+static int image_ioctl(int fd, unsigned long request, void *argument)
+{
+   CHECK(request == DRM_IOCTL_GEM_CLOSE);
+   ++image_closes;
+   int result = drmIoctl(fd, request, argument);
+   if (result) ++image_close_errors;
+   return result;
+}
+#define drmPrimeFDToHandle image_import
+#define drmIoctl image_ioctl
+#include "display-image-under-test.h"
+#undef drmPrimeFDToHandle
+#undef drmIoctl
+
+static void check_images(int fd)
+{
+   struct wsi_display display={fd};
+   struct wsi_display_swapchain chain={.wsi=&display};
+   VkSwapchainCreateInfoKHR info={.imageExtent={64,64}};
+   unsigned cases=0, framebuffers=0, import_refusals=0, fb_refusals=0;
+   unsigned initial=fd_count();
+   for (unsigned repeat=0; repeat<16; ++repeat) {
+      for (image_planes=1; image_planes<=4; ++image_planes) {
+         for (image_fault=0; image_fault<3; ++image_fault) {
+            image_imports=image_closes=image_close_errors=image_creates=image_destroys=0;
+            struct wsi_display_image image={0};
+            VkResult result=wsi_display_image_init(&chain.base,&info,DRM_FORMAT_XRGB8888,&image);
+            if (!image_fault && image_planes==1) CHECK(result==VK_SUCCESS);
+            if (image_fault) CHECK(result==VK_ERROR_OUT_OF_HOST_MEMORY);
+            if (result==VK_SUCCESS) {
+               ++framebuffers;
+               wsi_display_image_finish(&chain.base,&image);
+            } else if (image_fault==1) ++import_refusals;
+            else ++fb_refusals;
+            CHECK(image_imports==1 && image_creates==1 && image_destroys==1);
+            CHECK(image_closes==(image_fault==1 ? 0u : 1u) && image_close_errors==0);
+            CHECK(image_dma_fd==-1 && fd_count()==initial);
+            ++cases;
+         }
+      }
+   }
+   CHECK(framebuffers && import_refusals && fb_refusals);
+   printf("KGSL_DISPLAY_IMAGE_CASES=%u framebuffers=%u import_refusals=%u framebuffer_refusals=%u\n",
+          cases,framebuffers,import_refusals,fb_refusals);
+   puts("KGSL_DISPLAY_IMAGE_OWNERSHIP_PASS");
+}
+
 static void check_formats(int fd, const drmModePlaneRes *planes)
 {
    unsigned cases = 0, with_blob = 0, without_blob = 0;
@@ -170,6 +253,7 @@ int main(void)
    drmModePlaneRes *planes = drmModeGetPlaneResources(master); CHECK(planes);
    CHECK(res->count_connectors > 0 && res->count_crtcs > 0 && planes->count_planes > 0);
    check_formats(master, planes);
+   check_images(master);
    uint32_t objects[] = {res->connectors[0], res->crtcs[0], planes->planes[0]}, lessee;
    int lease = drmModeCreateLease(master, objects, 3, O_CLOEXEC, &lessee); CHECK(lease >= 0);
    CHECK(tu_kgsl_display_matches_fd(lease, device_major, device_minor));

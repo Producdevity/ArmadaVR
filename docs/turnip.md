@@ -313,3 +313,25 @@ error is still returned and no BO is published.
 The full builder requires this suite alongside the existing fence, wait,
 submission, display and import suites. These results establish userspace
 lifetime handling, not physical Adreno execution or display acceptance.
+
+## Multi-plane PRIME ownership
+
+Patch 0010 imports each display image's DMA-buffer once and reuses that handle
+in every plane slot. Repeated PRIME imports into the same DRM file return the
+existing GEM handle without another handle reference. The previous per-plane
+cleanup could therefore close the same handle repeatedly. Both framebuffer
+failure cleanup and normal destruction now close it once.
+
+The actual WSI image functions pass 4,096 ASan/UBSan cases covering one to four
+plane slots, modifier/no-modifier paths, allocation/import/framebuffer failures
+and successful teardown. The previous functions fail 1,536 cases.
+
+The diskless virtual-DRM fixture also executes these functions against actual
+PRIME and framebuffer ioctls. It passes 192 cases: 64 framebuffer creations,
+64 invalid-descriptor import refusals and 64 unsupported-modifier framebuffer
+refusals, with no repeated handle closes or leaked descriptors. The original
+functions fail the same fixture. Both guests power down normally.
+
+The virtual framebuffers use XRGB8888; extra plane slots do not establish
+physical multi-plane format support. Adreno/SDE modifier compatibility, UBWC,
+GPU completion and physical scanout remain unverified.
