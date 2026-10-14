@@ -27,6 +27,38 @@ extern "C" {
       abort();                                                                 \
     }                                                                          \
   } while (0)
+struct CaptureSink {
+  pico_slam_session *session{};
+  unsigned phase{}, frames{}, releases{}, invalidations{};
+};
+static bool capture_sync(void *opaque, void *, bool end) {
+  auto *s = static_cast<CaptureSink *>(opaque);
+  CHECK(s->phase == (end ? 2U : 0U));
+  s->phase = end ? 3 : 1;
+  return true;
+}
+static bool capture_frame(void *opaque, uint64_t generation, const pico_camera_capture_frame *frame, int64_t now) {
+  auto *s = static_cast<CaptureSink *>(opaque);
+  CHECK(s->phase == 1);
+  s->phase = 2;
+  ++s->frames;
+  return pico_slam_session_captured(s->session, generation, frame, now);
+}
+static bool capture_release(void *opaque, void *token) {
+  auto *s = static_cast<CaptureSink *>(opaque);
+  CHECK(s->phase == 3);
+  s->phase = 0;
+  ++s->releases;
+  auto *pixels = static_cast<std::vector<uint8_t> *>(token);
+  std::fill(pixels->begin(), pixels->end(), 0xa5);
+  return true;
+}
+static void capture_invalid(void *opaque, uint64_t generation) {
+  auto *s = static_cast<CaptureSink *>(opaque);
+  CHECK(generation == 1);
+  ++s->invalidations;
+  pico_slam_session_stop(s->session);
+}
 static vit_tracker_t *tracker;
 static std::vector<vit_pose_data_t> observed;
 static unsigned delivered_images, delivered_imu;
@@ -116,8 +148,9 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes <= 3);
-  bool native_input = image_bytes == 3;
+  CHECK(image_bytes <= 4);
+  bool capture_input = image_bytes == 4;
+  bool native_input = image_bytes >= 3;
   bool owned = image_bytes == 0 || native_input;
   cv::setNumThreads(1);
   const std::filesystem::path root = argv[1];
@@ -181,6 +214,13 @@ int main(int argc, char **argv) {
     CHECK(pico_slam_input_begin(input, 1, 0, 0, end + 100000000));
     CHECK(pico_slam_tracking_create(&pose_config, &tracking));
     CHECK(pico_slam_tracking_begin(tracking, 1));
+  }
+  CaptureSink capture_sink{session};
+  pico_camera_capture *capture_owner = nullptr;
+  if (capture_input) {
+    pico_camera_capture_config cfg{1, {c.camera_ids[0], c.camera_ids[1], 0, 0}, 2, 100000000};
+    pico_camera_capture_ops ops{capture_sync, capture_frame, capture_release, capture_invalid};
+    CHECK(pico_camera_capture_create(&cfg, &ops, &capture_sink, &capture_owner));
   }
   std::ofstream poses(argv[3]);
   CHECK(poses.good());
@@ -267,13 +307,27 @@ int main(int argc, char **argv) {
               image.isContinuous());
         size_t size = image.total();
         if (native_input) {
-          size_t stride = image.cols + 17;
+          size_t stride = capture_input ? ((image.cols + 15) / 16 + 1) * 16 : image.cols + 17;
           std::vector<uint8_t> padded(stride * image.rows + 1, 0xee);
           for (int row = 0; row < image.rows; ++row)
             std::copy(image.ptr(row), image.ptr(row) + image.cols, padded.data() + 1 + row * stride);
           pico_slam_mono8_frame view{c.camera_ids[i], static_cast<uint32_t>(image.cols),
             static_cast<uint32_t>(image.rows), stride, padded.size() - 1, padded.data() + 1, time, ci};
-          CHECK(pico_slam_session_mono8(session, 1, &view, arrival));
+          if (capture_input) {
+            pico_camera_capture_buffer buffer{&padded, ci + 1, 100 + i, 200 + i,
+              c.camera_ids[i], view.width, view.height, static_cast<uint32_t>(stride),
+              view.pixels, view.size};
+            CHECK(pico_camera_capture_reserve(capture_owner, &buffer, arrival));
+            CHECK(pico_camera_capture_fence(capture_owner, 2, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_IGNORED);
+            if (ci % 2) {
+              CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+              CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+            } else {
+              CHECK(pico_camera_capture_timing(capture_owner, 1, ci+1, c.camera_ids[i], ci, time, arrival) == PICO_CAMERA_CAPTURE_PENDING);
+              CHECK(pico_camera_capture_fence(capture_owner, 1, ci+1, 200+i, 2, arrival) == PICO_CAMERA_CAPTURE_DELIVERED);
+            }
+            CHECK(capture_sink.phase == 0 && padded[1] == 0xa5);
+          } else CHECK(pico_slam_session_mono8(session, 1, &view, arrival));
           std::fill(padded.begin(), padded.end(), 0xa5);
         } else {
           std::vector<uint8_t> wire(89 + size);
@@ -314,6 +368,11 @@ int main(int argc, char **argv) {
   }
   pico_slam_input_destroy(&input);
   pop();
+  if (capture_input) {
+    CHECK(pico_camera_capture_destroy(&capture_owner));
+    CHECK(capture_sink.frames == left.size()*2 && capture_sink.releases == capture_sink.frames && capture_sink.invalidations == 1);
+    printf("PICO_SLAM_CAPTURE_PASS buffers=%u simulated_fences=1 simulated_cache=1 poisoned=1 stopped_invalid=1\n", capture_sink.releases);
+  }
   if (owned) pico_slam_session_stop(session);
   else {
     CHECK(vit_tracker_stop(tracker) == VIT_SUCCESS);

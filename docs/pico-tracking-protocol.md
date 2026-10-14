@@ -936,3 +936,30 @@ payload includes ten path records and an unused zero second-ISP tail. 320 cases
 match the retained stock calculation, covering startup boost, binning, pixel
 sizes and line periods. Host/ARM64 sanitizer tests and the retained generic
 parser also pass. No operating point is selected and no bus vote is submitted.
+
+### Native capture ownership
+
+`pico_camera_capture` reserves up to sixteen borrowed mono8 buffers before the
+transport submits requests. A reservation binds camera, request, memory handle,
+fence and generation. Request IDs increase per camera; overlapping mappings or
+reused live handles are refused. The owner waits for both a matching successful
+fence event and an explicit exposure-center timestamp, in either arrival order.
+It then brackets the tracking callback with CPU read synchronization. The owned
+tracking session copies pixels before the callback returns; only then can the
+transport release or recycle the buffer.
+
+Completion errors, conflicting timing, timeouts, backwards host time, cache
+failures and downstream rejection invalidate tracking. Outstanding buffers stay
+reserved until the transport confirms DMA has stopped. A failed flush or a closed
+event descriptor is insufficient. Cleanup can retry failed releases, and destruction
+refuses outstanding reservations. All calls are serialized and callbacks must not
+re-enter the owner. This interface does not open camera devices or infer quiescence.
+
+Host and ARM64 sanitizer tests cover 6,000 delivered frames across 1,010 generations,
+including stale callbacks, handle reuse, capacity exhaustion and eight failure paths.
+A fifth Basalt replay mode routes the reference recording through this owner with
+simulated fence/cache callbacks, alternating completion order and overwriting each
+released buffer. It handles 372 buffers; the existing IMU-bracketing rule excludes
+the first pair, leaving 370 estimator images and 185 poses. The trajectory matches
+the direct native input path. Real DMA synchronization and physical camera capture
+remain unverified.

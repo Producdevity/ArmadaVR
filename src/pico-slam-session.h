@@ -2,6 +2,7 @@
 #define REFRAMED_PICO_SLAM_SESSION_H
 
 #include "pico-slam-input.h"
+#include "pico-camera-capture.h"
 #include "pico-slam-tracking.h"
 #include <vit/vit_interface.h>
 
@@ -40,6 +41,10 @@ bool pico_slam_session_camera(struct pico_slam_session *session, uint64_t genera
                               const void *snapshot, size_t size, int64_t now_ns);
 bool pico_slam_session_mono8(struct pico_slam_session *session, uint64_t generation,
                              const struct pico_slam_mono8_frame *frame, int64_t now_ns);
+/* Called only from the capture owner's frame callback, while CPU read access
+ * is synchronized. The input adapter copies pixels before this returns. */
+bool pico_slam_session_captured(struct pico_slam_session *session, uint64_t generation,
+                                const struct pico_camera_capture_frame *frame, int64_t now_ns);
 bool pico_slam_session_imu(struct pico_slam_session *session, uint64_t generation,
                            const struct xrt_imu_sample *sample, int64_t uncertainty_ns, int64_t now_ns);
 /* Call regularly even when capture is silent. Drain at most 32 poses per call.

@@ -155,6 +155,16 @@ bool pico_slam_session_mono8(struct pico_slam_session *s, uint64_t generation,
     return true;
 }
 
+bool pico_slam_session_captured(struct pico_slam_session *s, uint64_t generation,
+                                const struct pico_camera_capture_frame *f, int64_t now)
+{
+    if (!f) return pico_slam_session_mono8(s, generation, NULL, now);
+    const struct pico_camera_capture_buffer *b = &f->buffer;
+    struct pico_slam_mono8_frame frame = {b->camera_id, b->width, b->height,
+        b->stride, b->size, b->pixels, f->center_ns, f->frame_number};
+    return pico_slam_session_mono8(s, generation, &frame, now);
+}
+
 bool pico_slam_session_imu(struct pico_slam_session *s, uint64_t generation,
                            const struct xrt_imu_sample *sample, int64_t uncertainty, int64_t now)
 {
