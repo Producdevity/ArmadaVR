@@ -864,3 +864,30 @@ host and ARM64 sanitizer runs. The retained kernel's power-command parser also
 decodes those 400 cases (2,612 steps) in an instrumented host harness. This
 checks serialization and parser compatibility; it does not exercise regulators,
 GPIOs, clocks or a physical camera.
+
+### Raw image buffers and request packets
+
+`pico_camera_rdi_buffer_configure` encodes a single-plane RDI0 output for MIPI
+RAW8/RAW10 or PLAIN16. The memory and completion-fence handles must be positive,
+stride must be a multiple of 16 bytes, and the allocation must cover every
+padded row. This does not allocate, map or synchronize DMA memory. Its output
+matches the retained stock `AddRDIOnlyIOConfig` function in 360 ARM64 comparisons,
+with host and native sanitizer checks. PLAIN8 is excluded: stock's image-format
+lookup maps its corresponding format to MIPI RAW8, while resource acquisition
+uses a different code. That distinction needs resolution before enabling it.
+
+`pico_camera_packet_encode` references up to eight direct, I2C or generic command
+buffers and one optional RDI image. It checks allocation bounds, alignment,
+request IDs, and the space reserved for kernel-generated commands. That writable
+space must begin immediately after the command's used bytes and cannot overlap
+another referenced command or the image allocation. IFE initialization uses wire
+opcode zero; updates use one, matching the kernel's explicit userspace-to-kernel
+opcode adjustment. The function performs no I/O and does not own the allocations.
+
+The retained kernel's packet/descriptor validators and kernel-command-buffer
+helper accept 216 generated cases under sanitizers, including 48 writable command
+regions and 24 image packets. UAPI layout checks cover the image descriptor and
+packet fields. Memory-handle resolution is a host stub; this does not prove DMA
+mapping, fence completion, CRM scheduling or physical camera capture. Referenced
+allocations must remain alive until the stream owner establishes completion or
+quiescence.

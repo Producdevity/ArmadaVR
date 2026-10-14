@@ -11,6 +11,12 @@ class PicoCameraISPTests(unittest.TestCase):
     def test_phy_encoding(self):
         self.compile_test("pico-camera-csiphy", "PICO_CAMERA_CSIPHY_PASS")
 
+    def test_rdi_encoding(self):
+        self.compile_test("pico-camera-rdi", "PICO_CAMERA_RDI_PASS")
+
+    def test_packet_encoding(self):
+        self.compile_test("pico-camera-packet", "PICO_CAMERA_PACKET_PASS")
+
     def compile_test(self, name, expected):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:
