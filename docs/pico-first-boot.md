@@ -45,7 +45,7 @@ that preserved early boot chain, not recovery from arbitrary storage damage.
 
 ## Available originals
 
-The October 13 audit passes for all 21 saved partitions and all six pairs of
+The October 14 audit passes for all 21 saved partitions and all six pairs of
 GPT copies. ABL, ABL backup, devinfo, boot, recovery and calibration originals
 are available. The audit identifies five additional state partitions without
 backups: `misc`, `frp`, `metadata`, `uefivarstore` and `secdata`. This does not
@@ -87,8 +87,11 @@ The missing `misc` read is prepared privately in
 The compiled helper permits only UFS configuration, six geometry queries,
 bounded GPT reads, the single `misc` extent after host confirmation, and reset.
 Its sanitizer fixture passes 532 allowed and 315 rejected commands without USB
-access. The device reader has not run and is stored without execute permission;
-no new `misc` original has been acquired. Recheck live ROM identity, geometry
+access. The reader was rebuilt with the renamed checkout paths, and its 847 outgoing
+command guard cases pass under ASan/UBSan using a fake transport. The device
+reader has not run and is stored without execute permission; no new `misc`
+original has been acquired. Current binaries and receipts are in
+`output/pico-usb-power-20261014-v1/recovery-tools/`. Recheck live ROM identity, geometry
 and both GPT copies before using it. A successful reset after failed acquisition
 must still report acquisition failure.
 
@@ -230,12 +233,15 @@ claim of userspace policy enforcement.
 ## Offline verification
 
 The current diagnostic uses the physical Pico kernel
-`a2a269770050941814086f551f8aedd92555506f3912a33927019e8526eb5901`
+`3588cea6461e9807f92fe559884ee313686fffec7eb2afd0d44ba5d3b0c0f513`
 and the current Reframed init. It has not been booted on a headset. The unsigned
 Android-v2 image was assembled and unpacked with matching kernel, initramfs and
 unmodified stock DTB hashes. Build, assembly and VM receipts are in
-`output/pico-usb-host-20261014-v1/`; use `diagnostic` and `diagnostic-boot`.
-Earlier diagnostic artifacts remain historical.
+`output/pico-usb-power-20261014-v1/`; use `diagnostic` and `diagnostic-boot`.
+Earlier diagnostic artifacts remain historical. The private `first-boot-set.json`
+binds the diagnostic, host log receiver, runtime root and display overlay to
+exact hashes. It records the physical gates as pending and contains no flash
+commands.
 
 Seven diskless QEMU boots use that same init binary and physical-config kernel:
 normal startup, wrong serial, missing serial, wrong diagnostic token, missing
@@ -277,7 +283,8 @@ verified external root filesystem.
 
 The current native full-root container is assembled and roundtrip-verified
 offline with the Reframed paths and matched packages. Its QEMU counterpart
-passes read-only startup and package checks over virtio and emulated USB storage.
+passes fresh read-only startup and package checks over emulated USB storage.
+Earlier builds separately passed the virtio transport checks.
 Physical root transport and device-tree compatibility are untested; kernel/VM results do not
 replace those checks. Native USB diagnostics, stock return and the complete
 recovery sequence remain physical acceptance requirements.
