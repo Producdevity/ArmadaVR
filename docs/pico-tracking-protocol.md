@@ -991,3 +991,36 @@ core scheduling and hardware operations are stubs. Sync/device payloads are
 checked against the retained UAPI. Host and ARM64 fault tests cover interrupted
 cleanup, malformed returned handles and invalid request/packet ranges. This
 checks the transport ABI; it does not establish that a live flush stops DMA.
+
+The sensor probe encoder emits the 28-byte I2C identity command from explicit
+slave, address/data widths, identity register/mask, slot and pipeline delay.
+The kernel consumes pipeline delay from a field labeled reserved in its UAPI;
+zero retains its default and values 1..3 select a frame delay. 704 cases match
+the retained CamX probe encoder, and the retained kernel identity parser accepts
+them under ARM64 sanitizers. The bus prefix is checked against the UAPI.
+The module and slot must still match the actual hardware before probing, which
+powers the sensor and is not a read-only operation.
+
+The transport now queries sensor/PHY capabilities and ISP MMUs and supports
+sensor, PHY and split ISP device/hardware acquisition. The ISP v2 request is
+120 bytes, including five acquired resources with three split paths each.
+PHY handles do not participate in CRM links. A sensor acquisition can copy a
+valid handle back before power-up fails; the transport retains that handle even
+when the ioctl returns an error. The retained acquisition branch, with mocked
+power, IRQ and handle creation, verifies this failure path. Callers must shut
+down a failed owner before reuse; these wrappers do not recover it automatically.
+
+Command and packet buffers use CRM allocation with kernel and userspace access.
+An imported DMA-BUF has no kernel mapping in this driver, even if its import
+flags request one, so pixel imports are a separate API. Command allocations use
+explicit CPU, IO or shared mapping; packet allocations stay CPU-only. MMUs come
+from the capability query, and no secure mapping is requested. CPU cache access
+and userspace mapping are separate from this ioctl layer. The caller owns each
+returned fd and retains it until both DMA and CRM use have ended.
+
+Memory tests exercise the retained CRM allocation/import/release dispatch and
+flag validators in 76 calls, with ION and MMU operations mocked. Another 50
+host/ARM64 sanitizer cases cover malformed outputs, partial errors, bounded MMU
+arrays and release ownership. A successful release does not establish hardware
+quiescence. Neither this transport nor the offline root contains proof of live
+camera capture, per-camera timing calibration or physical 6DoF accuracy.

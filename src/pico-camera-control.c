@@ -247,3 +247,77 @@ int pico_camera_ife_hardware_release(int fd, int32_t session, int32_t device)
     int32_t data[4] = {1, 0, session, device};
     return submit(fd, 0x152, data, sizeof(data), false);
 }
+
+static bool valid_mmus(const int32_t *mmus, size_t count)
+{
+    if (count > 16 || (count && !mmus)) return false;
+    for (size_t i = 0; i < count; ++i) {
+        if (mmus[i] < 0) return false;
+        for (size_t j = 0; j < i; ++j) if (mmus[i] == mmus[j]) return false;
+    }
+    return true;
+}
+int pico_camera_memory_allocate(int fd, enum pico_camera_memory_kind kind,
+                                enum pico_camera_memory_mapping mapping, uint64_t size,
+                                const int32_t *mmus, size_t count, bool cached,
+                                struct pico_camera_memory_allocation *allocation)
+{
+    if (!allocation || allocation->handle || allocation->fd != -1 || !size || size > INT32_MAX ||
+        size % 4096 || kind < PICO_CAMERA_MEMORY_PACKET || kind > PICO_CAMERA_MEMORY_COMMAND ||
+        mapping < PICO_CAMERA_MEMORY_CPU || mapping > PICO_CAMERA_MEMORY_SHARED ||
+        !valid_mmus(mmus, count) || ((mapping == PICO_CAMERA_MEMORY_CPU) != (count == 0)) ||
+        (kind == PICO_CAMERA_MEMORY_PACKET && mapping != PICO_CAMERA_MEMORY_CPU)) return -EINVAL;
+    struct {
+        uint64_t length, alignment;
+        int32_t mmus[16];
+        uint32_t count, flags;
+        struct { int32_t handle, fd; uint64_t address; } out;
+    } data = {0};
+    _Static_assert(sizeof(data) == 104, "CRM allocation ABI");
+    data.length = size; data.alignment = 4096; data.count = (uint32_t)count;
+    data.flags = 8 | 16 | 8192 | (kind == PICO_CAMERA_MEMORY_PACKET ? 512 : 64);
+    if (cached) data.flags |= 1024;
+    if (mapping != PICO_CAMERA_MEMORY_CPU) data.flags |= 1;
+    if (mapping == PICO_CAMERA_MEMORY_SHARED) data.flags |= 2048;
+    if (count) memcpy(data.mmus, mmus, count * sizeof(*mmus));
+    data.out.fd = -1;
+    int result = submit(fd, 0x112, &data, sizeof(data), false);
+    if (data.out.handle > 0) allocation->handle = data.out.handle;
+    if (data.out.fd >= 0) allocation->fd = data.out.fd;
+    if (result) return result;
+    if (data.out.handle <= 0 || data.out.fd < 0 || data.out.fd > 32767 || data.out.address ||
+        ((uint32_t)data.out.handle >> 16) != (uint32_t)data.out.fd ||
+        !(data.out.handle & 0x7fff) || (data.out.handle & 0x8000)) return -EPROTO;
+    return 0;
+}
+int pico_camera_pixels_import(int fd, int dma_fd, const int32_t *mmus,
+                              size_t count, bool cached, int32_t *handle)
+{
+    if (dma_fd < 0 || dma_fd > 32767 || !count || !valid_mmus(mmus, count) || !handle || *handle) return -EINVAL;
+    struct {
+        int32_t mmus[16];
+        uint32_t count, flags;
+        int32_t fd;
+        uint32_t reserved;
+        struct { int32_t handle; uint32_t reserved; uint64_t address; } out;
+    } data = {0};
+    _Static_assert(sizeof(data) == 96, "CRM import ABI");
+    memcpy(data.mmus, mmus, count * sizeof(*mmus));
+    data.count = (uint32_t)count; data.flags = 1 | 16 | 128 | 8192 | (cached ? 1024 : 0);
+    data.fd = dma_fd;
+    int result = submit(fd, 0x113, &data, sizeof(data), false);
+    if (data.out.handle > 0) *handle = data.out.handle;
+    if (result) return result;
+    if (data.out.handle <= 0 || data.out.address ||
+        ((uint32_t)data.out.handle >> 16) != (uint32_t)dma_fd ||
+        !(data.out.handle & 0x7fff) || (data.out.handle & 0x8000)) return -EPROTO;
+    return 0;
+}
+int pico_camera_memory_release(int fd, int32_t *handle)
+{
+    if (!handle || *handle <= 0) return -EINVAL;
+    int32_t data[2] = {*handle, 0};
+    int result = submit(fd, 0x114, data, sizeof(data), false);
+    if (!result) *handle = 0;
+    return result;
+}

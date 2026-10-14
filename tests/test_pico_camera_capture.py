@@ -18,6 +18,10 @@ class PicoCameraCaptureTests(unittest.TestCase):
         self.compile_test("pico-camera-control", "PICO_CAMERA_ACQUIRE_PASS",
                           ["pico-camera-events.c"], "pico-camera-acquire")
 
+    def test_camera_memory(self):
+        self.compile_test("pico-camera-control", "PICO_CAMERA_MEMORY_PASS",
+                          ["pico-camera-events.c"], "pico-camera-memory")
+
     def compile_test(self, name, marker, dependencies=(), test_name=None):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

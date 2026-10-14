@@ -66,4 +66,32 @@ int pico_camera_ife_hardware_acquire(int ife_fd, int32_t session, int32_t device
                                     struct pico_camera_ife_hardware *hardware);
 int pico_camera_ife_hardware_release(int ife_fd, int32_t session, int32_t device);
 
+enum pico_camera_memory_kind { PICO_CAMERA_MEMORY_PACKET, PICO_CAMERA_MEMORY_COMMAND };
+enum pico_camera_memory_mapping {
+    PICO_CAMERA_MEMORY_CPU, PICO_CAMERA_MEMORY_IO, PICO_CAMERA_MEMORY_SHARED,
+};
+struct pico_camera_memory_allocation { int32_t handle; int fd; };
+
+/* Allocate packet/command memory through CRM so it has a kernel mapping.
+ * Output starts at {0, -1}; returned resources are preserved even on errors.
+ * Size is a nonzero multiple of 4096, at most INT32_MAX. MMU handles must come
+ * from a capability query. Packets use CPU mapping and no MMUs; commands may
+ * use explicit IO/shared mapping. CPU access/cache synchronization is separate.
+ * The caller owns the returned fd and must close it after releasing its CRM
+ * handle and userspace mapping. This function does not map or close fds. */
+int pico_camera_memory_allocate(int crm_fd, enum pico_camera_memory_kind kind,
+                                enum pico_camera_memory_mapping mapping, uint64_t size,
+                                const int32_t *mmus, size_t count, bool cached,
+                                struct pico_camera_memory_allocation *allocation);
+
+/* Import a caller-owned pixel DMA-BUF into explicit nonsecure device MMUs.
+ * Imports have no kernel mapping and cannot carry commands or packets.
+ * The fd stays owned by the caller. Handle output starts at zero. */
+int pico_camera_pixels_import(int crm_fd, int dma_fd, const int32_t *mmus,
+                              size_t count, bool cached, int32_t *handle);
+
+/* Release only after independent DMA quiescence. This neither closes the
+ * DMA-BUF fd nor unmaps userspace memory; failures preserve the handle. */
+int pico_camera_memory_release(int crm_fd, int32_t *handle);
+
 #endif
