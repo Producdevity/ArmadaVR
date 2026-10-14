@@ -60,3 +60,35 @@ bool pico_camera_ife_acquire(const struct pico_camera_ife_config *c, void *outpu
     memcpy(output, bytes, sizeof(bytes));
     return true;
 }
+
+bool pico_camera_csiphy_configure(const struct pico_camera_csiphy_config *c, void *output, size_t size)
+{
+    if (!c || !output || size < PICO_CAMERA_CSIPHY_SIZE || c->cphy > 1 || c->combo > 1 ||
+        c->lanes == 0 || c->lanes > (c->cphy ? 3U : c->combo ? 2U : 4U) ||
+        c->lane_map > UINT16_MAX || c->settle_count > UINT16_MAX || !c->data_rate) return false;
+
+    uint32_t seen = 0, mask = 2;
+    for (unsigned i = 0; i < c->lanes; ++i) {
+        unsigned lane = (c->lane_map >> (i * 4)) & 15;
+        if (lane >= (c->cphy || c->combo ? 3U : 4U) || (seen & (1U << lane))) return false;
+        seen |= 1U << lane;
+        mask |= i == 0 && lane == 0 ? 1U : 1U << (lane + 1);
+    }
+    if (c->combo) mask = 0x18;
+    uint64_t settle = (uint64_t)c->settle_count * 200000000;
+    uint8_t bytes[PICO_CAMERA_CSIPHY_SIZE] = {0};
+    bytes[0] = (uint8_t)mask;
+    bytes[1] = (uint8_t)(mask >> 8);
+    bytes[2] = (uint8_t)c->lane_map;
+    bytes[3] = (uint8_t)(c->lane_map >> 8);
+    bytes[4] = (uint8_t)c->cphy;
+    bytes[5] = (uint8_t)c->combo;
+    bytes[6] = (uint8_t)c->lanes;
+    for (unsigned i = 0; i < 8; ++i) {
+        bytes[8 + i] = (uint8_t)(settle >> (8 * i));
+        bytes[16 + i] = (uint8_t)(c->data_rate >> (8 * i));
+    }
+    put32(bytes + 24, c->mipi_flags);
+    memcpy(output, bytes, sizeof(bytes));
+    return true;
+}

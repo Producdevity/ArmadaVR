@@ -770,10 +770,30 @@ the retained kernel's acquire resource parser; UAPI layout assertions and host
 and ARM64 sanitizer tests also pass. Stock's unused padded tail remains zero.
 These checks establish command representation, not working lane assignments.
 
-Native capture still needs sensor/CSIPHY configuration, request-manager sessions,
+Native capture still needs sensor initialization, verified PHY settings and
+request-manager sessions,
 IFE clock/bandwidth commands, DMA buffers and completion fences. The retained
 public kernel does not contain the Android `cam_virtual_mono` bridge used by
 stock QuickCamera, so that transport cannot simply be opened from the Linux
 runtime. Sensor register sequences are supplied through CamX sensor modules;
 active camera identity and calibration still need verification. This encoder
 opens no device and does not enable a sensor or alter the boot chain.
+
+### Native camera PHY payload
+
+`pico_camera_csiphy_configure` encodes the 32-byte nonsecure b1977 PHY command.
+The caller supplies lane mapping, D-PHY/C-PHY and combo mode, an explicit
+per-lane data rate, sensor settle register count and MIPI flags. Active lanes
+must be distinct and in range. Unused bytes remain zero, unaligned output is
+supported, and invalid input leaves the destination unchanged.
+
+The settle field is the sensor register count multiplied by 200,000,000.
+The retained kernel divides it by that value before writing the settle registers;
+the public UAPI comment describing milliseconds does not describe this contract.
+Data rate is supplied explicitly because stock derives its margin from platform
+settings that must be established for the selected sensor mode.
+
+The payload matches the stock CamX ARM64 encoder in 1,412 offline comparisons,
+including valid lane permutations, both PHY types, combo mode and timing/flag
+boundaries. Host and ARM64 sanitizer tests also pass. These tests do not select
+an active camera module, establish correct physical wiring or configure a PHY.

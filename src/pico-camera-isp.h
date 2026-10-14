@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #define PICO_CAMERA_IFE_ACQUIRE_SIZE 264
+#define PICO_CAMERA_CSIPHY_SIZE 32
 
 enum pico_camera_raw_format {
     PICO_CAMERA_RAW_PLAIN8,
@@ -26,5 +27,20 @@ struct pico_camera_ife_config {
  * No resource is acquired and no device is opened. Failure preserves output. */
 bool pico_camera_ife_acquire(const struct pico_camera_ife_config *config,
                              void *output, size_t size);
+
+struct pico_camera_csiphy_config {
+    uint32_t cphy, combo, lanes, lane_map;
+    uint32_t settle_count;
+    uint64_t data_rate;
+    uint32_t mipi_flags;
+};
+
+/* Encode the nonsecure b1977 PHY payload using an explicit per-lane data rate
+ * and sensor settle register count. The kernel divides the wire settle value
+ * by 200000000; its UAPI comment calling the value milliseconds is inaccurate.
+ * Active lane nibbles must be distinct and valid for the selected PHY mode.
+ * No hardware is configured. Failure preserves output. */
+bool pico_camera_csiphy_configure(const struct pico_camera_csiphy_config *config,
+                                  void *output, size_t size);
 
 #endif
