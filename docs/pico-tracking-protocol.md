@@ -1258,3 +1258,34 @@ is present. Native physical identification and camera ownership must be verified
 before enabling capture. The four-camera vendor build flag also suppresses
 ordinary tracking-camera register writes; it is not selected by the current
 kernel build and must not be enabled as a substitute for that verification.
+
+### Native module selection
+
+The module inspector can resolve an explicit configuration, resolution group,
+mode and initialization record into the current native mono8 subset:
+
+```sh
+python3 tools/pico-camera-module.py MODULE --sha256 SHA256 \
+  --configuration 0 --resolution-group 0 --resolution 0 \
+  --initialization 0 --synchronization none
+```
+
+These indices are examples, not device defaults. Selection requires all four
+indices and an explicit additional synchronization-table choice. `none` omits
+that additional table; it does not remove synchronization registers already
+embedded in the selected module's mode. The output includes probe parameters,
+power sequences, normalized register tables, stream geometry and PHY lane facts.
+It does not choose physical sensor/PHY slots, calibration, clock votes, per-lane
+data rate, exposure timing or a stereo pair.
+
+The current subset requires uncropped mono RAW8, one stream, non-combo PHY
+routing, bounded power sequences and homogeneous random-write tables. Explicit
+configuration address/frequency overrides are preserved, including frequency
+zero. Unsupported register operations, address changes and missing tables are
+rejected rather than approximated.
+
+Eight modes across the four saved OV7251 module variants are accepted; 24 saved
+RAW10/color modes are rejected by this subset. All 32 selected initialization,
+mode and stream-on/off commands match the original ARM64 CamX selection and
+encoding functions byte for byte. This verifies translation of the retained
+module data, not which module or mode is active on a physical headset.

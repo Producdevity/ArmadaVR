@@ -293,3 +293,115 @@ class CameraModuleTests(unittest.TestCase):
             link.symlink_to(path)
             with self.assertRaises(ValueError):
                 camera.run(link, digest)
+
+class NativeConfigurationTests(unittest.TestCase):
+    def inventory(self):
+        symbols = fixture()
+        struct.pack_into('<Q', symbols[2][4], 0, 4)
+        return camera.Module(encode(symbols)).inspect()
+
+    def select(self, data=None, **choices):
+        selection = dict(configuration=0, group=0, mode=0, initialization=0, synchronization='none')
+        selection.update(choices)
+        return camera.select_native(self.inventory() if data is None else data, **selection)
+
+    def test_explicit_selection_resolves_normalized_tables(self):
+        import copy
+        data = self.inventory()
+        before = copy.deepcopy(data)
+        result = self.select(data)
+        self.assertEqual(data, before)
+        self.assertEqual(result['probe']['bus'], dict(address_type=2, data_type=2, frequency=1,
+                                                     include_slave=True, slave_address=0xe2))
+        self.assertEqual(result['tables']['mode'], {
+            'bus': dict(address_type=2, data_type=1, frequency=1, include_slave=False, slave_address=0xe2),
+            'writes': [dict(address=0x100, value=128, delay_us=1000)]})
+        self.assertEqual(result['sensor_version'], 7)
+        self.assertEqual(result['phy'], dict(lanes=1, lane_map=0x3210, cphy=0, combo=0, settle_count=14, mipi_flags=2))
+        self.assertIsNone(result['tables']['synchronize'])
+        self.assertEqual(result['probe']['pipeline_delay'], 1)
+
+    def test_configuration_overrides_keep_zero_and_explicit_addresses(self):
+        data = self.inventory()
+        data['configurations'][0]['frequency'] = 0
+        data['register_tables']['5'][0]['slave_address'] = 0xe2
+        result = self.select(data)
+        self.assertEqual(result['tables']['mode']['bus']['frequency'], 0)
+        self.assertTrue(result['tables']['mode']['bus']['include_slave'])
+        data['configurations'][0]['frequency'] = None
+        data['configurations'][0]['slave_address'] = None
+        data['register_tables']['5'][0]['slave_address'] = 0xe0
+        result = self.select(data)
+        self.assertEqual(result['probe']['bus']['frequency'], 1)
+        self.assertEqual(result['probe']['bus']['slave_address'], 0xe0)
+        data['stream_settings']['master'] = data['stream_settings']['stream_on']
+        self.assertEqual(self.select(data, synchronization='master')['tables']['synchronize'], result['tables']['stream_on'])
+
+    def test_requires_each_selected_index_and_supported_tables(self):
+        for field in ('configuration', 'group', 'mode', 'initialization'):
+            for value in (-1, 1, None, True):
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    self.select(**{field: value})
+        for role in ('master', 'slave', 'automatic', None):
+            with self.subTest(role=role), self.assertRaises(ValueError):
+                self.select(synchronization=role)
+        for field, value in (('operation', 1), ('values', [1, 2]), ('address_type', 0),
+                             ('data_type', 5), ('values', [256]), ('address', 65536),
+                             ('slave_address', 0xe4), ('delay_us', 2001), ('delay_us', 32768000)):
+            data = self.inventory(); data['register_tables']['5'][0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                self.select(data)
+        import copy
+        for field, value in (('address_type', 1), ('data_type', 2), ('slave_address', 0xe2)):
+            data = self.inventory(); row = copy.deepcopy(data['register_tables']['5'][0]); row[field] = value
+            data['register_tables']['5'].append(row)
+            with self.subTest(mixed=field), self.assertRaises(ValueError):
+                self.select(data)
+
+    def test_rejects_unsupported_geometry_probe_and_power(self):
+        for field, value in (('color_filter_pattern', 0), ('camif_sample_pattern', None),
+                             ('lanes', 0), ('lanes', 5), ('cphy', 2), ('settle_count', 65536)):
+            data = self.inventory(); data['resolutions']['3'][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError): self.select(data)
+        for field, value in (('type', 0), ('x', 1), ('y', 1), ('bits', 10), ('data_type', 0x2b),
+                             ('virtual_channel', 4), ('width', 4097), ('height', 0)):
+            data = self.inventory(); data['resolutions']['3'][0]['streams'][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError): self.select(data)
+        for field, value in (('combo', 1), ('combo', None), ('lane_assign', None), ('lane_assign', 0x3214),
+                             ('frequency', 4), ('slave_address', 3), ('sensor_name', 'different')):
+            data = self.inventory(); data['configurations'][0][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError): self.select(data)
+        data = self.inventory(); data['resolutions']['3'][0]['lanes'] = 2
+        data['configurations'][0]['lane_assign'] = 0
+        with self.assertRaises(ValueError): self.select(data)
+        for field, value in (('probe_pipeline_delay', 4), ('probe_pipeline_delay', None),
+                             ('address_type', 0), ('sensor_id_register', 1 << 16)):
+            data = self.inventory(); data[field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError): self.select(data)
+        for rows in ([], [dict(sequence_type=12, value=0, delay_ms=0)],
+                     [dict(sequence_type=0, value=0, delay_ms=32768)],
+                     [dict(sequence_type=0, value=0, delay_ms=0)] * 12):
+            data = self.inventory(); data['power_up'] = rows
+            with self.subTest(rows=rows), self.assertRaises(ValueError): self.select(data)
+
+    def test_cli_selection_is_hash_bound_and_never_programs_a_device(self):
+        import json
+        import subprocess
+        import sys
+        symbols = fixture(); struct.pack_into('<Q', symbols[2][4], 0, 4)
+        raw = encode(symbols)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'module.bin'; path.write_bytes(raw)
+            args = [sys.executable, '-B', str(ROOT / 'tools/pico-camera-module.py'), str(path),
+                    '--sha256', hashlib.sha256(raw).hexdigest(), '--configuration', '0',
+                    '--resolution-group', '0', '--resolution', '0', '--initialization', '0',
+                    '--synchronization', 'none']
+            completed = subprocess.run(args, check=True, capture_output=True, text=True, timeout=10)
+            result = json.loads(completed.stdout)
+            self.assertEqual(result['source_sha256'], hashlib.sha256(raw).hexdigest())
+            self.assertFalse(result['active_sensor_verified']); self.assertFalse(result['calibration_verified'])
+            self.assertEqual(result['device_actions'], [])
+            self.assertEqual(path.read_bytes(), raw)
+            incomplete = subprocess.run(args[:-2], capture_output=True, text=True, timeout=10)
+            self.assertNotEqual(incomplete.returncode, 0)
+            self.assertFalse(incomplete.stdout)
