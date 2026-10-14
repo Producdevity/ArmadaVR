@@ -665,3 +665,54 @@ sample from the other stream. Every available orientation is finite and
 normalized at the expected paired capture time; expiry and disconnect clear
 validity. This is recorded-input coverage of the new provider, not a measurement
 of pose accuracy, real delivery latency or native SSC transport.
+
+## Camera snapshots and synchronization
+
+`pico-camera` decodes immutable snapshots of the b1977 tracking service's
+89-byte packed camera header and one contiguous 8-bit plane. The wire format
+is little endian and unaligned. Its fields are:
+
+| Offset | Field |
+| --- | --- |
+| 0 | Camera ID, one byte |
+| 1, 5 | Width and height, 32 bits each |
+| 9, 13 | Pixel format and exposure line count |
+| 17, 25, 33 | Timestamp, qtimer and corrected exposure time, 64 bits each |
+| 41, 49 | Line duration and frame number, 64 bits each |
+| 57, 61, 65 | Plane size, gain and frame classification |
+| 69, 73 | Additional plane sizes |
+| 77, 81, 85 | Uninterpreted stride fields and extra metadata |
+| 89 | Pixel data |
+
+Only stock format `0x123`, exact width × height storage, dimensions up to
+4096 × 4096 and no additional planes are accepted. Other formats and padded
+rows need an explicit conversion. The parser preserves its output on error.
+A decoded view borrows the caller's immutable snapshot; it does not read a
+live shared-memory region or establish ownership of a HAL buffer.
+
+The stock writer at ELF offset `0x8bfcc` converts format `0x24` to `0x123`
+and, when configured, converts RAW16 by taking each little-endian sample
+right-shifted by two and truncated to eight bits. The stock reader at `0x8a8ac`
+finds this header 97 bytes into its DataBuffer record. `releaseFrame` at
+`0x8a9a8` is a no-op; it must not be used as proof that a retained pixel pointer
+remains valid. The head-image writer can additionally run exposure processing
+and alter its first timestamp. That processing is separate from this decoder.
+
+`pico_camera_center` implements the observed qtimer correction: subtract
+52,000 ns, the explicitly supplied readout correction and half the exposure
+line count × line duration. It rejects invalid or overflowing arithmetic.
+It does not convert clocks, choose timing constants or apply an IMU offset.
+The saved camera XML is still not established as this unit's active calibration.
+
+`pico_camera_head_set` validates two or four complete head images in an explicit
+camera order. It rejects duplicate IDs, missing times, controller images and
+skew above the configured limit, capped at the stock four-camera check of
+100 µs. It neither infers camera identities nor supplies missing images.
+The caller must establish a common clock and subscription generation.
+
+540 synthetic records were serialized and acquired by the original stock ARM64
+functions with isolated buffer callbacks. All decoded fields and 162,839
+pixel values matched on macOS and Linux ARM64; sanitizer checks also cover
+truncation, invalid dimensions, extra planes, timestamp overflow and skew
+boundaries. These checks do not establish camera capture, head exposure
+processing, calibration, SLAM accuracy or physical 6DoF tracking.
