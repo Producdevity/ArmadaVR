@@ -29,6 +29,7 @@ def main():
     mode.add_argument('--session', action='store_true', help='Test owned VIT session lifecycle')
     mode.add_argument('--sensors', action='store_true', help='Test the runtime with the actual SSC library in offline ARM64 Linux')
     parser.add_argument('--ssc-bundle', type=Path)
+    mode.add_argument('--live', action='store_true', help='Test continuous camera and SSC/6DoF startup, refill and shutdown')
     mode.add_argument('--runtime', action='store_true', help='Test SSC worker and VIT owner integration')
     mode.add_argument('--imu', action='store_true', help='Test the bounded SSC worker handoff')
     parser.add_argument('--cc', default='cc')
@@ -55,8 +56,11 @@ def main():
     local = ['tests/pico-slam-tracking.c', 'src/pico-slam-tracking.c']
     if args.session:
         local = ['tests/pico-slam-session.c', 'src/pico-slam-session.c', 'src/pico-camera.c', 'src/pico-slam-input.c', 'src/pico-slam-tracking.c']
-    if args.runtime or args.sensors:
+    if args.runtime or args.sensors or args.live:
         local = ['tests/pico-slam-runtime.c', 'src/pico-slam-runtime.c', 'src/pico-slam-imu.c', 'src/pico-slam-session.c', 'src/pico-camera.c', 'src/pico-slam-input.c', 'src/pico-slam-tracking.c']
+    if args.live:
+        local[0] = 'tests/pico-slam-live.c'
+        local.append('src/pico-slam-live.c')
     if args.sensors:
         local[0] = 'tests/pico-slam-sensors.c'
         local += ['src/ssc-imu-session.c', 'src/ssc-imu.c', 'src/ssc-calibration.c', 'src/ssc-clock.c']
@@ -129,8 +133,8 @@ def main():
         run([args.cxx, *sanitize, *objects, *link_flags, '-pthread', '-lm', collect, '-o', str(binary)], 'link.log')
         run([str(binary)] + (['no-qrtr'] if args.sensors else []), 'test.log', env=environment)
         log = (output / 'test.log').read_text()
-        expected = 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=216' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
-        if expected not in log or (not args.session and not args.imu and not args.runtime and not args.sensors and 'generations=1000 poses=10000 reader_queries=20000' not in log):
+        expected = 'PICO_SLAM_LIVE_PASS cycles=200 faults=20 retained=5 poses=801' if args.live else 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=216' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
+        if expected not in log or (not args.session and not args.imu and not args.runtime and not args.sensors and not args.live and 'generations=1000 poses=10000 reader_queries=20000' not in log):
             raise ValueError('Tracking tests did not complete')
         if args.sensors and ssc.package(bundle) != record:
             raise ValueError('SSC bundle changed during testing')
@@ -143,6 +147,7 @@ def main():
     finally:
         report['inputs_sha256'] = {str(path): digest(path) for path in inputs}
         report['headers_sha256'] = {str(path.relative_to(ROOT)): digest(path) for path in (ROOT / 'src').glob('*.h')}
+        report['fixtures_sha256'] = {'tests/pico-slam-fixture.h': digest(ROOT / 'tests/pico-slam-fixture.h')} if args.runtime or args.live else {}
         report['runner_sha256'] = digest(Path(__file__))
         report['generated_config_sha256'] = digest(generated / 'xrt_config_build.h')
         report['generated_have_sha256'] = digest(generated / 'xrt_config_have.h')

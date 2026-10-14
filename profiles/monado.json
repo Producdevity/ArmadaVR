@@ -48,6 +48,8 @@
     "pico-slam-session.c",
     "pico-slam-runtime.c",
     "pico-slam-runtime.h",
+    "pico-slam-live.c",
+    "pico-slam-live.h",
     "pico-slam-session.h",
     "pico-camera-sensor.c",
     "pico-camera-sensor.h",

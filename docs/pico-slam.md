@@ -192,6 +192,41 @@ before activation prevents a later start. Neither entry point opens, configures
 or starts cameras.
 The auto prober remains disabled for this unverified physical configuration.
 
+## Continuous capture
+
+`pico-slam-live` owns the configured stereo rig, request transport and SSC/SLAM
+runtime. The caller provides already probed sensors and exclusive nonblocking
+CRM/sync descriptors. Preparation validates tracking, configures the rig, creates
+the transport, subscribes events and only then activates SSC. It does not open
+nodes or infer physical camera selection.
+
+Polling waits for the first paired IMU, queues the initial stereo requests and
+starts the cameras. Completed frames are copied into the estimator; a request is
+refilled only after both cameras complete. The queue holds one to eight pairs,
+with an explicit frame period and timeout. Calibrated exposure-center offsets
+apply to newly queued requests. The caller must poll during silence too, so
+clock expiry, lost IMU and missing fences stop the generation.
+
+Stop invalidates poses and attempts all affected stream stops. The caller must
+then establish DMA quiescence independently before retiring requests,
+unsubscribing events and releasing command buffers and hardware handles. An
+uncertain cleanup remains owned and is not retried. Destroy any HMD borrowing
+`pico_slam_live_tracking()` before destroying the live owner.
+
+The host and ARM64 lifecycle tests use the actual tracking runtime with camera
+lifecycle doubles. They cover 200 lifetimes, all supported queue depths, partial
+stereo completion, 20 failures and retained cleanup ownership. ThreadSanitizer
+also passes. These tests do not establish physical capture or calibration.
+
+A separate ARM64 sanitizer replay connects the actual rig, request/packet
+transport, runtime and Basalt estimator through simulated ioctls, DMA and SSC
+reports. It supplies all 3,467 IMU pairs and 370 usable images from the pinned
+reference recording, producing 185 poses and 184 tracked head poses. Startup
+skips the one image pair preceding the first IMU sample; shutdown retires the
+remaining queued pair. The trajectory has 6.41 mm rigid RMS error and 16.60 mm
+maximum error without fitted scale, matching the earlier bounded-queue replay.
+This recording uses Valve Index calibration and is not Pico accuracy evidence.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.
@@ -199,8 +234,8 @@ The auto prober remains disabled for this unverified physical configuration.
   transforms; the retained older XML is not established as the active profile.
 - Bind camera and IMU clocks with measured uncertainty, and reset the estimator
   whenever a stream generation changes.
-- Supply the native runtime owner and camera transport with verified device
-  configuration, calibration, clock mapping and regular polling.
+- Supply the continuous capture owner with verified device configuration,
+  calibration, clock mapping and regular polling.
 - Validate camera coverage, real motion, loss/recovery and display-time prediction
   on the device after the boot/recovery gates pass.
 

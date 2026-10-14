@@ -98,6 +98,11 @@ def main():
                     'src/pico-camera-transport.c', 'src/pico-camera-transport.h', 'src/pico-camera-request.c', 'src/pico-camera-request.h',
                     'src/pico-camera-control.c', 'src/pico-camera-isp.c', 'src/pico-camera-isp.h', 'src/pico-camera-buffer.h', 'src/ion-buffer.h',
                     'tests/pico-camera-replay.c', 'tests/pico-camera-replay.h', 'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
+    for part in ('sensor', 'sensor-setup', 'session', 'rig', 'ife', 'front-end', 'pipeline'):
+        source_paths += ['src/pico-camera-' + part + suffix for suffix in ('.c', '.h')]
+    for part in ('runtime', 'live'):
+        source_paths += ['src/pico-slam-' + part + suffix for suffix in ('.c', '.h')]
+    source_paths += ['src/ssc-imu-session.h', 'tests/pico-slam-live-replay.cpp']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/source/thirdparty -I/out/include -isystem /monado/src/xrt/include"
@@ -105,10 +110,13 @@ cc -std=c11 $flags -c /repo/src/pico-camera.c -o /out/camera.o
 cc -std=c11 $flags -c /repo/src/pico-camera-capture.c -o /out/capture.o
 cc -std=c11 $flags -c /repo/src/pico-camera-stream.c -o /out/stream.o
 cc -std=c11 $flags -c /repo/src/pico-camera-events.c -o /out/events.o
-for part in transport request control isp; do
+for part in transport request control isp sensor sensor-setup session rig ife front-end pipeline; do
     cc -std=c11 $flags -c /repo/src/pico-camera-$part.c -o /out/camera-$part.o
 done
 cc -std=c11 $flags -c /repo/tests/pico-camera-replay.c -o /out/camera-replay.o
+for part in runtime live; do
+    cc -std=gnu11 $flags -pthread -c /repo/src/pico-slam-$part.c -o /out/slam-$part.o
+done
 cc -std=c11 $flags -pthread -c /repo/src/pico-slam-imu.c -o /out/imu-queue.o
 cc -std=c11 $flags -c /repo/src/pico-slam-input.c -o /out/input.o
 cc -std=c11 $flags -I/source/thirdparty -c /repo/src/pico-slam-session.c -o /out/session.o
@@ -122,6 +130,7 @@ for path in math/m_base.cpp math/m_relation_history.cpp math/m_quatexpmap.cpp; d
 done
 cc -std=gnu11 $mathflags -w -c /monado/src/external/cjson/cjson/cJSON.c -o /out/cJSON.o
 c++ -std=c++17 $flags -pthread -Wl,--gc-sections -I/source/thirdparty/vit /repo/tests/pico-slam-replay.cpp /out/*.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/replay
+c++ -std=c++17 $flags -pthread -Wl,--gc-sections -I/source/thirdparty/vit /repo/tests/pico-slam-live-replay.cpp /out/*.o $(pkg-config --cflags --libs opencv4) -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/live-replay
 c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-lifecycle.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/lifecycle
 c++ -std=c++17 $flags -I/opt/reframed-vr/basalt/include /repo/tests/basalt-input.cpp -L/opt/reframed-vr/basalt/lib64 -lbasalt -o /out/input-test
 export LD_LIBRARY_PATH=/opt/reframed-vr/basalt/lib64
@@ -137,6 +146,7 @@ done
 /out/replay /dataset /out/bounded.toml /out/poses-stream.csv 5 > /out/stream-replay.log 2>&1
 /out/replay /dataset /out/bounded.toml /out/poses-transport.csv 6 > /out/transport-replay.log 2>&1
 /out/replay /dataset /out/bounded.toml /out/poses-queued-imu.csv 7 > /out/queued-imu-replay.log 2>&1
+/out/live-replay /dataset /out/bounded.toml /out/poses-live.csv > /out/live-replay.log 2>&1
 '''
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
@@ -224,12 +234,21 @@ done
                 queued_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
                 queued_metrics['max_error_m'] > dataset['max_rigid_error_m']):
             raise ValueError('SSC queue and camera transport trajectory acceptance failed')
+        live_log = (args.output / 'live-replay.log').read_text()
+        if ('PICO_SLAM_LIVE_REPLAY_PASS poses=185 images=370 imu=3467' not in live_log or
+                'buffers=372 startup_skipped=1 simulated_ioctls=1 simulated_ssc=1 stopped_invalid=1' not in live_log):
+            raise ValueError('Continuous camera/SSC/SLAM replay did not finish')
+        live_metrics = trajectory_metrics(args.output / 'poses-live.csv', reference / 'mav0/gt/data.csv')
+        if (live_metrics['poses'] != dataset['poses'] or
+                live_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
+                live_metrics['max_error_m'] > dataset['max_rigid_error_m']):
+            raise ValueError('Continuous camera/SSC/SLAM trajectory acceptance failed')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')
         if build['stage_sha256'] != basalt.tree_digest(prefix):
             raise ValueError('Basalt bundle changed during replay')
         basalt.verify(args.basalt_source, profile)
-        report.update(status='passed', trajectories=results, session_trajectory=session_metrics, native_trajectory=native_metrics, capture_trajectory=capture_metrics, stream_trajectory=stream_metrics, transport_trajectory=transport_metrics, queued_imu_trajectory=queued_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
+        report.update(status='passed', live_binary_sha256=digest(args.output / 'live-replay'), trajectories=results, session_trajectory=session_metrics, native_trajectory=native_metrics, capture_trajectory=capture_metrics, stream_trajectory=stream_metrics, transport_trajectory=transport_metrics, queued_imu_trajectory=queued_metrics, live_trajectory=live_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
                       input_test_binary_sha256=digest(args.output / 'input-test'),
                       lifecycle_binary_sha256=digest(args.output / 'lifecycle'),
                       binary_sha256=digest(args.output / 'replay'),

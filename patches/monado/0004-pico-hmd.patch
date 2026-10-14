@@ -15,7 +15,7 @@
 +	target_link_libraries(drv_pico_ssc PRIVATE xrt-interfaces aux_util aux_os aux_math
  		xrt-external-cjson PkgConfig::PICO_GIO "${PICO_SSC_LIBRARY}")
 +    if(XRT_FEATURE_SLAM)
-+        target_sources(drv_pico_ssc PRIVATE pico_ssc/pico-slam-session.c pico_ssc/pico-slam-runtime.c)
++        target_sources(drv_pico_ssc PRIVATE pico_ssc/pico-slam-session.c pico_ssc/pico-slam-runtime.c pico_ssc/pico-slam-live.c)
 +        target_link_libraries(drv_pico_ssc PRIVATE xrt-external-vit)
 +    endif()
  	list(APPEND ENABLED_DRIVERS pico_ssc)
