@@ -230,12 +230,12 @@ claim of userspace policy enforcement.
 ## Offline verification
 
 The current diagnostic uses the physical Pico kernel
-`22177b1d0003c2873172f8ba4e080c59e4ebf8ba9b3adf20b8e53295385b85d0`
+`a2a269770050941814086f551f8aedd92555506f3912a33927019e8526eb5901`
 and the current Reframed init. It has not been booted on a headset. The unsigned
 Android-v2 image was assembled and unpacked with matching kernel, initramfs and
-unmodified stock DTB hashes. Its initramfs is about 1.4 MiB. Build, assembly,
-VM and host receipts are in `output/pico-diagnostic-shutdown-20261013-v1/`;
-use `build-v2` and `boot`. Earlier diagnostic artifacts remain historical.
+unmodified stock DTB hashes. Build, assembly and VM receipts are in
+`output/pico-usb-host-20261014-v1/`; use `diagnostic` and `diagnostic-boot`.
+Earlier diagnostic artifacts remain historical.
 
 Seven diskless QEMU boots use that same init binary and physical-config kernel:
 normal startup, wrong serial, missing serial, wrong diagnostic token, missing
