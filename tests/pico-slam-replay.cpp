@@ -2,6 +2,7 @@
 #include "vit_interface.h"
 extern "C" {
 #include "pico-slam-input.h"
+#include "pico-slam-imu.h"
 #include "pico-slam-tracking.h"
 #include "pico-slam-session.h"
 #include "pico-camera-stream.h"
@@ -155,8 +156,9 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes <= 6);
-  bool transport_input = image_bytes == 6;
+  CHECK(image_bytes <= 7);
+  bool queued_imu = image_bytes == 7;
+  bool transport_input = image_bytes >= 6;
   bool capture_input = image_bytes >= 4;
   bool stream_input = image_bytes == 5;
   bool native_input = image_bytes >= 3;
@@ -223,6 +225,12 @@ int main(int argc, char **argv) {
     CHECK(pico_slam_input_begin(input, 1, 0, 0, end + 100000000));
     CHECK(pico_slam_tracking_create(&pose_config, &tracking));
     CHECK(pico_slam_tracking_begin(tracking, 1));
+  }
+  pico_slam_imu *imu_queue = nullptr;
+  if (queued_imu) {
+    pico_slam_imu_config cfg{{1,0,0,0,1,0,0,0,1}, 1, 1, 100000000, 100000000, 2};
+    CHECK(pico_slam_imu_create(&cfg, &imu_queue));
+    CHECK(pico_slam_imu_begin(imu_queue, 1, arrival));
   }
   CaptureSink capture_sink{session};
   pico_camera_transport *transport = nullptr;
@@ -311,8 +319,26 @@ int main(int argc, char **argv) {
       s.gyro_rad_secs = {std::stod(r[1]), std::stod(r[2]), std::stod(r[3])};
       s.accel_m_s2 = {std::stod(r[4]), std::stod(r[5]), std::stod(r[6])};
       arrival = s.timestamp_ns + 2000000;
-      CHECK(owned ? pico_slam_session_imu(session, 1, &s, 0, arrival) :
-                    pico_slam_input_imu(input, 1, &s, 0, arrival));
+      int64_t uncertainty = 0;
+      if (queued_imu) {
+        for (unsigned n = 0; n < 2; ++n) {
+          unsigned sensor = (n + ii) % 2;
+          ssc_bias_sample corrected{};
+          corrected.raw.sensor = static_cast<ssc_imu_sensor>(sensor);
+          corrected.raw.generation = 1;
+          corrected.raw.ticks = ii;
+          corrected.raw.time = {s.timestamp_ns, 0};
+          corrected.accuracy = 3;
+          xrt_vec3_f64 value = sensor ? s.gyro_rad_secs : s.accel_m_s2;
+          corrected.corrected[0] = static_cast<float>(value.x);
+          corrected.corrected[1] = static_cast<float>(value.y);
+          corrected.corrected[2] = static_cast<float>(value.z);
+          CHECK(pico_slam_imu_push(imu_queue, &corrected, arrival));
+        }
+        CHECK(pico_slam_imu_pop(imu_queue, 1, arrival, &s, &uncertainty) == 1);
+      }
+      CHECK(owned ? pico_slam_session_imu(session, 1, &s, uncertainty, arrival) :
+                    pico_slam_input_imu(input, 1, &s, uncertainty, arrival));
     } else {
       CHECK(left[ci].size() == 2 && right[ci].size() == 2 &&
             left[ci][0] == right[ci][0]);
@@ -433,6 +459,14 @@ int main(int argc, char **argv) {
   if (stream_input) {
     CHECK(event_sequence[0] < 1000 && event_sequence[1] < 1000);
     printf("PICO_SLAM_STREAM_PASS simulated_events=1 sequence_wrap=1 per_request_timing=1\n");
+  }
+  if (queued_imu) {
+    pico_slam_imu_stop(imu_queue, 1);
+    xrt_imu_sample discarded{};
+    int64_t uncertainty;
+    CHECK(pico_slam_imu_pop(imu_queue, 1, arrival, &discarded, &uncertainty) < 0);
+    pico_slam_imu_destroy(&imu_queue);
+    printf("PICO_SLAM_QUEUED_IMU_PASS pairs=%u synthetic_ssc=1 stopped_invalid=1\n", delivered_imu);
   }
   if (owned) pico_slam_session_stop(session);
   else {

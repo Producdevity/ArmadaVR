@@ -142,6 +142,52 @@ copying; the estimator receives 370 images and 3,467 IMU samples and returns 185
 poses. Reference RMS error is 6.417 mm with rigid alignment and no scale fit.
 Physical sensor identities, calibration and capture timing are still required.
 
+## SSC IMU handoff
+
+`pico-slam-imu` transfers bias-corrected SSC samples from the sensor worker to
+one serialized capture/SLAM owner. It applies explicit sensor-to-IMU rotation
+and unit scales, pairs equal ticks and mapped timestamps, and carries the larger
+clock uncertainty into the estimator. It does not infer factory calibration or
+subtract bias again. Queues hold at most 32 unpaired samples per sensor and 128
+pairs; exhaustion, bad current-generation data and excessive gaps invalidate the
+generation. Old callbacks cannot invalidate a newer generation.
+
+The consumer polls even during silence and stops the SLAM session on failure.
+Producer and consumer clock reads are tracked independently: a consumer may
+read its clock before the producer acquires the mutex. Neither thread calls the
+estimator while holding the queue lock. Stop and join producers before freeing
+this queue.
+
+Host and ARM64 sanitizer tests cover 200 restarts, 59,800 paired samples,
+10,000 concurrent producer/consumer pairs and 22 failure cases. ThreadSanitizer
+also passes. The reference replay sends synthetic corrected SSC samples through
+this handoff alongside the owned camera transport, delivering all 3,467 IMU
+samples and 370 images to Basalt and producing 185 poses. This tests transport
+integration; the recording still uses Valve Index calibration.
+
+`pico-slam-runtime` connects the selected SSC raw/bias subscriptions to this
+queue and the owned VIT session. The sensor worker never calls the estimator;
+it invalidates the pose provider immediately on failure. The capture owner
+polls bounded IMU batches and estimator output, starts camera delivery only
+after the first accepted IMU pair, and copies completed camera frames through
+the session. Startup waits for SSC without consuming the camera gap budget.
+All failures require recreating the owner; destruction joins SSC callbacks
+before freeing the queue or backend. The HMD must be released first.
+
+The runtime owner passes host/ARM64 sanitizer and thread checks over 200 normal
+lifetimes, eight backend failures and seven stream/clock failures. The real SSC
+library also passes 100 cancelled startups without QRTR and seven scenarios
+under the retained Pico kernel with virtual QRTR endpoints: normal, one bias
+update, clock failure, missing service, wrong rigid body, unreliable bias and
+malformed gyro. Normal scenarios deliver the expected corrected SI vectors on
+the consuming thread; failure cases deliver no IMU to the test backend. These
+VM tests use a synthetic estimator, independently of the real Basalt replay.
+
+Its configuration requires explicit SUIDs, supported rates, clock calibration,
+axis/unit conversion, camera timing and estimator calibration. Construction
+starts those SSC subscriptions; it does not open, configure or start cameras.
+The auto prober remains disabled for this unverified physical configuration.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.
@@ -149,8 +195,8 @@ Physical sensor identities, calibration and capture timing are still required.
   transforms; the retained older XML is not established as the active profile.
 - Bind camera and IMU clocks with measured uncertainty, and reset the estimator
   whenever a stream generation changes.
-- Connect the native capture loop to the owned session, supplying its verified
-  backend configuration, calibration, clock mapping and regular polling.
+- Supply the native runtime owner and camera transport with verified device
+  configuration, calibration, clock mapping and regular polling.
 - Validate camera coverage, real motion, loss/recovery and display-time prediction
   on the device after the boot/recovery gates pass.
 
