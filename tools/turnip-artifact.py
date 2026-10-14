@@ -41,7 +41,7 @@ def validate(directory):
             raise ValueError('Turnip artifact mismatch: ' + name)
         artifacts[name] = item
     required = {LIBRARY, ICD, 'kgsl-compile-command.txt', 'dynamic-dependencies.txt',
-                'kgsl-display', 'tu_kgsl_display.h'}
+                'kgsl-display', 'tu_kgsl_display.h', 'display-format-under-test.h'}
     if not required <= artifacts.keys():
         raise ValueError('Turnip build omits library or compile/link evidence')
     library = (directory / LIBRARY).read_bytes()
@@ -70,6 +70,8 @@ def validate(directory):
     display = report['kgsl_display_test']
     if (display['source_sha256'] != digest(ROOT / 'tests/kgsl-display.c') or
             display['header_sha256'] != artifacts['tu_kgsl_display.h']['sha256'] or
+            display['format_helper_sha256'] != artifacts['display-format-under-test.h']['sha256'] or
+            formats['helpers_sha256'] != display['format_helper_sha256'] or
             report['kgsl_display_tests']['helpers_sha256'] != display['header_sha256']):
         raise ValueError('Turnip display fixture or header changed since testing')
     return {'build_sha256': digest(directory / 'build.json'),

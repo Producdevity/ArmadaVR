@@ -193,17 +193,18 @@ def build(profile, driver="lavapipe"):
                 "header_sha256": digest(header),
             }
             run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror",
-                 "-I", str(header.parent), str(ROOT / "tests/kgsl-display.c"),
+                 "-I", str(header.parent), "-I", str(output), str(ROOT / "tests/kgsl-display.c"),
                  *drm_flags, "-o", str(output / "kgsl-display")], "kgsl-display-build.log")
             report["kgsl_display_test"] = {
                 "status": "compiled-not-run",
                 "scope": "real DRM descriptor ownership; requires a diskless QEMU transport kernel",
                 "source_sha256": digest(ROOT / "tests/kgsl-display.c"),
+                "format_helper_sha256": digest(output / "display-format-under-test.h"),
                 "header_sha256": digest(output / "tu_kgsl_display.h"),
             }
-            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display"]
+            names += ["tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h"]
         for name in names:
-            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display"):
+            if name not in ("tu_kgsl_drm_sync.h", "kgsl-drm-sync", "tu_kgsl_display.h", "kgsl-display", "display-format-under-test.h"):
                 shutil.copy2(build_dir / targets / name, output / name)
         for path in (ROOT / "tests/vulkan-external-sync.c", ROOT / "src/vulkan-interop.c"):
             run(["clang", "-std=gnu11", "-O2", "-Wall", "-Wextra", "-Werror", str(path),

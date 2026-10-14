@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import stat
 import subprocess
 import time
@@ -69,7 +70,7 @@ def run(args):
         raise ValueError('Display test changed since compilation')
     output.mkdir(parents=True)
     report = {'status': 'started', 'target': 'qemu-kgsl-display',
-              'scope': 'real virtio-gpu DRM descriptor ownership; no KGSL rendering or panel execution',
+              'scope': 'real virtio-gpu DRM ownership and WSI modifier lookup; no KGSL rendering or panel execution',
               'hardware_verified': False, 'flash_image': False,
               'kernel_build_sha256': digest(kernel / 'build.json'), 'kernel_sha256': expected['Image'],
               'turnip_build_sha256': digest(turnip / 'build.json'),
@@ -122,7 +123,7 @@ print(log)
                  '-append', 'console=ttyAMA0 earlycon rdinit=/init selinux=0 audit=0 reframed.kgsl_display_test=1'],
                 'boot.log', 45)
         log = (output / 'boot.log').read_text(errors='replace')
-        cases = ['PRIMARY_AND_RENDER', 'MASTER_CONTENTION', 'LEASE_IDENTITY', 'REACQUIRE_CLEANUP', 'ALL']
+        cases = ['PRIMARY_AND_RENDER', 'MASTER_CONTENTION', 'LEASE_IDENTITY', 'REACQUIRE_CLEANUP', 'FORMAT_MODIFIERS', 'ALL']
         if any('KGSL_DISPLAY_' + name + '_PASS' not in log for name in cases) or 'reboot: Power down' not in log:
             raise RuntimeError('Missing acceptance or clean power-off; inspect boot.log')
         if any(marker in log for marker in ('KGSL_DISPLAY_FAIL', 'WARNING:', 'BUG:', 'Kernel panic', 'Oops:')):
@@ -133,6 +134,11 @@ print(log)
                 digest(turnip / 'build.json') != report['turnip_build_sha256'] or
                 digest(fixture) != report['fixture_sha256'] or digest(Path(__file__)) != report['runner_sha256']):
             raise ValueError('Inputs changed during execution')
+        formats = re.search(r'KGSL_DISPLAY_FORMAT_CASES=(\d+) planes_with_blob=(\d+) planes_without_blob=(\d+)', log)
+        if not formats or int(formats[1]) == 0:
+            raise ValueError('No real DRM format lookups were completed')
+        report['format_lookup'] = dict(zip(('cases', 'planes_with_blob', 'planes_without_blob'),
+                                          map(int, formats.groups())))
         report.update(status='passed', cases=cases)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         report.update(status='failed', error=str(error))

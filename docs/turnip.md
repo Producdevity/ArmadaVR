@@ -274,3 +274,19 @@ including format indices across the 64-bit modifier-mask boundaries, and a
 missing-property sanitizer test. The previous function fails 4,776 cases and
 triggers a null-pointer diagnostic. This verifies lookup and ownership; compatible
 physical SDE/Adreno layouts and actual PRIME import still need hardware testing.
+
+The diskless DRM fixture now compiles the same WSI function as the driver and
+compares its results with libdrm's modifier iterator while accounting for every
+property allocation. It passes 352 lookups on the retained virtio-gpu test kernel,
+plus descriptor, master-contention and lease checks. Both virtual planes omit
+`IN_FORMATS`, so this kernel run covers the no-modifier path; populated tables
+remain covered by the sanitizer suite. The original function fails the same
+real-DRM fixture. Both guests power off normally. This uses the retained Quest
+QEMU transport kernel, not the Pico kernel or a physical display.
+
+Current driver and image receipts are under
+`output/pico-import-cleanup-20261014-v1/`: `turnip-final/`, `root-final/`,
+`qemu-root-final/` and `boot-final/`. Native loading, full root readback and a
+fresh read-only Pico root VM pass. The exact-mode Monado package is unchanged.
+Physical Adreno/SDE interoperability, panel/mux operation and recovery remain
+unverified; these images must not be treated as flash-ready.

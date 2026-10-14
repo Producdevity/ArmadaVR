@@ -504,3 +504,13 @@ agent hash is recorded. Repeat `--guest-agent-library LIBRARY` for any extra
 agent dependencies; they are hash-recorded and loaded from the agent's private
 RAM directory. This leaves the image's package contents and runtime
 selection intact, and the regular root media remains read-only.
+
+The October 14 Turnip import/modifier fixes are assembled in
+`output/pico-import-cleanup-20261014-v1/{root-final,qemu-root-final}`. Each is an
+APFS clone of the prior verified root, replacing only Turnip and its build record.
+The parent images remain unchanged; complete component readback, permissions and
+filesystem checks pass. A fresh Pico root VM verifies the installed packages and
+shuts down normally with zero disk writes. The unsigned `boot-final` receipt binds
+the updated physical root; its kernel/initramfs bytes are unchanged. This remains
+native development userspace without calibrated HMD autostart or a verified
+physical external-root transport.

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
+#include <assert.h>
 #include <dirent.h>
 #include <signal.h>
 #include <stdio.h>
@@ -26,6 +27,101 @@ static unsigned fd_count(void)
    DIR *dir = opendir("/proc/self/fd"); CHECK(dir);
    unsigned n = 0; while (readdir(dir)) ++n;
    CHECK(closedir(dir) == 0); return n;
+}
+
+
+struct wsi_display { int fd; };
+static unsigned property_lists, property_records, property_blobs;
+static drmModeObjectProperties *counted_properties(int fd, uint32_t id, uint32_t type)
+{
+   drmModeObjectProperties *p = drmModeObjectGetProperties(fd, id, type);
+   property_lists += p != NULL;
+   return p;
+}
+static drmModePropertyPtr counted_property(int fd, uint32_t id)
+{
+   drmModePropertyPtr p = drmModeGetProperty(fd, id);
+   property_records += p != NULL;
+   return p;
+}
+static drmModePropertyBlobPtr counted_blob(int fd, uint32_t id)
+{
+   drmModePropertyBlobPtr p = drmModeGetPropertyBlob(fd, id);
+   property_blobs += p != NULL;
+   return p;
+}
+static void release_properties(drmModeObjectProperties *p)
+{
+   CHECK(property_lists > 0); --property_lists; drmModeFreeObjectProperties(p);
+}
+static void release_property(drmModePropertyPtr p)
+{
+   CHECK(property_records > 0); --property_records; drmModeFreeProperty(p);
+}
+static void release_blob(drmModePropertyBlobPtr p)
+{
+   CHECK(property_blobs > 0); --property_blobs; drmModeFreePropertyBlob(p);
+}
+#define drmModeObjectGetProperties counted_properties
+#define drmModeGetProperty counted_property
+#define drmModeGetPropertyBlob counted_blob
+#define drmModeFreeObjectProperties release_properties
+#define drmModeFreeProperty release_property
+#define drmModeFreePropertyBlob release_blob
+#define mesa_loge(...) do { fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } while (0)
+#include "display-format-under-test.h"
+#undef drmModeObjectGetProperties
+#undef drmModeGetProperty
+#undef drmModeGetPropertyBlob
+#undef drmModeFreeObjectProperties
+#undef drmModeFreeProperty
+#undef drmModeFreePropertyBlob
+#undef mesa_loge
+
+static void check_formats(int fd, const drmModePlaneRes *planes)
+{
+   unsigned cases = 0, with_blob = 0, without_blob = 0;
+   struct wsi_display wsi = {fd};
+   for (unsigned p = 0; p < planes->count_planes; ++p) {
+      uint32_t id = planes->planes[p];
+      drmModePlane *plane = drmModeGetPlane(fd, id); CHECK(plane);
+      drmModeObjectProperties *props = drmModeObjectGetProperties(fd, id, DRM_MODE_OBJECT_PLANE); CHECK(props);
+      drmModePropertyBlobPtr blob = NULL;
+      for (unsigned i = 0; i < props->count_props; ++i) {
+         drmModePropertyPtr prop = drmModeGetProperty(fd, props->props[i]); CHECK(prop);
+         if (!strcmp(prop->name, "IN_FORMATS") && props->prop_values[i]) {
+            CHECK(!blob);
+            blob = drmModeGetPropertyBlob(fd, props->prop_values[i]); CHECK(blob);
+         }
+         drmModeFreeProperty(prop);
+      }
+      drmModeFreeObjectProperties(props);
+      if (blob) ++with_blob; else ++without_blob;
+      for (unsigned repeat = 0; repeat < 32; ++repeat) {
+         for (unsigned f = 0; f <= plane->count_formats; ++f) {
+            uint32_t format = f < plane->count_formats ? plane->formats[f] : 0;
+            uint64_t expected[512]; unsigned expected_count = 0;
+            drmModeFormatModifierIterator iter = {0};
+            while (blob && drmModeFormatModifierBlobIterNext(blob, &iter)) {
+               if (iter.fmt != format) continue;
+               CHECK(expected_count < sizeof(expected) / sizeof(expected[0]));
+               expected[expected_count++] = iter.mod;
+            }
+            uint32_t count = UINT32_MAX;
+            uint64_t *actual = wsi_get_modifiers_for_format(&wsi, id, format, &count);
+            CHECK(count == expected_count && !property_lists && !property_records && !property_blobs);
+            CHECK((actual != NULL) == (expected_count != 0));
+            if (count) CHECK(memcmp(actual, expected, count * sizeof(*actual)) == 0);
+            free(actual);
+            ++cases;
+         }
+      }
+      if (blob) drmModeFreePropertyBlob(blob);
+      drmModeFreePlane(plane);
+   }
+   CHECK(cases > 0);
+   printf("KGSL_DISPLAY_FORMAT_CASES=%u planes_with_blob=%u planes_without_blob=%u\n", cases, with_blob, without_blob);
+   puts("KGSL_DISPLAY_FORMAT_MODIFIERS_PASS");
 }
 
 int main(void)
@@ -73,6 +169,7 @@ int main(void)
    drmModeRes *res = drmModeGetResources(master); CHECK(res);
    drmModePlaneRes *planes = drmModeGetPlaneResources(master); CHECK(planes);
    CHECK(res->count_connectors > 0 && res->count_crtcs > 0 && planes->count_planes > 0);
+   check_formats(master, planes);
    uint32_t objects[] = {res->connectors[0], res->crtcs[0], planes->planes[0]}, lessee;
    int lease = drmModeCreateLease(master, objects, 3, O_CLOEXEC, &lessee); CHECK(lease >= 0);
    CHECK(tu_kgsl_display_matches_fd(lease, device_major, device_minor));
