@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import struct
@@ -63,6 +64,11 @@ def verify(paths, hashes, base_index, overlay_index, panel, bridge, display, pre
     stock_pack, bases = base_pack(data['stock_boot'])
     if base_pack(data['boot'])[0] != stock_pack:
         raise ValueError('Boot image changed the stock base DTB pack')
+    cmdline = boot.layout(data['boot'][:4096], len(data['boot']))['cmdline']
+    for parameter in re.split(r'[\s"]+', cmdline):
+        name = parameter.split('=', 1)[0].replace('-', '_')
+        if name in ('msm_drm.dsi_display0', 'msm_drm.dsi_display1'):
+            raise ValueError('Boot command-line panel override bypasses the verified DTBO selection')
     _, stock_entries = dtbo.table(data['stock_dtbo'])
     total, entries = dtbo.table(data['dtbo'])
     if total != len(data['dtbo']):
@@ -90,6 +96,7 @@ def verify(paths, hashes, base_index, overlay_index, panel, bridge, display, pre
         shutil.copyfile(bound / 'panel-mux.dtb', output / 'selected.dtb')
     report = {'status': 'verified', 'scope': 'offline Pico boot/DTBO display binding correspondence',
               'inputs': records, 'base_index': base_index, 'overlay_index': overlay_index,
+              'boot_cmdline': cmdline, 'bootloader_cmdline_verified': False,
               'base_count': len(bases), 'overlay_count': len(entries), 'binding': binding,
               'stock_base_pack_unchanged': True, 'other_overlays_unchanged': True,
               'selected_tree_sha256': hashlib.sha256((output / 'selected.dtb').read_bytes()).hexdigest(),

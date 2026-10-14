@@ -337,6 +337,9 @@ requested panel/mux binding, and requires the entire candidate DTBO to equal tha
 result. Every other base tree, overlay and table identifier must remain stock.
 It refuses mismatched hashes, indices, extra trailers and unrelated tree changes.
 The resulting merged tree retains the stock memory and reservation description.
+Explicit `msm_drm.dsi_display0` or `dsi_display1` command-line overrides are
+refused because they bypass the verified default panel. Bootloader-added
+arguments remain a separate live verification requirement.
 
 All four container paths and hashes, the two indices, and the panel, bridge,
 display and expected previous panel are required CLI inputs; `--help` lists them.

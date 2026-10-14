@@ -121,3 +121,16 @@ class PicoDisplaySetTests(unittest.TestCase):
         for pack in (b'', self.base[:-1], self.base + b'junk'):
             with self.subTest(size=len(pack)), self.assertRaises(ValueError):
                 verify.base_pack(boot_image(pack))
+
+    def test_boot_command_line_cannot_override_selected_panel(self):
+        original = self.paths['boot'].read_bytes()
+        for option in ('msm_drm.dsi_display0=other:config0', 'msm_drm.dsi_display1=other',
+                       'msm-drm.dsi-display0=other', '"msm_drm.dsi_display0=other"'):
+            data = bytearray(original)
+            text = ('root=LABEL=reframed-vr-root ' + option).encode()
+            data[64:64 + len(text)] = text
+            self.paths['boot'].write_bytes(data)
+            self.hashes['boot'] = digest(self.paths['boot'])
+            with self.subTest(option=option), self.assertRaisesRegex(ValueError, 'command-line panel override'):
+                self.check()
+            self.assertFalse((self.root / 'result').exists())
