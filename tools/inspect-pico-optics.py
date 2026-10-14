@@ -425,6 +425,41 @@ def projection_parameters(data):
     return {'frustums': model, 'fov': fovs, 'active_settings_verified': False, 'runtime_usable': False}
 
 
+def startup_selection(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate startup selection parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid startup selection size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed startup selection') from error
+    flags = {'config_service_enabled', 'use_service_parameters', 'config_file_compatible',
+             'lens_query_succeeded'}
+    if not isinstance(settings, dict) or set(settings) != flags | {'schema_version', 'service_mode'}:
+        raise ValueError('Expected explicit startup branch and lens-query result')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported startup selection schema')
+    if any(type(settings[key]) is not bool for key in flags):
+        raise ValueError('Expected explicit startup flags')
+    if type(settings['service_mode']) is not int or settings['service_mode'] not in (0, 1, 2):
+        raise ValueError('Unsupported startup service mode')
+    reload = (settings['service_mode'] == 1 and settings['use_service_parameters'] and
+              (not settings['config_service_enabled'] or settings['config_file_compatible']))
+    if settings['lens_query_succeeded'] and not reload:
+        raise ValueError('Lens query cannot succeed on a branch that does not call it')
+    source = 'config-service' if settings['config_service_enabled'] else 'config-file'
+    return {'settings': settings, 'initial_source': source, 'service_reload_requested': reload,
+            'effective_lens_source': 'vr-service' if settings['lens_query_succeeded'] else source,
+            'projection_source': source, 'active_settings_verified': False, 'runtime_usable': False}
+
+
 def sdk_geometry_parameters(data):
     def unique(pairs):
         result = {}
@@ -663,6 +698,8 @@ def main():
     parser.add_argument('--selection-sha256')
     parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
     parser.add_argument('--compositor-axes-sha256')
+    parser.add_argument('--startup-model', type=Path, help='Explicit configuration branch and lens-query status JSON')
+    parser.add_argument('--startup-sha256')
     parser.add_argument('--sdk-geometry', type=Path, help='Explicit shared-lens SDK overrides JSON')
     parser.add_argument('--sdk-geometry-sha256')
     parser.add_argument('--projection-model', type=Path, help='Explicit left/right frustum JSON')
@@ -731,6 +768,20 @@ def main():
             result['sdk_geometry'] = resolved
             lens = resolved['lens']
             result['files']['sdk_geometry'] = {'name': args.sdk_geometry.name, 'sha256': args.sdk_geometry_sha256}
+        if args.startup_model is not None or args.startup_sha256 is not None:
+            if args.startup_model is None or args.startup_sha256 is None:
+                raise ValueError('Startup model and SHA-256 are required together')
+            selection = startup_selection(read_file(args.startup_model, args.startup_sha256, 4096))
+            if (selection['initial_source'] != 'config-service' and
+                    ('sdk_geometry' in result or 'compositor_axes' in result)):
+                raise ValueError('SDK overrides cannot run on the config-file startup branch')
+            if selection['effective_lens_source'] == 'vr-service':
+                if 'runtime_adjustment' not in result:
+                    raise ValueError('VR-service startup requires resolved service lens settings')
+                lens = result['runtime_adjustment']['lens']
+            result['startup_selection'] = selection
+            result['effective_lens'] = lens
+            result['files']['startup_model'] = {'name': args.startup_model.name, 'sha256': args.startup_sha256}
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
         result['tangent_samples'] = [sample_tangents(lens, x, y) for x, y in args.sample_tangent]
@@ -744,8 +795,9 @@ def main():
                        for actual, wanted in zip(screen['fov'], expected) for a, b in zip(actual, wanted)):
                     raise ValueError('Screen FOV disagrees with the explicit projection frustums')
             if 'runtime_adjustment' in result:
-                resolved = result.get('compositor_axes', result['runtime_adjustment'])
-                if 'compositor_axes' in result and screen['hwc_reverse'] != resolved['effective_hwc_reverse']:
+                service_wins = result.get('startup_selection', {}).get('effective_lens_source') == 'vr-service'
+                resolved = result['runtime_adjustment'] if service_wins else result.get('compositor_axes', result['runtime_adjustment'])
+                if 'compositor_axes' in result and screen['hwc_reverse'] != result['compositor_axes']['effective_hwc_reverse']:
                     raise ValueError('Screen HWC reversal disagrees with the compositor axis stage')
                 if (not math.isclose(screen['lens_separation_m'], lens['lens_separation_m'], rel_tol=0, abs_tol=1e-8) or
                         any(not math.isclose(a, b, rel_tol=0, abs_tol=1e-6) for a, b in zip(screen['optical_offsets_mm'], resolved['optical_offsets_mm']))):

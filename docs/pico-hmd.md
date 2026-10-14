@@ -251,9 +251,11 @@ An explicit zero replaces the service value; it does not mean absent. Stock
 permits larger overrides, but this inspector refuses them because the current
 screen model supports only that range.
 
-Overrides replace the adjusted service values. If HWC is enabled and reversal
+When this stage runs, overrides replace its incoming axis values. If HWC is enabled and reversal
 is 180 degrees, the compositor swaps the two eyes and negates both axes. This
-happens before mesh generation, whose own reversal remains necessary. The
+happens before mesh generation, whose own reversal remains necessary. A later
+successful VR-service lens reload replaces these offsets; see startup selection
+below. The
 inspector preserves the service values separately, returns the intermediate
 and final offsets, and requires any supplied screen model to match the final
 offsets and effective HWC orientation. It does not apply this optional stage
@@ -268,8 +270,9 @@ path or the headset's active configuration. Outputs remain inspection-only.
 
 ## SDK lens and frustum inspection
 
-`--sdk-geometry FILE --sdk-geometry-sha256 SHA256` applies explicit SDK overrides
-following the service settings. It requires `--runtime-settings` and
+`--sdk-geometry FILE --sdk-geometry-sha256 SHA256` inspects explicit SDK overrides
+on an explicitly supplied base lens. This stage alone does not establish startup
+precedence. It requires `--runtime-settings` and
 `--projection-model`; the original service lens and projection remain in the
 report. The JSON has exactly these fields:
 
@@ -300,6 +303,33 @@ visible difference is 0.008273 pixels at a 1920-pixel render size. Deliberately
 omitting the SDK stage makes 218,215 visible components differ by over half a
 pixel. These are numerical tests with synthetic inputs, not active-unit optical
 calibration, GPU scanout or flash-readiness evidence.
+
+## Startup selection
+
+`--startup-model FILE --startup-sha256 SHA256` adds an explicit startup snapshot.
+Its JSON has `schema_version: 1`, `service_mode` (0, 1 or 2), and four booleans:
+`config_service_enabled`, `use_service_parameters`, `config_file_compatible`,
+`lens_query_succeeded`. These correspond to the branch state at initialization;
+no current property values or successful service calls are assumed.
+
+Stock reads config-service settings or a configuration file first. It then
+queries VR-service display/lens information only when service mode is 1,
+service parameters are enabled, and either config service is disabled or file
+compatibility is enabled. A successful lens query replaces separation, tangent
+scale, radial/chromatic coefficients and axis offsets. The projection frustums
+remain from the earlier configuration. A failed query leaves the incoming lens
+values intact. The inspector retains each stage, reports `effective_lens`, and
+uses that lens with the final SDK projection for screen/grid checks. HWC mesh
+reversal still applies after a service reload; the earlier SDK axis swap does
+not survive that reload.
+
+The tool refuses a successful-query claim on a branch that never queries the
+service, SDK overrides on a config-file branch, and missing service settings
+when a service lens is required. Omitting the startup snapshot leaves the
+individual stages as isolated inspections; it does not prove their values win
+at initialization. Original ARM64 branch and lens-copy execution covers 864
+cases across 27 branch/query combinations. Transport and unrelated setup are
+isolated; headset startup and the active branch remain unverified.
 
 ## Projection inspection
 

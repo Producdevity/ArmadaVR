@@ -918,3 +918,103 @@ class PicoSdkGeometryTests(unittest.TestCase):
             self.assertFalse(result['runtime_usable'])
             self.assertEqual(output.stat().st_mode & 0o777, 0o600)
             self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=5).returncode, 0)
+
+
+class PicoStartupSelectionTests(unittest.TestCase):
+    def setUp(self):
+        self.settings = {'schema_version': 1, 'config_service_enabled': True, 'service_mode': 1,
+                         'use_service_parameters': True, 'config_file_compatible': True,
+                         'lens_query_succeeded': True}
+
+    def test_service_reload_requires_mode_enable_and_compatibility(self):
+        for config in (False, True):
+            for mode in range(3):
+                for use in (False, True):
+                    for compatible in (False, True):
+                        settings = dict(self.settings, config_service_enabled=config, service_mode=mode,
+                                        use_service_parameters=use, config_file_compatible=compatible,
+                                        lens_query_succeeded=False)
+                        result = OPT.startup_selection(json.dumps(settings).encode())
+                        reload = mode == 1 and use and (not config or compatible)
+                        self.assertEqual(result['service_reload_requested'], reload)
+                        self.assertEqual(result['effective_lens_source'], result['initial_source'])
+                        self.assertFalse(result['active_settings_verified'])
+                        self.assertFalse(result['runtime_usable'])
+                        settings['lens_query_succeeded'] = True
+                        if reload:
+                            resolved = OPT.startup_selection(json.dumps(settings).encode())
+                            self.assertEqual(resolved['effective_lens_source'], 'vr-service')
+                            self.assertEqual(resolved['projection_source'], result['initial_source'])
+                        else:
+                            with self.assertRaises(ValueError):
+                                OPT.startup_selection(json.dumps(settings).encode())
+
+    def test_refuses_ambiguous_flags_and_unknown_modes(self):
+        for field, value in [('schema_version', True), ('service_mode', True), ('service_mode', 3),
+                             ('service_mode', -1), ('config_service_enabled', 1),
+                             ('use_service_parameters', None), ('config_file_compatible', 'true'),
+                             ('lens_query_succeeded', 0)]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                OPT.startup_selection(json.dumps(dict(self.settings, **{field: value})).encode())
+        for data in (b'{}', b' ' * 4097, json.dumps(self.settings).encode() + b'\0',
+                     json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()):
+            with self.assertRaises(ValueError):
+                OPT.startup_selection(data)
+
+    def test_cli_service_reload_replaces_lens_and_axes_but_preserves_sdk_projection(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axes.txt'; offsets.write_bytes(b'.1,.2,.3,.4')
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            def save(name, value):
+                path = d/name; path.write_text(json.dumps(value)); return path
+            runtime = save('runtime.json', {'schema_version': 1, 'ipd_enabled': False,
+                'ipd_correction_enabled': False, 'ipd_correction_mm': 0, 'screen_gap_m': 0,
+                'axis_corrections_mm': [0, 0, 0, 0]})
+            axes = save('axes.json', {'schema_version': 1, 'hwc_enabled': True, 'hwc_reverse': 180,
+                                    'sdk_axis_overrides_mm': [.9, .8, .7, .6]})
+            sdk = save('sdk.json', {'schema_version': 1, 'equation_type': 2, 'separate_distortion': False,
+                'disable_lens_correction': False, 'lens_separation_m': .07, 'meters_per_tan_angle': .03,
+                'radial_coefficients': [0] * 11, 'chromatic_coefficients': [0] * 6,
+                'left_frustum': [-.13, None, None, None, None, None], 'right_frustum': [None] * 6})
+            projection = save('projection.json', {'schema_version': 1, 'left': [-.1, .1, .1, -.1, .1, 100],
+                                                'right': [-.1, .1, .1, -.1, .1, 100]})
+            startup = save('startup.json', self.settings)
+            output = d/'result.json'
+            base = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                    '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                    '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output),
+                    '--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime),
+                    '--compositor-axes', str(axes), '--compositor-axes-sha256', digest(axes),
+                    '--sdk-geometry', str(sdk), '--sdk-geometry-sha256', digest(sdk),
+                    '--projection-model', str(projection), '--projection-sha256', digest(projection)]
+            def command():
+                return base + ['--startup-model', str(startup), '--startup-sha256', digest(startup)]
+            subprocess.run(command(), check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['effective_lens'], result['runtime_adjustment']['lens'])
+            self.assertNotEqual(result['effective_lens'], result['sdk_geometry']['lens'])
+            self.assertEqual(result['sdk_geometry']['projection']['frustums']['left'][0], OPT.binary32(-.13))
+            geometry = screen_fixture()
+            geometry.update(lens_separation_m=result['effective_lens']['lens_separation_m'],
+                            meters_per_tan_angle=result['effective_lens']['meters_per_tan_angle_at_center'],
+                            optical_offsets_mm=result['effective_lens']['distortion_coefficients'][14:18],
+                            hwc_reverse=180, fov=result['sdk_geometry']['projection']['fov'])
+            screen = save('screen.json', geometry); output.unlink()
+            grid = ['--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            subprocess.run(command()+grid, check=True, capture_output=True, timeout=5)
+            rendered = json.loads(output.read_text())
+            self.assertEqual(rendered['screen_grid']['views'][0]['analytic_distortion'],
+                             OPT.analytic_parameters(result['effective_lens'], geometry, 0))
+            output.unlink()
+            save('startup.json', dict(self.settings, lens_query_succeeded=False))
+            self.assertNotEqual(subprocess.run(command()+grid, capture_output=True, timeout=5).returncode, 0)
+            self.assertFalse(output.exists())
+            subprocess.run(command(), check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['effective_lens'], result['sdk_geometry']['lens'])
+            output.unlink()
+            save('startup.json', dict(self.settings, config_service_enabled=False))
+            self.assertNotEqual(subprocess.run(command(), capture_output=True, timeout=5).returncode, 0)
+            self.assertFalse(output.exists())
