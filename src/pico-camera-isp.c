@@ -170,7 +170,8 @@ size_t pico_camera_packet_size(const struct pico_camera_packet_config *c)
             ((b->offset | b->capacity | b->length) & 3) ||
             (uint64_t)b->offset + b->capacity > b->allocation_size ||
             (uint64_t)b->offset + b->capacity > UINT32_MAX ||
-            (b->type != 5 && b->type != 7 && b->type != 9) ||
+            (b->type != 5 && b->type != 7 && b->type != 9 &&
+             !(b->type == 10 && c->opcode == PICO_CAMERA_PACKET_SENSOR_PROBE && i == 0)) ||
             (c->image && c->image->memory_handle == b->memory_handle)) return 0;
         if (ife && (size_t)c->kernel_command_index == i) {
             if (b->type != 5 || c->kernel_command_offset != b->length || b->capacity - b->length < 4) return 0;

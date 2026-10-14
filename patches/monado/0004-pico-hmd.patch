@@ -6,7 +6,7 @@
  		pico_ssc/pico-controller.c pico_ssc/pico-controller-stream.c
 +        pico_ssc/pico-monado-hmd.c pico_ssc/pico-hmd-config.c pico_ssc/pico-hmd-prober.c
 +        pico_ssc/pico-head-tracking.c pico_ssc/pico-head-session.c
-+        pico_ssc/pico-camera.c pico_ssc/pico-camera-isp.c pico_ssc/pico-camera-sensor.c pico_ssc/pico-camera-capture.c pico_ssc/pico-camera-events.c pico_ssc/pico-camera-control.c pico_ssc/pico-camera-stream.c pico_ssc/ion-buffer.c pico_ssc/pico-camera-buffer.c pico_ssc/pico-camera-request.c pico_ssc/pico-camera-pipeline.c pico_ssc/pico-camera-sensor-setup.c pico_ssc/pico-camera-ife.c pico_ssc/pico-camera-front-end.c pico_ssc/pico-camera-transport.c
++        pico_ssc/pico-camera.c pico_ssc/pico-camera-isp.c pico_ssc/pico-camera-sensor.c pico_ssc/pico-camera-capture.c pico_ssc/pico-camera-events.c pico_ssc/pico-camera-control.c pico_ssc/pico-camera-stream.c pico_ssc/ion-buffer.c pico_ssc/pico-camera-buffer.c pico_ssc/pico-camera-request.c pico_ssc/pico-camera-pipeline.c pico_ssc/pico-camera-sensor-setup.c pico_ssc/pico-camera-probe-setup.c pico_ssc/pico-camera-ife.c pico_ssc/pico-camera-front-end.c pico_ssc/pico-camera-transport.c
 +        pico_ssc/pico-slam-input.c pico_ssc/pico-slam-tracking.c pico_ssc/pico-slam-imu.c
 +        pico_ssc/ssc-imu.c pico_ssc/ssc-imu-session.c pico_ssc/ssc-calibration.c
  		pico_ssc/ssc-clock.c pico_ssc/ssc-clock-linux.c)

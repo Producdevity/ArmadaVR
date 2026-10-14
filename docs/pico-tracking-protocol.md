@@ -1211,3 +1211,24 @@ ioctls/DMA, releasing and poisoning all 372 image buffers after copying. It deli
 shutdown. Reference trajectory RMS error is 6.417 mm, maximum 16.607 mm, after rigid
 alignment without scale fitting. The reference data/calibration belong to a Valve
 Index; these results do not measure Pico accuracy, physical DMA or live throughput.
+
+### Owned sensor probe packets
+
+`pico-camera-probe-setup` copies an explicit bus identity and both power
+sequences into two CRM command buffers and a probe packet. The stock CamX
+resource parameters and command-descriptor builder identify the first buffer
+as legacy type 10 and the combined power buffer as I2C type 7. The packet
+encoder accepts legacy type 10 only at the first sensor-probe descriptor.
+No camera module, board wiring or power value is selected automatically.
+
+Preparation validates the complete inputs before allocating. Submission is
+attempted once, and partial allocations or attempted buffers remain owned on
+failure. The caller must establish quiescence before releasing attempted
+buffers. Probing powers hardware; this API is not a read-only inventory call.
+
+Host sanitizer tests cover 240 lifecycle cycles and 20 injected allocation,
+cache, view, submission, ioctl and cleanup failures. An ARM64 sanitizer run
+also feeds all 244 submitted packets through the retained kernel's probe
+packet dispatch, I2C identity and combined power-sequence parsers. Memory
+lookup is simulated and optional register-command branches are not exercised;
+no physical probe, power sequence or sensor identity is verified by this test.

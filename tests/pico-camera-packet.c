@@ -74,6 +74,13 @@ int main(int argc, char **argv)
         if (emit) { for (size_t i = 0; i < size; ++i) printf("%02x", out[1 + i]); putchar('\n'); }
         ++cases;
     }
+    c = (struct pico_camera_packet_config){.opcode = PICO_CAMERA_PACKET_SENSOR_PROBE,
+        .commands = commands, .command_count = 2, .kernel_command_index = -1};
+    commands[0].type = 10; commands[1].type = 7;
+    assert(pico_camera_packet_encode(&c, out, sizeof(out)) == 104);
+    assert(get32(out + 72) == 10 && get32(out + 96) == 7);
+    BAD(opcode, PICO_CAMERA_PACKET_SENSOR_INITIALIZE); BAD(opcode, PICO_CAMERA_PACKET_PHY_CONFIGURE);
+    commands[1].type = 10; refused(c); commands[1].type = 7;
     c = (struct pico_camera_packet_config){.opcode = PICO_CAMERA_PACKET_SENSOR_NOP,
         .request_id = INT64_MAX, .kernel_command_index = -1};
     memset(out, 0xa5, sizeof(out));
