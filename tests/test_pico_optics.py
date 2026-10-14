@@ -465,3 +465,86 @@ class PicoFovSettingsTests(unittest.TestCase):
         result = OPT.resolve_runtime(self.lens, self.axes, self.settings, 'neo3-pro-eye', 2)
         self.assertFalse(result['fov_override_resolved'])
         self.assertFalse(result['fov_override_applied'])
+
+
+class PicoIpdTableTests(unittest.TestCase):
+    def setUp(self):
+        self.data = b'0,0.2,7,8,0\n1,0.7,9,10,100\n2,-0.3,11,12,200\n'
+        self.table = OPT.ipd_offset_table(self.data)
+
+    def test_stock_column_order_interval_delta_and_shared_endpoint(self):
+        for sample, expected, bracket in [(0, 0, [0, 1]), (50, .25, [0, 1]), (100, .5, [0, 1]),
+                                           (150, -.5, [1, 2]), (200, -1, [1, 2])]:
+            result = OPT.lookup_ipd_offset(self.table, 'neo3-pro', sample, 0, 10)
+            self.assertEqual(result['value_mm'], expected)
+            self.assertEqual(result['bracket_rows'], bracket)
+            self.assertFalse(result['table_selection_verified'])
+            self.assertFalse(result['active_settings_verified'])
+        self.assertEqual(self.table[0][2:4], [7, 8])
+        self.assertEqual(self.table[1][2:4], [9, 10])
+
+    def test_eye_model_gate_and_uncovered_sensor_values_return_zero(self):
+        for model, sample, offset, reason in [('neo3-pro-eye', 50, 0, 'eye-model'),
+                                             ('neo3-pro', 50, -11, 'hardware-offset-out-of-range'),
+                                             ('neo3-pro', 50, 11, 'hardware-offset-out-of-range'),
+                                             ('neo3-pro', -1, 0, 'sample-out-of-range'),
+                                             ('neo3-pro', 201, 0, 'sample-out-of-range')]:
+            result = OPT.lookup_ipd_offset(self.table, model, sample, offset, 10)
+            self.assertEqual(result['value_mm'], 0)
+            self.assertEqual(result['reason'], reason)
+            self.assertIsNone(result['bracket_rows'])
+        for offset in (-10, 10):
+            self.assertEqual(OPT.lookup_ipd_offset(self.table, 'neo3-pro', 50, offset, 10)['value_mm'], .25)
+
+    def test_table_refuses_ambiguous_rounding_and_malformed_rows(self):
+        for data in [b'', b' '*20001, b'0,0,0,0,0', self.data+b'\0', self.data+b'\n',
+                     b'0,0,0,0,0\n1,0,0,0,0', b'0,0,0,0,1\n1,0,0,0,0',
+                     b'0,0,0,0,1000000000\n1,0,0,0,1000000001',
+                     self.data.replace(b'0,0.2', b'0,nan'), self.data.replace(b'0,0.2', b'0,11'),
+                     self.data.replace(b'0,0.2', b'0,1e100'), self.data.replace(b'0,0.2', b'0.0,0.2'),
+                     self.data.replace(b'0,0.2', b'2147483648,0.2'), self.data+b'\xff',
+                     b'0,'+b'0'*99+b',0,0,0\n1,0,0,0,1', self.data*101]:
+            with self.subTest(data=data[:80]), self.assertRaises(ValueError):
+                OPT.ipd_offset_table(data)
+        for model, sample, offset, limit in [('unknown', 50, 0, 10), ('neo3-pro', True, 0, 10),
+                                            ('neo3-pro', 50, -2147483648, 10), ('neo3-pro', 50, 0, -1),
+                                            ('neo3-pro', 50, 0, False)]:
+            with self.assertRaises(ValueError):
+                OPT.lookup_ipd_offset(self.table, model, sample, offset, limit)
+
+    def test_cli_refuses_partial_inputs_and_conflicting_runtime_correction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp)
+            config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axisOffset.txt'; offsets.write_text('0,0,0,0\n'*3)
+            table = d/'IpdOffsetList0.txt'; table.write_bytes(self.data)
+            runtime = d/'runtime.json'
+            settings = {'schema_version': 1, 'ipd_enabled': True, 'ipd_correction_enabled': True,
+                        'ipd_correction_mm': .25, 'screen_gap_m': 0, 'axis_corrections_mm': [0]*4}
+            runtime.write_text(json.dumps(settings))
+            output = d/'lookup.json'
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            command = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                       '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                       '--model', 'neo3-pro', '--ipd-state', '2', '--output', str(output)]
+            extra = ['--ipd-table', str(table), '--ipd-table-sha256', digest(table),
+                     '--ipd-sample', '50', '--ipd-offset', '0', '--ipd-range-limit', '10']
+            for i in range(0, len(extra), 2):
+                self.assertNotEqual(subprocess.run(command+extra[:i]+extra[i+2:], capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            settings['ipd_correction_mm'] = .5; runtime.write_text(json.dumps(settings))
+            runtime_args = ['--runtime-settings', str(runtime), '--runtime-sha256', digest(runtime)]
+            refused = subprocess.run(command+extra+runtime_args, capture_output=True, timeout=5)
+            self.assertNotEqual(refused.returncode, 0)
+            self.assertIn(b'disagrees', refused.stderr); self.assertFalse(output.exists())
+            settings['ipd_correction_mm'] = .25; runtime.write_text(json.dumps(settings))
+            runtime_args[-1] = digest(runtime)
+            subprocess.run(command+extra+runtime_args, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['ipd_lookup']['value_mm'], .25)
+            self.assertTrue(result['runtime_adjustment']['ipd_lookup_verified'])
+            self.assertEqual(result['runtime_adjustment']['optical_offsets_mm'], [-.25, 0, .25, 0])
+            self.assertFalse(result['runtime_adjustment']['active_settings_verified'])
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(result['files']['ipd_table']['sha256'], digest(table))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)

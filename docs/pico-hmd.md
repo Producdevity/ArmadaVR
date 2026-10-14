@@ -143,7 +143,7 @@ required together. Version 1 of the settings JSON has exactly these fields:
 | --- | --- |
 | `schema_version` | `1` |
 | `ipd_enabled`, `ipd_correction_enabled` | Explicit booleans for the stock enable properties |
-| `ipd_correction_mm` | Resolved stock IPD lookup result, in millimetres; the lookup itself is not implemented |
+| `ipd_correction_mm` | Resolved stock IPD lookup result, in millimetres |
 | `screen_gap_m` | Screen gap in metres, subtracted from lens separation |
 | `axis_corrections_mm` | Four property corrections in left X/Y, right X/Y order |
 
@@ -184,6 +184,32 @@ result is supplied at the test boundary. This does not verify that lookup,
 initial profile selection, active hardware settings or physical alignment.
 Evidence is retained under `output/pico-optical-settings-20261014-v1/`.
 
+
+## IPD table inspection
+
+To inspect an explicitly selected saved `IpdOffsetList*.txt`, supply all five
+options: `--ipd-table FILE --ipd-table-sha256 SHA256 --ipd-sample INTEGER
+--ipd-offset INTEGER --ipd-range-limit INTEGER`. Sample and offset are stock
+integer sensor values; the limit must already be resolved for the current IPD
+state and table type. The inspector does not select a fallback table or assume
+that a saved file was active.
+
+Stock uses the fifth column for sensor positions and the second for axis
+correction. At the first inclusive bracketing interval, it returns the fraction
+through that interval multiplied by the difference between its correction
+values. It does **not** add the starting correction. Pro Eye, an absolute
+hardware offset greater than the limit, or a sample outside the table returns
+zero. Binary32 rounding is preserved throughout. The original ARM64 routine
+agrees exactly across 5,520 synthetic cases, including shared endpoints and
+both sides of the hardware-offset gate.
+
+The parser requires 2–200 complete five-column rows, finite bounded values and
+strictly increasing sensor positions after float conversion. It refuses malformed
+stock files instead of reproducing their undefined behavior. The report retains
+the parsed rows and selected interval. When runtime settings are also supplied,
+their correction must agree with the table result. `ipd_lookup_verified` then
+means agreement with that explicit table and sample, while active-setting and
+table-selection verification remain false.
 
 ## Screen-to-texture inspection
 

@@ -297,6 +297,62 @@ def axis_offsets(data, model, ipd_state):
             'property_corrections_applied': False}
 
 
+def binary32(value):
+    return struct.unpack('<f', struct.pack('<f', value))[0]
+
+
+def ipd_offset_table(data):
+    if not 0 < len(data) <= 20000 or b'\0' in data:
+        raise ValueError('Invalid IPD table size or NUL')
+    try:
+        lines = data.decode('ascii').splitlines()
+    except UnicodeError as error:
+        raise ValueError('Non-ASCII IPD table') from error
+    if not 2 <= len(lines) <= 200:
+        raise ValueError('Expected 2 to 200 IPD table rows')
+    rows = []
+    for line in lines:
+        fields = line.split(',')
+        if len(line) >= 99 or len(fields) != 5 or not re.fullmatch(r'[0-9]{1,10}', fields[0].strip()):
+            raise ValueError('Expected an index and four floats within the stock line buffer')
+        index = int(fields[0])
+        values = [number(value) for value in fields[1:]]
+        if index > 2147483647 or any(abs(v) > 2147483647 for v in values) or abs(values[0]) > 10:
+            raise ValueError('IPD table value out of range')
+        values = list(map(binary32, values))
+        if rows and values[3] <= rows[-1][4]:
+            raise ValueError('IPD sensor positions must increase after binary32 conversion')
+        rows.append([index, *values])
+    return rows
+
+
+def lookup_ipd_offset(table, model, sample, hardware_offset, range_limit):
+    if model not in ('neo3-pro', 'neo3-pro-eye'):
+        raise ValueError('Explicit Neo3 model required')
+    for value, low in ((sample, -2147483647), (hardware_offset, -2147483647), (range_limit, 0)):
+        if type(value) is not int or not low <= value <= 2147483647:
+            raise ValueError('Expected bounded integer IPD sensor state')
+    result = {'value_mm': 0.0, 'bracket_rows': None, 'interpolation_fraction': None,
+              'sensor_value': sample, 'hardware_offset': hardware_offset, 'range_limit': range_limit,
+              'table_rows': len(table), 'table_selection_verified': False, 'active_settings_verified': False}
+    if model == 'neo3-pro-eye':
+        result['reason'] = 'eye-model'
+    elif abs(hardware_offset) > range_limit:
+        result['reason'] = 'hardware-offset-out-of-range'
+    else:
+        result['reason'] = 'sample-out-of-range'
+        sensor = binary32(sample)
+        for i, (a, b) in enumerate(zip(table, table[1:])):
+            if a[4] <= sensor <= b[4]:
+                fraction = binary32(binary32(sensor - a[4]) / binary32(b[4] - a[4]))
+                # Stock returns the change across this interval, without adding its starting offset.
+                value = binary32(fraction * binary32(b[1] - a[1]))
+                result.update(value_mm=value, bracket_rows=[i, i+1], interpolation_fraction=fraction,
+                              reason='interpolated')
+                break
+    return result
+
+
 def runtime_parameters(data):
     def unique(pairs):
         result = {}
@@ -342,32 +398,29 @@ def resolve_runtime(lens, axes, settings, model, ipd_state):
         raise ValueError('Explicit Neo3 model and IPD state required')
     settings = runtime_parameters(json.dumps(settings).encode())
 
-    def f32(value):
-        return struct.unpack('<f', struct.pack('<f', value))[0]
-
     separation = lens['lens_separation_m']
     if model == 'neo3-pro-eye':
         separation = .0634
     elif settings['ipd_enabled']:
         separation = {1: .0574, 2: .0634, 3: .0694}[ipd_state]
-    separation = f32(f32(separation) - f32(settings['screen_gap_m']))
+    separation = binary32(binary32(separation) - binary32(settings['screen_gap_m']))
     if not .001 <= separation < .2:
         raise ValueError('Resolved lens separation is out of range')
     correction = 0.0
     if model == 'neo3-pro' and ipd_state in (2, 3) and settings['ipd_correction_enabled']:
-        correction = f32(settings['ipd_correction_mm'])
-    values = [f32(value) for value in axes['selected']]
-    values[0] = f32(values[0] - correction)
-    values[2] = f32(values[2] + correction)
-    values = [f32(value + f32(adjustment)) for value, adjustment in zip(values, settings['axis_corrections_mm'])]
+        correction = binary32(settings['ipd_correction_mm'])
+    values = [binary32(value) for value in axes['selected']]
+    values[0] = binary32(values[0] - correction)
+    values[2] = binary32(values[2] + correction)
+    values = [binary32(value + binary32(adjustment)) for value, adjustment in zip(values, settings['axis_corrections_mm'])]
     adjusted = [max(-1.0, min(1.0, value)) for value in values]
     resolved = dict(lens, lens_separation_m=separation,
                     distortion_coefficients=list(lens['distortion_coefficients']))
     resolved['distortion_coefficients'][14:18] = adjusted
     fov_resolved = settings['schema_version'] == 2
-    fov_applied = fov_resolved and 60 < f32(settings['fov_override_degrees']) < 160
+    fov_applied = fov_resolved and 60 < binary32(settings['fov_override_degrees']) < 160
     if fov_resolved:
-        resolved['fov_degrees'] = f32(settings['fov_override_degrees'] if fov_applied else lens['fov_degrees'])
+        resolved['fov_degrees'] = binary32(settings['fov_override_degrees'] if fov_applied else lens['fov_degrees'])
     return {'settings': settings, 'lens': resolved, 'optical_offsets_mm': adjusted,
             'before_clamping_mm': values, 'clamped_axes': [i for i, value in enumerate(values) if value != adjusted[i]],
             'ipd_correction_used_mm': correction, 'float_precision': 'stock binary32 operation order',
@@ -408,6 +461,11 @@ def main():
     parser.add_argument('--ipd-state', type=int, choices=(1, 2, 3), required=True)
     parser.add_argument('--sample-tangent', type=float, nargs=2, action='append', default=[],
                         metavar=('X', 'Y'), help='Inspect an equation sample; does not apply screen/IPD transforms')
+    parser.add_argument('--ipd-table', type=Path, help='Explicit saved five-column stock IPD table')
+    parser.add_argument('--ipd-table-sha256')
+    parser.add_argument('--ipd-sample', type=int, help='Stock integer sensor value')
+    parser.add_argument('--ipd-offset', type=int, help='Stock integer hardware offset')
+    parser.add_argument('--ipd-range-limit', type=int, help='Resolved limit for the current IPD state')
     parser.add_argument('--runtime-settings', type=Path, help='Explicit IPD/gap/axis settings JSON; no property defaults')
     parser.add_argument('--runtime-sha256', help='Independently retained runtime-settings SHA-256')
     parser.add_argument('--screen-model', type=Path, help='Explicit resolved geometry JSON; no device defaults')
@@ -422,11 +480,24 @@ def main():
         result = inspect(args.config, args.config_sha256, args.offsets, args.offsets_sha256,
                          args.model, args.ipd_state)
         lens = result['stock_lens']
+        lookup_args = (args.ipd_table, args.ipd_table_sha256, args.ipd_sample, args.ipd_offset, args.ipd_range_limit)
+        if any(value is not None for value in lookup_args):
+            if any(value is None for value in lookup_args):
+                raise ValueError('IPD table, hash, sensor sample, offset and range limit are required together')
+            table = ipd_offset_table(read_file(args.ipd_table, args.ipd_table_sha256, 20000))
+            result['ipd_table'] = table
+            result['ipd_lookup'] = lookup_ipd_offset(table, args.model, args.ipd_sample, args.ipd_offset,
+                                                   args.ipd_range_limit)
+            result['files']['ipd_table'] = {'name': args.ipd_table.name, 'sha256': args.ipd_table_sha256}
         if args.runtime_settings is not None or args.runtime_sha256 is not None:
             if args.runtime_settings is None or args.runtime_sha256 is None:
                 raise ValueError('Runtime settings and SHA-256 are required together')
             settings = runtime_parameters(read_file(args.runtime_settings, args.runtime_sha256, 4096))
+            if ('ipd_lookup' in result and
+                    binary32(settings['ipd_correction_mm']) != result['ipd_lookup']['value_mm']):
+                raise ValueError('Runtime IPD correction disagrees with the explicit table lookup')
             resolved = resolve_runtime(lens, result['axis_offsets'], settings, args.model, args.ipd_state)
+            resolved['ipd_lookup_verified'] = 'ipd_lookup' in result
             result['runtime_adjustment'] = resolved
             lens = resolved['lens']
             result['files']['runtime_settings'] = {'name': args.runtime_settings.name, 'sha256': args.runtime_sha256}
