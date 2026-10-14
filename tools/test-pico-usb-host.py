@@ -12,7 +12,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests/fixtures/pico-usb-host"
-PATCH = ROOT / "patches/kernel/pico-neo3/0042-usb-host-notifier-cleanup.patch"
+PATCHES = [ROOT / "patches/kernel/pico-neo3" / name for name in (
+    "0042-usb-host-notifier-cleanup.patch", "0043-usb-host-power-cleanup.patch")]
 DRIVER = Path("drivers/usb/dwc3/dwc3-msm.c")
 SOURCES = {
     str(DRIVER): "f55af56218dbd5964f5de40a47dfb4e90d3e2d68d59537eca1a6d3462af38c3c",
@@ -53,12 +54,13 @@ def run_tests(output, cc="cc"):
     report = {"passed": False, "runs": {}}
     env = dict(os.environ, UBSAN_OPTIONS="halt_on_error=1",
                ASAN_OPTIONS=f"detect_leaks={int(sys.platform.startswith('linux'))}")
-    for name in ("original", "patched"):
-        if name == "patched":
+    for name in ("original", "notifier", "patched"):
+        if name != "original":
+            patch = PATCHES[0 if name == "notifier" else 1]
             result = subprocess.run(
-                ["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(PATCH)],
+                ["patch", "--batch", "--fuzz=0", "--forward", "-p1", "-i", str(patch)],
                 cwd=output, capture_output=True, text=True, timeout=15, check=True)
-            (output / "patch.log").write_text(result.stdout + result.stderr)
+            (output / (name + "-patch.log")).write_text(result.stdout + result.stderr)
         command = [cc, "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                    "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                    "-I", str(output), str(output / "test.c"), "-o", str(output / name)]
@@ -69,13 +71,13 @@ def run_tests(output, cc="cc"):
                                 text=True, timeout=30)
         (output / (name + ".log")).write_text(result.stdout + result.stderr)
         match = re.fullmatch(r"PICO_USB_HOST cases=(\d+) defects=(\d+)\n", result.stdout)
-        defects = 1792 if name == "original" else 0
-        if (not match or int(match[1]) != 256 or int(match[2]) != defects
+        defects = {"original": 6208, "notifier": 2624, "patched": 0}[name]
+        if (not match or int(match[1]) != 608 or int(match[2]) != defects
                 or result.returncode != bool(defects) or result.stderr):
             raise ValueError("Unexpected USB host result: " + name)
         report["runs"][name] = {"cases": int(match[1]), "defects": defects,
                                 "exit_code": result.returncode}
-    files = [harness, PATCH, *sorted(p for p in FIXTURE.rglob("*") if p.is_file())]
+    files = [harness, *PATCHES, *sorted(p for p in FIXTURE.rglob("*") if p.is_file())]
     report.update(passed=True, inputs={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
                                       for p in files},
                   scope="Actual host start/stop and notifier register/unregister functions; hardware, callbacks and locking modeled")

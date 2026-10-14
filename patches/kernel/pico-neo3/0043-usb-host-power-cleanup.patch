@@ -1,0 +1,39 @@
+--- a/drivers/usb/dwc3/dwc3-msm.c
++++ b/drivers/usb/dwc3/dwc3-msm.c
+@@ -4187,7 +4187,13 @@
+ 		dev_dbg(mdwc->dev, "%s: turn on host\n", __func__);
+ 
+ 		mdwc->hs_phy->flags |= PHY_HOST_MODE;
+-		pm_runtime_get_sync(mdwc->dev);
++		ret = pm_runtime_get_sync(mdwc->dev);
++		if (ret < 0) {
++			mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
++			pm_runtime_put_noidle(mdwc->dev);
++			return ret;
++		}
++		ret = 0;
+ 		dbg_event(0xFF, "StrtHost gync",
+ 			atomic_read(&mdwc->dev->power.usage_count));
+ 		if (dwc->maximum_speed >= USB_SPEED_SUPER) {
+@@ -4201,6 +4207,10 @@
+ 			ret = regulator_enable(mdwc->vbus_reg);
+ 		if (ret) {
+ 			dev_err(mdwc->dev, "unable to enable vbus_reg\n");
++			usb_phy_notify_disconnect(mdwc->hs_phy, USB_SPEED_HIGH);
++			if (mdwc->ss_phy->flags & PHY_HOST_MODE)
++				usb_phy_notify_disconnect(mdwc->ss_phy,
++						USB_SPEED_SUPER);
+ 			mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
+ 			mdwc->ss_phy->flags &= ~PHY_HOST_MODE;
+ 			pm_runtime_put_sync(mdwc->dev);
+@@ -4226,6 +4236,10 @@
+ 			if (!IS_ERR_OR_NULL(mdwc->vbus_reg))
+ 				regulator_disable(mdwc->vbus_reg);
+ 
++			usb_phy_notify_disconnect(mdwc->hs_phy, USB_SPEED_HIGH);
++			if (mdwc->ss_phy->flags & PHY_HOST_MODE)
++				usb_phy_notify_disconnect(mdwc->ss_phy,
++						USB_SPEED_SUPER);
+ 			mdwc->hs_phy->flags &= ~PHY_HOST_MODE;
+ 			mdwc->ss_phy->flags &= ~PHY_HOST_MODE;
+ 			pm_runtime_put_sync(mdwc->dev);

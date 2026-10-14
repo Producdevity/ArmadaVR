@@ -56,7 +56,7 @@ static void usb_unregister_atomic_notify(struct notifier_block *n)
 
 struct device { int refs; };
 struct regulator { int refs; };
-struct usb_phy { unsigned flags; };
+struct usb_phy { unsigned flags; bool connected; };
 struct dwc3 { int maximum_speed, revision, irq, active; };
 struct dwc3_msm {
     struct dwc3 *dwc3;
@@ -72,6 +72,9 @@ struct dwc3_msm {
 };
 static struct regulator *lookup_reg;
 static int init_error, enable_error, init_calls, exits;
+static int resume_result, unsafe_access, idle_puts, noidle_puts;
+static bool powered;
+static void hardware_access(void) { if (!powered) ++unsafe_access; }
 static struct dwc3 *platform_get_drvdata(struct dwc3 *d) { return d; }
 static struct regulator *devm_regulator_get_optional(struct device *d, const char *n)
 { (void)d; (void)n; return lookup_reg; }
@@ -79,17 +82,20 @@ static int regulator_enable(struct regulator *r)
 { if (enable_error) return enable_error; ++r->refs; return 0; }
 static int regulator_disable(struct regulator *r)
 { assert(r->refs > 0); --r->refs; return 0; }
-static void pm_runtime_get_sync(struct device *d) { ++d->refs; }
-static void pm_runtime_put_sync(struct device *d) { assert(d->refs > 0); --d->refs; }
+static int pm_runtime_get_sync(struct device *d)
+{ ++d->refs; powered = resume_result >= 0; return resume_result; }
+static void pm_runtime_put_sync(struct device *d)
+{ assert(d->refs > 0); --d->refs; ++idle_puts; }
+#define pm_runtime_put_noidle(d) do { assert((d)->refs > 0); --(d)->refs; ++noidle_puts; } while (0)
 #define pm_runtime_put_sync_autosuspend pm_runtime_put_sync
 #define pm_runtime_put_sync_suspend pm_runtime_put_sync
 static void pm_runtime_mark_last_busy(struct device *d) { (void)d; }
-static void usb_phy_notify_connect(struct usb_phy *p, int speed) { (void)p; (void)speed; }
-static void usb_phy_notify_disconnect(struct usb_phy *p, int speed) { (void)p; (void)speed; }
-static void dwc3_set_prtcap(struct dwc3 *d, int mode) { (void)d; (void)mode; }
+static void usb_phy_notify_connect(struct usb_phy *p, int speed) { hardware_access(); p->connected = true; (void)speed; }
+static void usb_phy_notify_disconnect(struct usb_phy *p, int speed) { hardware_access(); p->connected = false; (void)speed; }
+static void dwc3_set_prtcap(struct dwc3 *d, int mode) { hardware_access(); (void)d; (void)mode; }
 static void dwc3_en_sleep_mode(struct dwc3 *d) { (void)d; }
 static int dwc3_host_init(struct dwc3 *d)
-{ ++init_calls; assert(!d->active); if (!init_error) d->active = 1; return init_error; }
+{ hardware_access(); ++init_calls; assert(!d->active); if (!init_error) d->active = 1; return init_error; }
 static void dwc3_host_exit(struct dwc3 *d) { assert(d->active); d->active = 0; ++exits; }
 static void dwc3_usb3_phy_suspend(struct dwc3 *d, bool on) { (void)d; (void)on; }
 static void dwc3_msm_write_reg_field(void *b, int reg, int mask, int value)
@@ -126,7 +132,8 @@ int main(void)
     for (int revision = 0; revision < 2; ++revision)
     for (int optional = 0; optional < 2; ++optional)
     for (unsigned error = 0; error < sizeof(errors) / sizeof(errors[0]); ++error)
-    for (int repetition = 0; repetition < 8; ++repetition) {
+    for (int repetition = 0; repetition < 8; ++repetition)
+    for (int already_active = 0; already_active < 2; ++already_active) {
         struct device dev = {0};
         struct regulator reg = {0};
         struct usb_phy hs = {0}, ss = {0};
@@ -138,9 +145,11 @@ int main(void)
         usb_register_atomic_notify(&other);
         lookup_reg = optional ? (struct regulator *)(intptr_t)-ENODEV : &reg;
         init_error = errors[error]; enable_error = 0; warnings = 0; init_calls = exits = 0;
+        resume_result = already_active; unsafe_access = idle_puts = noidle_puts = 0;
         for (int retry = 0; retry < 3; ++retry) {
             assert(dwc3_otg_start_host(&m, 1) == init_error);
             expect(!contains(atomic_chain, &m.usbdev_nb));
+            expect(!hs.connected && !ss.connected);
             assert(!contains(blocking_chain, &m.host_nb));
             assert(!m.in_host_mode && !dwc.active && !dev.refs && !reg.refs);
             assert(!(hs.flags & PHY_HOST_MODE) && !(ss.flags & PHY_HOST_MODE));
@@ -165,6 +174,43 @@ int main(void)
         lookup_reg = &reg; enable_error = -EIO;
         assert(dwc3_otg_start_host(&m, 1) == -EIO);
         assert(!atomic_chain && !blocking_chain && init_calls == 4 && !dev.refs && !reg.refs);
+        expect(!hs.connected && !ss.connected);
+        expect(!unsafe_access && !noidle_puts);
+        ++cases;
+    }
+    const int resume_errors[] = {-EINVAL, -EACCES, -EIO};
+    for (int speed = 0; speed < 2; ++speed)
+    for (int optional = 0; optional < 2; ++optional)
+    for (unsigned error = 0; error < sizeof(resume_errors) / sizeof(resume_errors[0]); ++error)
+    for (int repetition = 0; repetition < 8; ++repetition) {
+        struct device dev = {0};
+        struct regulator reg = {0};
+        struct usb_phy hs = {0}, ss = {0};
+        struct dwc3 dwc = {.maximum_speed = speed ? USB_SPEED_SUPER : USB_SPEED_HIGH};
+        struct dwc3_msm m = {.dwc3 = &dwc, .dev = &dev, .hs_phy = &hs, .ss_phy = &ss};
+        struct notifier_block other = {.notifier_call = msm_dwc3_usbdev_notify, .priority = 1};
+        assert(!atomic_chain && !blocking_chain);
+        usb_register_atomic_notify(&other);
+        lookup_reg = optional ? (struct regulator *)(intptr_t)-ENODEV : &reg;
+        init_error = enable_error = init_calls = exits = 0;
+        unsafe_access = idle_puts = noidle_puts = 0;
+        resume_result = resume_errors[error];
+        expect(dwc3_otg_start_host(&m, 1) == resume_result);
+        expect(!init_calls && !unsafe_access);
+        expect(!m.in_host_mode && !dwc.active && !dev.refs && !reg.refs);
+        expect(!hs.connected && !ss.connected && !hs.flags && !ss.flags);
+        expect(atomic_chain == &other && !other.next && !blocking_chain);
+        expect(!idle_puts && noidle_puts == 1);
+        if (m.in_host_mode) {
+            resume_result = 0;
+            assert(dwc3_otg_start_host(&m, 0) == 0);
+        }
+        usb_unregister_atomic_notify(&other);
+        resume_result = repetition % 2;
+        assert(dwc3_otg_start_host(&m, 1) == 0);
+        assert(dwc3_otg_start_host(&m, 0) == 0);
+        assert(!atomic_chain && !blocking_chain && !hs.connected && !ss.connected);
+        assert(!dev.refs && !reg.refs && !m.in_host_mode && !dwc.active);
         ++cases;
     }
     printf("PICO_USB_HOST cases=%d defects=%d\n", cases, defects);
