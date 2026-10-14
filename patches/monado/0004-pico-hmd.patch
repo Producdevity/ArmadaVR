@@ -1,12 +1,13 @@
 --- a/src/xrt/drivers/CMakeLists.txt
 +++ b/src/xrt/drivers/CMakeLists.txt
-@@ -82,10 +82,18 @@
+@@ -82,10 +82,19 @@
  		pico_ssc/pico-monado-prober.c pico_ssc/pico-ssc-session.c
  		pico_ssc/pico-monado-device.c pico_ssc/pico-monado-input.c
  		pico_ssc/pico-controller.c pico_ssc/pico-controller-stream.c
 +        pico_ssc/pico-monado-hmd.c pico_ssc/pico-hmd-config.c pico_ssc/pico-hmd-prober.c
 +        pico_ssc/pico-head-tracking.c pico_ssc/pico-head-session.c
-+        pico_ssc/pico-camera.c pico_ssc/pico-camera-isp.c pico_ssc/pico-slam-input.c pico_ssc/pico-slam-tracking.c
++        pico_ssc/pico-camera.c pico_ssc/pico-camera-isp.c pico_ssc/pico-camera-sensor.c
++        pico_ssc/pico-slam-input.c pico_ssc/pico-slam-tracking.c
 +        pico_ssc/ssc-imu.c pico_ssc/ssc-imu-session.c pico_ssc/ssc-calibration.c
  		pico_ssc/ssc-clock.c pico_ssc/ssc-clock-linux.c)
  	target_include_directories(drv_pico_ssc PRIVATE "${PICO_SSC_INCLUDE_DIR}")

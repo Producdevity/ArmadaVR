@@ -822,3 +822,23 @@ OV6211, OV7251 and IMX476 variants; file names alone do not establish which
 sensors are fitted, their port/lane mapping or their active calibration. Camera
 selection, power sequencing and request submission remain separate integration
 requirements.
+
+### Sensor register command encoding
+
+`pico-camera-sensor` encodes the random-write operation used by all 92 register
+tables in the retained modules. It preserves order, batches adjacent writes,
+and starts a new batch after a delay. Address and value widths, bus frequency
+and an optional initial slave address are explicit. The slave address uses the
+stock 8-bit representation; the caller must establish the actual bus and sensor.
+
+A delay below 2,000 microseconds uses a hardware wait. Longer delays must be whole
+milliseconds and fit the kernel's signed 16-bit wait field; fractional or
+out-of-range delays are refused instead of shortened or wrapped. Unsupported
+values and insufficient output space leave the destination unchanged. The encoder
+allocates no memory and performs no I/O.
+
+Host and ARM64 sanitizer tests and 604 comparisons against stock cover all 7,217
+retained writes plus width, slave-address and delay boundaries. The retained
+kernel's random-write and delay handlers decode that corpus correctly with a
+host allocation stub. This verifies the command ABI, not physical I2C traffic,
+power sequencing, camera startup or safe selection of a module.
