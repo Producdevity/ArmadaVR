@@ -910,3 +910,21 @@ from the pinned Valve Index reference recording and produces 185 poses. Its
 rigid-aligned positional error matches the snapshot path: 6.413 mm RMS and
 16.598 mm maximum, with no fitted scale. These are short reference-recording
 results, not Pico camera, calibration or physical tracking accuracy.
+
+### IFE clock and frame-rate commands
+
+The clock and HFR encoders emit complete generic blobs, including the kernel's
+four-byte type/length header. Clock votes are caller-provided operating points;
+the encoder does not infer a rate from the sensor name. It supports explicit
+single/dual pixel votes and one active RDI0 vote. Stock's fixed 350 MHz RDI vote
+is used only in comparison tests, not as a default hardware setting.
+
+HFR configuration supports RDI0 batch sizes 1–32. Batch size one retains every
+frame. Larger batches either interrupt once per batch or drop frames; the image
+buffer's subsample and frame-drop settings must match before submission.
+
+106 cases match the stock ARM64 clock/HFR functions byte-for-byte on host and
+ARM64 sanitizer builds. The retained kernel generic-blob parser accepts those
+commands and rejects truncated payloads and out-of-range offsets in a host
+memory harness. These checks establish command representation, not clock-tree
+operation, sensor timing or capture performance.

@@ -17,6 +17,9 @@ class PicoCameraISPTests(unittest.TestCase):
     def test_packet_encoding(self):
         self.compile_test("pico-camera-packet", "PICO_CAMERA_PACKET_PASS")
 
+    def test_clock_and_frame_rate_blobs(self):
+        self.compile_test("pico-camera-blob", "PICO_CAMERA_BLOB_PASS")
+
     def compile_test(self, name, expected):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

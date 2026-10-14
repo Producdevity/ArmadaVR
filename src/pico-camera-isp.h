@@ -98,4 +98,25 @@ size_t pico_camera_packet_size(const struct pico_camera_packet_config *config);
 size_t pico_camera_packet_encode(const struct pico_camera_packet_config *config,
                                  void *output, size_t size);
 
+#define PICO_CAMERA_CLOCK_BLOB_SIZE 60
+#define PICO_CAMERA_HFR_BLOB_SIZE 36
+
+struct pico_camera_ife_clocks {
+    uint64_t left_pixel_hz, right_pixel_hz, rdi0_hz;
+    bool dual;
+};
+
+/* Generic command blobs include the four-byte kernel blob header. Clock votes
+ * are explicit: encoding does not select or validate a hardware operating point.
+ * A single ISP requires right_pixel_hz zero; both pixel votes are required for
+ * dual ISP. Only RDI0 is active. No device I/O; failure preserves output. */
+bool pico_camera_ife_clock_blob(const struct pico_camera_ife_clocks *clocks,
+                                void *output, size_t size);
+
+/* Configure one RDI0 port. batch_size 1 emits every frame; sizes 2..32 either
+ * interrupt once per batch (batched=true) or keep one frame per batch. The IO
+ * buffer's subsample/framedrop fields must agree with this configuration. */
+bool pico_camera_ife_hfr_blob(uint32_t batch_size, bool batched,
+                              void *output, size_t size);
+
 #endif

@@ -219,3 +219,38 @@ size_t pico_camera_packet_encode(const struct pico_camera_packet_config *c,
     memcpy(output, bytes, required);
     return required;
 }
+
+static void put64(uint8_t *bytes, uint64_t value)
+{
+    for (unsigned i = 0; i < 8; ++i) bytes[i] = (uint8_t)(value >> (8 * i));
+}
+
+bool pico_camera_ife_clock_blob(const struct pico_camera_ife_clocks *c, void *output, size_t size)
+{
+    if (!c || !output || size < PICO_CAMERA_CLOCK_BLOB_SIZE || !c->left_pixel_hz ||
+        !c->rdi0_hz || (c->dual ? !c->right_pixel_hz : c->right_pixel_hz != 0)) return false;
+    uint8_t bytes[PICO_CAMERA_CLOCK_BLOB_SIZE] = {0};
+    put32(bytes, (56U << 8) | 1);
+    put32(bytes + 4, c->dual);
+    put32(bytes + 8, 4);
+    put64(bytes + 12, c->left_pixel_hz);
+    put64(bytes + 20, c->right_pixel_hz);
+    put64(bytes + 28, c->rdi0_hz);
+    memcpy(output, bytes, sizeof(bytes));
+    return true;
+}
+
+bool pico_camera_ife_hfr_blob(uint32_t batch_size, bool batched, void *output, size_t size)
+{
+    if (!output || size < PICO_CAMERA_HFR_BLOB_SIZE || !batch_size || batch_size > 32) return false;
+    uint8_t bytes[PICO_CAMERA_HFR_BLOB_SIZE] = {0};
+    put32(bytes, 32U << 8);
+    put32(bytes + 4, 1);
+    put32(bytes + 12, 0x3006);
+    put32(bytes + 16, batched ? UINT32_C(1) << (batch_size - 1) : 1);
+    put32(bytes + 20, batched ? batch_size - 1 : 0);
+    put32(bytes + 24, 1);
+    put32(bytes + 28, batched ? 0 : batch_size - 1);
+    memcpy(output, bytes, sizeof(bytes));
+    return true;
+}
