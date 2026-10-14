@@ -1289,3 +1289,24 @@ RAW10/color modes are rejected by this subset. All 32 selected initialization,
 mode and stream-on/off commands match the original ARM64 CamX selection and
 encoding functions byte for byte. This verifies translation of the retained
 module data, not which module or mode is active on a physical headset.
+
+### Combined stereo startup
+
+`pico-camera-rig` connects the acquisition owner to both sensor programs and the
+IFE/PHY configuration owners. It validates the mono8 formats, PHY agreement,
+register tables and explicit votes before acquisition, prepares all command
+buffers before submitting configuration, and exposes handles only after both
+cameras are configured. Source table storage is no longer needed after prepare
+returns. Sensors must already have been probed using verified physical settings.
+
+Streaming remains a separate one-attempt call: the caller must first establish
+clock/estimator readiness and queue initial capture requests. Stop shuts down
+all attempted stream components; after independently verified quiescence and
+capture-child destruction, release frees configuration buffers before hardware
+and session handles. Uncertain stops or releases retain ownership.
+
+The integration test uses the actual session, sensor, packet, ISP/PHY and pipeline
+implementations with simulated CRM memory and ioctls. Host and ARM64 sanitizer
+runs cover 200 complete lifecycles, 104 memory-operation failures, 37 control
+failures and 19 stop/release failures. Those last 19 owners stay retained.
+These tests do not establish physical camera startup or DMA quiescence.

@@ -51,6 +51,12 @@ class PicoCameraCaptureTests(unittest.TestCase):
         self.compile_test("pico-camera-session", "PICO_CAMERA_SESSION_PASS",
                           ["pico-camera-control.c", "pico-camera-events.c", "pico-camera-isp.c"])
 
+    def test_complete_device_setup(self):
+        self.compile_test("pico-camera-rig", "PICO_CAMERA_RIG_PASS",
+                          ["pico-camera-session.c", "pico-camera-control.c", "pico-camera-events.c",
+                           "pico-camera-isp.c", "pico-camera-sensor.c", "pico-camera-sensor-setup.c",
+                           "pico-camera-ife.c", "pico-camera-front-end.c", "pico-camera-pipeline.c"])
+
     def test_ife_commands(self):
         self.compile_test("pico-camera-ife", "PICO_CAMERA_IFE_PASS")
 
