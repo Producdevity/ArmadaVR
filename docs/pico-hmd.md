@@ -331,6 +331,31 @@ at initialization. Original ARM64 branch and lens-copy execution covers 864
 cases across 27 branch/query combinations. Transport and unrelated setup are
 isolated; headset startup and the active branch remain unverified.
 
+## Display scaling inspection
+
+`--display-scaling FILE --display-scaling-sha256 SHA256` resolves the separate
+initialization block for stock `g`-prefixed display settings. Supply
+`schema_version: 1` and explicit numeric values for `gFrustumDisplayWidth`,
+`gFrustumDisplayHeight`, `gDisplayWidth`, `gDisplayHeight`, `gLensScale`,
+`gLensScaleX`, `gLensScaleY`, `gWarpMeshMinX`, `gWarpMeshMaxX`, `gWarpMeshMinY`,
+`gWarpMeshMaxY`, `gMeshDiscardUV`, and `gScreenWidthMM`.
+
+If either lens scale is zero after binary32 conversion, both become `gLensScale`.
+Only when all four dimensions are positive does stock replace X/Y scales and
+symmetric mesh bounds with frustum/display ratios, raise the discard threshold
+to at least the height ratio, and set `gScreenWidthMM` to twice `gDisplayWidth`.
+Otherwise those size overrides remain inactive. The report retains the original
+settings and identifies both branches.
+
+This block does **not** update `xrWidthMeters`, the width used by the tested Pico
+radial mesh. The inspector therefore reports these settings separately and does
+not convert `gScreenWidthMM` into its screen model or apply these scales to the
+Pico tangent mapping. The original initialization block matches 26,624 float
+values across 2,048 synthetic cases; `xrWidthMeters` stays unchanged in every
+case. This resolves the block's arithmetic and avoids mixing two distinct
+geometry paths. Active settings, other mesh paths and physical dimensions still
+require verification.
+
 ## Projection inspection
 
 `--projection-model FILE --projection-sha256 SHA256` accepts a bounded JSON

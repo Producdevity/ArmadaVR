@@ -1018,3 +1018,76 @@ class PicoStartupSelectionTests(unittest.TestCase):
             save('startup.json', dict(self.settings, config_service_enabled=False))
             self.assertNotEqual(subprocess.run(command(), capture_output=True, timeout=5).returncode, 0)
             self.assertFalse(output.exists())
+
+
+class PicoDisplayScalingTests(unittest.TestCase):
+    def setUp(self):
+        self.settings = {'schema_version': 1, 'gFrustumDisplayWidth': 60, 'gFrustumDisplayHeight': 48,
+            'gDisplayWidth': 50, 'gDisplayHeight': 40, 'gLensScale': .9,
+            'gLensScaleX': 0, 'gLensScaleY': 2, 'gWarpMeshMinX': -1, 'gWarpMeshMaxX': 1,
+            'gWarpMeshMinY': -1, 'gWarpMeshMaxY': 1, 'gMeshDiscardUV': .8, 'gScreenWidthMM': 125}
+
+    def test_positive_sizes_replace_scales_and_mesh_bounds(self):
+        result = OPT.display_scaling(json.dumps(self.settings).encode())
+        settings = result['resolved_settings']; scale = OPT.binary32(1.2)
+        self.assertEqual([settings[k] for k in ('gLensScaleX', 'gLensScaleY', 'gWarpMeshMinX',
+            'gWarpMeshMaxX', 'gWarpMeshMinY', 'gWarpMeshMaxY', 'gMeshDiscardUV', 'gScreenWidthMM')],
+            [scale, scale, -scale, scale, -scale, scale, scale, 100])
+        self.assertTrue(result['fallback_lens_scale_applied'])
+        self.assertTrue(result['size_override_applied'])
+        self.assertFalse(result['pico_tangent_mapping_applied'])
+        self.assertFalse(result['runtime_usable'])
+        self.assertEqual(result['settings']['gScreenWidthMM'], 125)
+        larger = OPT.display_scaling(json.dumps(dict(self.settings, gMeshDiscardUV=2)).encode())
+        self.assertEqual(larger['resolved_settings']['gMeshDiscardUV'], 2)
+
+    def test_any_nonpositive_size_disables_all_size_overrides(self):
+        for field in ('gFrustumDisplayWidth', 'gFrustumDisplayHeight', 'gDisplayWidth', 'gDisplayHeight'):
+            for value in (0, -1, 1e-50):
+                with self.subTest(field=field, value=value):
+                    settings = dict(self.settings, **{field: value})
+                    result = OPT.display_scaling(json.dumps(settings).encode())
+                    self.assertFalse(result['size_override_applied'])
+                    self.assertEqual(result['resolved_settings']['gScreenWidthMM'], 125)
+                    self.assertEqual(result['resolved_settings']['gWarpMeshMinX'], -1)
+                    self.assertEqual(result['resolved_settings']['gLensScaleX'], OPT.binary32(.9))
+                    self.assertEqual(result['resolved_settings']['gLensScaleY'], OPT.binary32(.9))
+        result = OPT.display_scaling(json.dumps(dict(self.settings, gDisplayWidth=0, gLensScaleX=1)).encode())
+        self.assertFalse(result['fallback_lens_scale_applied'])
+        self.assertEqual(result['resolved_settings']['gLensScaleY'], 2)
+
+    def test_refuses_ambiguous_unbounded_or_overflowing_settings(self):
+        for field, value in [('schema_version', True), ('gLensScale', True), ('gDisplayWidth', float('nan')),
+                             ('gDisplayHeight', float('inf')), ('gFrustumDisplayHeight', 10001),
+                             ('gDisplayWidth', 1e-44)]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                OPT.display_scaling(json.dumps(dict(self.settings, **{field: value})).encode())
+        for data in (b'{}', b' ' * 4097, json.dumps(self.settings).encode()+b'\0',
+                     json.dumps(self.settings).replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1').encode()):
+            with self.assertRaises(ValueError):
+                OPT.display_scaling(data)
+
+    def test_cli_keeps_display_width_separate_from_pico_tangent_mapping(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d = Path(temp); config = d/'A7H10_0.ini'; config.write_bytes(fixture())
+            offsets = d/'axes.txt'; offsets.write_bytes(b'0,0,0,0')
+            scaling = d/'scaling.json'; scaling.write_text(json.dumps(self.settings))
+            screen = d/'screen.json'; geometry = screen_fixture(); screen.write_text(json.dumps(geometry))
+            digest = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()
+            output = d/'result.json'
+            base = [sys.executable, '-B', str(ROOT/'tools/inspect-pico-optics.py'), str(config), str(offsets),
+                    '--config-sha256', digest(config), '--offsets-sha256', digest(offsets),
+                    '--model', 'neo3-pro-eye', '--ipd-state', '2', '--output', str(output),
+                    '--screen-model', str(screen), '--screen-sha256', digest(screen), '--grid-size', '3', '3']
+            extra = ['--display-scaling', str(scaling), '--display-scaling-sha256', digest(scaling)]
+            for command in (base+extra[:2], base+extra[:3]+['0'*64]):
+                self.assertNotEqual(subprocess.run(command, capture_output=True, timeout=5).returncode, 0)
+                self.assertFalse(output.exists())
+            subprocess.run(base+extra, check=True, capture_output=True, timeout=5)
+            result = json.loads(output.read_text())
+            self.assertEqual(result['screen_grid']['screen_model']['width_m'], .16)
+            self.assertEqual(result['display_scaling']['resolved_settings']['gScreenWidthMM'], 100)
+            self.assertEqual(result['screen_grid']['views'][0]['analytic_distortion'],
+                             OPT.analytic_parameters(result['stock_lens'], geometry, 0))
+            self.assertFalse(result['runtime_usable'])
+            self.assertEqual(output.stat().st_mode & 0o777, 0o600)

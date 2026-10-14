@@ -425,6 +425,49 @@ def projection_parameters(data):
     return {'frustums': model, 'fov': fovs, 'active_settings_verified': False, 'runtime_usable': False}
 
 
+def display_scaling(data):
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate display scaling parameter')
+            result[key] = value
+        return result
+
+    if not 0 < len(data) <= 4096 or b'\0' in data:
+        raise ValueError('Invalid display scaling size or NUL')
+    try:
+        settings = json.loads(data, object_pairs_hook=unique)
+    except (ValueError, UnicodeError) as error:
+        raise ValueError('Malformed display scaling') from error
+    fields = {'gFrustumDisplayWidth', 'gFrustumDisplayHeight', 'gDisplayWidth', 'gDisplayHeight',
+              'gLensScale', 'gLensScaleX', 'gLensScaleY', 'gWarpMeshMinX', 'gWarpMeshMaxX',
+              'gWarpMeshMinY', 'gWarpMeshMaxY', 'gMeshDiscardUV', 'gScreenWidthMM'}
+    if not isinstance(settings, dict) or set(settings) != fields | {'schema_version'}:
+        raise ValueError('Expected explicit stock display scaling settings')
+    if type(settings['schema_version']) is not int or settings['schema_version'] != 1:
+        raise ValueError('Unsupported display scaling schema')
+    if any(type(settings[k]) not in (int, float) or not math.isfinite(settings[k]) or
+           abs(settings[k]) > 10000 for k in fields):
+        raise ValueError('Expected finite bounded stock display settings')
+    resolved = {key: binary32(settings[key]) for key in sorted(fields)}
+    fallback = resolved['gLensScaleX'] == 0 or resolved['gLensScaleY'] == 0
+    if fallback:
+        resolved['gLensScaleX'] = resolved['gLensScaleY'] = resolved['gLensScale']
+    applied = all(resolved[key] > 0 for key in
+                  ('gFrustumDisplayWidth', 'gFrustumDisplayHeight', 'gDisplayWidth', 'gDisplayHeight'))
+    if applied:
+        x = binary32(resolved['gFrustumDisplayWidth'] / resolved['gDisplayWidth'])
+        y = binary32(resolved['gFrustumDisplayHeight'] / resolved['gDisplayHeight'])
+        resolved.update(gLensScaleX=x, gLensScaleY=y, gWarpMeshMinX=-x, gWarpMeshMaxX=x,
+                        gWarpMeshMinY=-y, gWarpMeshMaxY=y,
+                        gMeshDiscardUV=max(resolved['gMeshDiscardUV'], y),
+                        gScreenWidthMM=binary32(resolved['gDisplayWidth'] + resolved['gDisplayWidth']))
+    return {'settings': settings, 'resolved_settings': resolved,
+            'fallback_lens_scale_applied': fallback, 'size_override_applied': applied,
+            'pico_tangent_mapping_applied': False, 'active_settings_verified': False, 'runtime_usable': False}
+
+
 def startup_selection(data):
     def unique(pairs):
         result = {}
@@ -698,6 +741,8 @@ def main():
     parser.add_argument('--selection-sha256')
     parser.add_argument('--compositor-axes', type=Path, help='Explicit SDK axis overrides and HWC settings JSON')
     parser.add_argument('--compositor-axes-sha256')
+    parser.add_argument('--display-scaling', type=Path, help='Explicit stock g-prefixed display scaling settings JSON')
+    parser.add_argument('--display-scaling-sha256')
     parser.add_argument('--startup-model', type=Path, help='Explicit configuration branch and lens-query status JSON')
     parser.add_argument('--startup-sha256')
     parser.add_argument('--sdk-geometry', type=Path, help='Explicit shared-lens SDK overrides JSON')
@@ -782,6 +827,11 @@ def main():
             result['startup_selection'] = selection
             result['effective_lens'] = lens
             result['files']['startup_model'] = {'name': args.startup_model.name, 'sha256': args.startup_sha256}
+        if args.display_scaling is not None or args.display_scaling_sha256 is not None:
+            if args.display_scaling is None or args.display_scaling_sha256 is None:
+                raise ValueError('Display scaling settings and SHA-256 are required together')
+            result['display_scaling'] = display_scaling(read_file(args.display_scaling, args.display_scaling_sha256, 4096))
+            result['files']['display_scaling'] = {'name': args.display_scaling.name, 'sha256': args.display_scaling_sha256}
         if len(args.sample_tangent) > 256:
             raise ValueError('At most 256 tangent samples are allowed')
         result['tangent_samples'] = [sample_tangents(lens, x, y) for x, y in args.sample_tangent]
