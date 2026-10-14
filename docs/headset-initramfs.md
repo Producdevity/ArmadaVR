@@ -90,7 +90,10 @@ controller, PHY, Type-C roles or port power. UAS is not enabled in this kernel;
 the tested transport is USB bulk-only storage.
 
 Both transports test whole-disk and MBR-partitioned roots, a wrong label and an
-absent disk. USB also tests attachment after the initramfs starts waiting for
+absent disk. A checksum-valid ext4 fixture with an unsupported incompatibility
+flag must reach the mount attempt, refuse the filesystem and power off without
+repairing or writing it. Only that case permits the expected `/sysroot` mount
+failure; unrelated service failures still fail acceptance. USB also tests attachment after the initramfs starts waiting for
 its root. The guest resolves the label's block-device identity and checks the
 whole disk's write counter, including when the root is a partition. USB cases
 must have a USB ancestor in sysfs. The OverlayFS lower mount may become hidden

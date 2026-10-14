@@ -60,6 +60,28 @@ def partition_fixture(source, target):
     return first
 
 
+def unsupported_filesystem_fixture(disk):
+    def crc32c(data):
+        value = 0xffffffff
+        for byte in data:
+            value ^= byte
+            for _ in range(8):
+                value = (value >> 1) ^ (0x82f63b78 if value & 1 else 0)
+        return value
+
+    with disk.open("r+b") as stream:
+        stream.seek(1024)
+        superblock = bytearray(stream.read(1024))
+        if (len(superblock) != 1024 or struct.unpack_from("<H", superblock, 56)[0] != 0xef53 or
+                struct.unpack_from("<I", superblock, 1020)[0] != crc32c(superblock[:1020])):
+            raise ValueError("Expected an ext4 fixture with a valid superblock checksum")
+        features = struct.unpack_from("<I", superblock, 96)[0]
+        struct.pack_into("<I", superblock, 96, features | 0x80000000)
+        struct.pack_into("<I", superblock, 1020, crc32c(superblock[:1020]))
+        stream.seek(1024)
+        stream.write(superblock)
+
+
 def service_failures(log):
     log = re.sub(r"\x1b\[[0-9;]*m", "", log)
     failures = re.findall(r"([\w@.:-]+\.service): Failed (?:at step|with result)", log)
@@ -137,7 +159,8 @@ def run(args):
         report["test_initramfs_sha256"] = builder.digest(boot_initrd)
         report["root_sha256"] = builder.digest(output / "root.ext4")
         cases = [("overlay", "reframed-vr-root", 10), ("partitioned-overlay", "reframed-vr-root", 10),
-                 ("missing-root", "absent-root", 30), ("missing-root-device", "absent-root", 2)]
+                 ("missing-root", "absent-root", 30), ("missing-root-device", "absent-root", 2),
+                 ("unsupported-filesystem", "reframed-vr-root", 10)]
         if args.transport == "usb-storage":
             cases.append(("delayed-overlay", "reframed-vr-root", 30))
         for name, label, device_timeout in cases:
@@ -146,6 +169,8 @@ def run(args):
                 partition_fixture(output / "root.ext4", disk)
             else:
                 shutil.copyfile(output / "root.ext4", disk)
+            if name == "unsupported-filesystem":
+                unsupported_filesystem_fixture(disk)
             before = builder.digest(disk)
             devices = disk_options(disk, args.transport, pico=pico)
             if name == "missing-root-device":
@@ -197,11 +222,15 @@ def run(args):
             case["backing_image_unchanged"] = builder.digest(disk) == before
             log = (output / (name + ".log")).read_text(errors="replace")
             case["service_failures"] = service_failures(log)
-            if case["service_failures"]:
+            expected_failures = ["Failed to mount /sysroot."] if name == "unsupported-filesystem" else []
+            if case["service_failures"] != expected_failures:
                 raise RuntimeError(f"Root handoff {name} has failed services: {', '.join(case['service_failures'])}")
             passed = "REFRAMED_ROOT_OVERLAY_PASS" in log
             expected = passed if name in ("overlay", "partitioned-overlay", "delayed-overlay") else (
                 not passed and missing_root_failure(log) and "Powering off." in log)
+            if name == "unsupported-filesystem":
+                expected = (not passed and "Couldn't mount because of unsupported optional features (80000000)" in log
+                            and "Powering off." in log)
             if (case["returncode"] or not expected or "REFRAMED_ROOT_FAIL" in log or
                     "reboot: Power down" not in log or not case["backing_image_unchanged"]):
                 raise RuntimeError(f"Root handoff {name} failed; inspect its log")
