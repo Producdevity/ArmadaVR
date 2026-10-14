@@ -1,0 +1,43 @@
+Subject: [PATCH] turnip: unwind failed KGSL DMA-buffer imports
+
+Release the imported GPU object when its address query or descriptor duplication
+fails. Publish the BO only after both resources are available. Preserve the
+original failure across the cleanup ioctl and leave the caller descriptor owned
+by the caller.
+
+--- a/src/freedreno/vulkan/tu_knl_kgsl.cc
++++ b/src/freedreno/vulkan/tu_knl_kgsl.cc
+@@ -403,9 +403,22 @@
+ 
+    ret = safe_ioctl(dev->physical_device->local_fd,
+                     IOCTL_KGSL_GPUOBJ_INFO, &info_req);
+-   if (ret)
++   if (ret) {
++      int error = errno;
++      struct kgsl_gpuobj_free release = { .id = req.id };
++      safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_GPUOBJ_FREE, &release);
+       return vk_errorf(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY,
+-                       "Failed to get dma-buf info (%s)\n", strerror(errno));
++                       "Failed to get dma-buf info (%s)\n", strerror(error));
++   }
++
++   int shared_fd = os_dupfd_cloexec(fd);
++   if (shared_fd < 0) {
++      int error = errno;
++      struct kgsl_gpuobj_free release = { .id = req.id };
++      safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_GPUOBJ_FREE, &release);
++      return vk_errorf(dev, VK_ERROR_OUT_OF_HOST_MEMORY,
++                       "Failed to duplicate dma-buf (%s)\n", strerror(error));
++   }
+ 
+    struct tu_bo* bo = tu_device_lookup_bo(dev, req.id);
+    assert(bo && bo->gem_handle == 0);
+@@ -416,7 +429,7 @@
+       .iova = info_req.gpuaddr,
+       .name = tu_debug_bos_add(dev, info_req.size, "dmabuf"),
+       .refcnt = 1,
+-      .shared_fd = os_dupfd_cloexec(fd),
++      .shared_fd = shared_fd,
+    };
+ 
+    struct stat st;

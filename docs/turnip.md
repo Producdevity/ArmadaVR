@@ -249,3 +249,17 @@ five Freedreno tests and the fence, wait, submission and display helper suites
 pass. The resulting ARM64 library passes immediate loading alongside the rebuilt
 Monado and SSC bundles through [the combined userspace check](monado.md#offline-graphics-bundle-compatibility).
 This verifies the native dependency set, not execution or scanout on the Pico GPU.
+
+## DMA-buffer import failures
+
+Patch 0007 releases the imported KGSL GPU object if its address query or the
+retained descriptor duplication fails. The import is published only after both
+resources exist; failures preserve the original diagnostic and leave the caller's
+descriptor untouched. A cleanup ioctl failure cannot guarantee reclamation, but
+still returns the original import error without publishing an unusable BO.
+
+The builder runs the actual import and export functions under ASan/UBSan with
+modeled KGSL ioctls and real descriptors. The 2,304 cases cover successful imports,
+query/import/duplication failures, cleanup failure and repeated recovery. The
+preceding source fails 1,536 ownership checks; the corrected source passes.
+These are userspace ownership tests, not hardware GPU or display acceptance.

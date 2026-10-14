@@ -135,6 +135,18 @@ def build(profile, driver="lavapipe"):
                 "helpers_sha256": digest(output / "tu_kgsl_display.h"),
                 "executable_sha256": digest(output / "kgsl-display-tests"),
             }
+            run([sys.executable, str(ROOT / "tests/kgsl-import-tests.py"),
+                 str(source / "src/freedreno/vulkan/tu_knl_kgsl.cc"), str(output)],
+                "kgsl-import-tests.log", timeout=120)
+            report["kgsl_import_tests"] = {
+                "status": "passed",
+                "scope": "actual import functions with modeled GPU ioctls and real descriptors",
+                "runner_sha256": digest(ROOT / "tests/kgsl-import-tests.py"),
+                "model_sha256": digest(ROOT / "tests/kgsl-import-tests.cpp"),
+                "helpers_sha256": digest(output / "kgsl-import-under-test.h"),
+                "executable_sha256": digest(output / "kgsl-import-tests"),
+            }
+
         report["source_sha256"] = stamp.read_text()
         (output / "packages.txt").write_text(subprocess.check_output(["rpm", "-qa"], text=True))
         if not (build_dir / "build.ninja").is_file():
