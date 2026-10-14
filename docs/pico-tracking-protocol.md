@@ -963,3 +963,17 @@ released buffer. It handles 372 buffers; the existing IMU-bracketing rule exclud
 the first pair, leaving 370 estimator images and 185 poses. The trajectory matches
 the direct native input path. Real DMA synchronization and physical camera capture
 remain unverified.
+
+The native event decoder reads the 64-byte V4L2 payload from its explicitly
+selected sync or CRM descriptor. Fence cookies bind generation and full request
+ID; SOF retains the kernel's QTimer timestamp and does not apply an exposure
+correction. Boot-time SOF events are classified as unrelated. Error events retain
+their 32-bit request field, which must not identify a 64-bit request on its own;
+the matching session/link must be invalidated. Reserved bytes are ignored because
+some retained kernel producers leave them uninitialized.
+
+The actual retained kernel fence and SOF producers, with a host V4L2 queue stub,
+generate 256 events of each kind that the native decoder accepts under ARM64
+sanitizers. Six error types are checked using the retained UAPI and notification
+function. Host tests cover unaligned buffers, truncation, malformed cookies and
+clock-domain rejection. This verifies the event ABI, not live device delivery.

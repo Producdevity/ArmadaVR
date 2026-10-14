@@ -48,7 +48,9 @@
     "pico-camera-sensor.c",
     "pico-camera-sensor.h",
     "pico-camera-capture.c",
-    "pico-camera-capture.h"
+    "pico-camera-capture.h",
+    "pico-camera-events.c",
+    "pico-camera-events.h"
   ],
   "full_source": {
     "url": "https://gitlab.freedesktop.org/api/v4/projects/monado%2Fmonado/repository/archive.tar.gz?sha=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
