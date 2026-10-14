@@ -41,10 +41,13 @@ def main():
     include = source / 'src/xrt/include'
     generated = output / 'include/xrt'
     generated.mkdir(parents=True)
-    template = (include / 'xrt/xrt_config_build.h.cmake_in').read_text()
-    (generated / 'xrt_config_build.h').write_text(re.sub(r'^#cmakedefine .+$', '', template, flags=re.MULTILINE))
+    for name in ('xrt_config_build.h', 'xrt_config_have.h'):
+        template = (include / ('xrt/' + name + '.cmake_in')).read_text()
+        (generated / name).write_text(re.sub(r'^#cmakedefine .+$', '', template, flags=re.MULTILINE))
     inputs = [ROOT / name for name in ['tests/pico-head-tracking.c', 'src/pico-head-tracking.c']]
-    inputs += [auxiliary / ('math/' + name) for name in ['m_imu_3dof.c', 'm_filter_fifo.c', 'm_base.cpp']]
+    inputs += [auxiliary / ('math/' + name) for name in ['m_imu_3dof.c', 'm_filter_fifo.c', 'm_base.cpp', 'm_predict.c', 'm_relation_history.cpp', 'm_quatexpmap.cpp']]
+    inputs += [auxiliary / ('util/' + name) for name in ['u_logging.c', 'u_debug.c']]
+    inputs.append(source / 'src/external/cjson/cjson/cJSON.c')
     eigen = subprocess.check_output(['pkg-config', '--cflags', 'eigen3'], text=True).split()
     flags = ['-O1', '-g1', '-ffunction-sections', '-fdata-sections', '-pthread',
              *eigen, '-I', str(ROOT / 'src'), '-I', str(output / 'include'),
@@ -75,7 +78,7 @@ def main():
         run([args.cxx, *sanitize, *objects, '-pthread', '-lm', collect, '-o', str(binary)], 'link.log')
         run([str(binary)], 'test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1', TSAN_OPTIONS='halt_on_error=1', ASAN_OPTIONS='detect_leaks=1'))
         log = (output / 'test.log').read_text()
-        if 'PICO_HEAD_TRACKING_PASS pairs=14211' not in log:
+        if 'PICO_HEAD_TRACKING_PASS pairs=14211' not in log or 'PICO_HEAD_TIME_PASS' not in log:
             raise ValueError('Tracking tests did not complete')
         report['binary_sha256'] = digest(binary)
         print(log, end='')
@@ -166,6 +169,7 @@ def main():
         report['headers_sha256'] = {str(path.relative_to(ROOT)): digest(path) for path in (ROOT / 'src').glob('*.h')}
         report['runner_sha256'] = digest(Path(__file__))
         report['generated_config_sha256'] = digest(generated / 'xrt_config_build.h')
+        report['generated_have_sha256'] = digest(generated / 'xrt_config_have.h')
         (output / 'result.json').write_text(json.dumps(report, indent=2) + '\n')
 
 

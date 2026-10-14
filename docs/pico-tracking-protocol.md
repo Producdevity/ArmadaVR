@@ -491,8 +491,8 @@ startup, service loss and callback cancellation. Native ASan/UBSan with leak
 detection covers 100 cancellation/no-QRTR cycles split between two- and
 four-subscription configurations. These checks exercise the production session
 owner with a synthetic DSP; actual calibration SUIDs, pairing and native physical
-delivery remain unverified. This session is not yet integrated into the runtime's
-HMD driver; installing the newer SSC library does not enable head tracking.
+delivery remain unverified. The HMD integration below now uses this session,
+with explicit device calibration and activation required.
 
 The [sensor-selection patch](../patches/libssc/0010-select-requested-sensor-uid.patch)
 adds construct-only uint64 properties `requested-uid-high` and `requested-uid-low`.
@@ -545,9 +545,9 @@ Native ASan/UBSan cancellation tests and the 429 host checks also pass.
 
 The eleven-patch SSC library is installed in the separately verified October 13
 [Pico root](headset-root.md). Monado's existing controller integration passes
-its OpenXR regression against that library. The raw/calibrated IMU session
-remains separately tested source, pending physical identities, clock origin,
-coordinate transforms and integration with the HMD and camera tracking path.
+its OpenXR regression against that library. The head session described below
+integrates calibrated IMU data with the HMD. Physical identities, clock origin,
+coordinate transforms and camera tracking remain to be established.
 
 
 ## Calibrated head orientation
@@ -566,12 +566,17 @@ generation starts. Reconnection clears Monado's FIFO history as well as its
 orientation state. Reads and sample updates are serialized; stopping the session
 immediately clears exposed pose validity while its worker disables subscriptions.
 
-The output contains orientation and its capture timestamp only. It does not
-claim position, velocity, prediction, a calibrated yaw origin or camera tracking.
+The capture-time API returns orientation and its timestamp. The timestamp-query
+API retains 4,096 poses and interpolates or predicts orientation using calibrated
+angular velocity in tracking-origin coordinates. Forward prediction is limited
+to 50 ms including timestamp uncertainty. Invalid, stale and older-than-history
+queries clear the relation. Position, a calibrated yaw origin and camera tracking
+are not provided.
 Exact timestamp pairing is deliberately strict: physical sensor delivery must
 establish whether the two streams are synchronized before this policy can be
-used on the headset. The provider is not registered as a physical Monado HMD;
-panel/optical calibration and the device factory remain pending.
+used on the headset. The [Monado HMD](pico-hmd.md) uses the timestamp-query API
+and requires explicit activation and a validated calibration file; there are
+no physical sensor or optical defaults.
 
 Run the native test with the pinned Monado archive and an optional verified SSC
 bundle on a Linux host with Eigen, GLib and sanitizer-capable C/C++ compilers:

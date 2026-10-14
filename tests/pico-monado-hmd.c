@@ -30,6 +30,15 @@ bool pico_head_session_get(struct pico_head_session *s, int64_t now, struct xrt_
     *time = now - 1000; return true;
 }
 
+bool pico_head_session_get_at(struct pico_head_session *s, int64_t now, int64_t at,
+                              struct xrt_space_relation *r)
+{
+    int64_t sample;
+    bool valid=pico_head_session_get(s,now,r,&sample);
+    if(at!=1234567890) {memset(r,0,sizeof(*r));return false;}
+    return valid;
+}
+
 static struct pico_hmd_config configuration(struct xrt_uv_triplet *grid, unsigned n)
 {
     struct pico_hmd_config c = {.serial="offline-fixture", .screen_width=1920, .screen_height=3664,
@@ -155,11 +164,13 @@ int main(int argc, char **argv)
         struct xrt_space_relation r;struct xrt_fov f[2];struct xrt_pose p[2];struct xrt_vec3 ignored={1,2,3};
         available=true;
         assert(d->update_inputs(d)==XRT_SUCCESS && d->inputs[0].active && d->inputs[0].timestamp>0);
-        assert(d->get_view_poses(d,&ignored,INT64_MAX,XRT_VIEW_TYPE_STEREO,2,&r,f,p)==XRT_SUCCESS);
+        assert(d->get_view_poses(d,&ignored,1234567890,XRT_VIEW_TYPE_STEREO,2,&r,f,p)==XRT_SUCCESS);
         assert(r.relation_flags==(XRT_SPACE_RELATION_ORIENTATION_VALID_BIT|XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT));
         assert(fabsf(r.pose.orientation.y-sqrtf(0.5f))<0.00001f && r.pose.position.x==0);
         assert(!memcmp(f,&c.views[0].fov,sizeof(f[0])) && p[0].position.x==-0.032f && p[1].position.x==0.032f);
         assert(d->get_view_poses(d,&ignored,0,XRT_VIEW_TYPE_STEREO,1,&r,f,p)==XRT_ERROR_INVALID_ARGUMENT);
+        assert(d->get_tracked_pose(d,XRT_INPUT_GENERIC_HEAD_POSE,INT64_MAX,&r)==XRT_SUCCESS && !r.relation_flags);
+        assert(d->get_tracked_pose(d,XRT_INPUT_GENERIC_HEAD_POSE,0,&r)==XRT_SUCCESS && !r.relation_flags);
         available=false;
         assert(d->update_inputs(d)==XRT_SUCCESS && !d->inputs[0].active && !d->inputs[0].timestamp);
         assert(d->get_tracked_pose(d,XRT_INPUT_GENERIC_HEAD_POSE,0,&r)==XRT_SUCCESS && !r.relation_flags);

@@ -178,6 +178,92 @@ static void batching(void)
     pico_head_tracking_destroy(&t);
 }
 
+static unsigned time_queries;
+static struct xrt_space_relation query(struct pico_head_tracking *t, int64_t now, int64_t at, bool valid)
+{
+    struct xrt_space_relation r, empty = {0};
+    memset(&r, 0xa5, sizeof(r));
+    assert(pico_head_tracking_get_at(t, now, at, &r) == valid);
+    if (valid) {
+        assert(r.relation_flags == (XRT_SPACE_RELATION_ORIENTATION_VALID_BIT |
+            XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT | XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT));
+        assert(!r.pose.position.x && !r.pose.position.y && !r.pose.position.z);
+        assert(!r.linear_velocity.x && !r.linear_velocity.y && !r.linear_velocity.z);
+    } else assert(!memcmp(&r, &empty, sizeof(r)));
+    time_queries++;
+    return r;
+}
+
+static void motion_queries(void)
+{
+    const double speed = acos(-1.0)/2;
+    const int64_t sample = INT64_C(2000000000), now = sample + 10;
+    for (unsigned axis=0; axis<3; axis++) {
+        struct pico_head_tracking *t=NULL;
+        assert(pico_head_tracking_create(&config,&t) && pico_head_tracking_begin(t,1));
+        query(t,now,sample,false);
+        for (unsigned i=0;i<=1000;i++) push_pair(t,i,1,axis,(float)speed);
+        const int64_t offsets[]={-99500000,-500000,-1,0,1,20000000,49999990};
+        for (unsigned i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++) {
+            struct xrt_space_relation r=query(t,now,sample+offsets[i],true);
+            double angle=speed*(1+offsets[i]/1e9), v=sin(angle/2);
+            quaternion(r.pose.orientation,axis==0?v:0,axis==1?v:0,axis==2?v:0,cos(angle/2));
+            const float velocity[]={r.angular_velocity.x,r.angular_velocity.y,r.angular_velocity.z};
+            for(unsigned j=0;j<3;j++) assert(fabs(velocity[j]-(j==axis?speed:0))<0.0001);
+        }
+        query(t,now,sample+49999991,false);
+        query(t,now,INT64_MIN,false);query(t,now,INT64_MAX,false);query(t,now,0,false);
+        query(t,INT64_MIN,sample,false);query(t,INT64_MAX,sample,false);
+        query(t,sample,sample,false);
+        query(t,sample+config.max_age_ns,sample,false);
+        query(t,now,sample-config.max_age_ns,false);
+        quaternion(query(t,now,sample,true).pose.orientation,axis==0?sqrt(.5):0,
+            axis==1?sqrt(.5):0,axis==2?sqrt(.5):0,sqrt(.5));
+        pico_head_tracking_disconnect(t);query(t,now,sample,false);
+        assert(pico_head_tracking_begin(t,2));
+        push_pair(t,2000,2,axis,0);push_pair(t,2001,2,axis,0);
+        query(t,3001000010,3000000000,false);
+        quaternion(query(t,3001000010,3002000000,true).pose.orientation,0,0,0,1);
+        pico_head_tracking_destroy(&t);
+    }
+    struct pico_head_tracking_config c=config;
+    float axes[]={0,1,0,-1,0,0,0,0,1};memcpy(c.sensor_to_head,axes,sizeof(axes));
+    c.angular_velocity_scale=speed/90;
+    struct pico_head_tracking *t=NULL;
+    assert(pico_head_tracking_create(&c,&t) && pico_head_tracking_begin(t,1));
+    for(unsigned i=0;i<=1000;i++)push_pair(t,i,1,0,90);
+    struct xrt_space_relation r=query(t,now,sample+20000000,true);
+    quaternion(r.pose.orientation,0,-sin(speed*1.02/2),0,cos(speed*1.02/2));
+    assert(fabs(r.angular_velocity.y+speed)<0.0001);
+    pico_head_tracking_destroy(&t);
+    assert(pico_head_tracking_create(&config,&t) && pico_head_tracking_begin(t,1));
+    for(unsigned i=0;i<=1000;i++)push_pair(t,i,1,1,(float)speed);
+    push_pair(t,1001,1,0,1);
+    r=query(t,2001000010,2021000000,true);
+    double half=.021/2, v=sqrt(.5);
+    quaternion(r.pose.orientation,v*sin(half),v*cos(half),-v*sin(half),v*cos(half));
+    assert(fabs(r.angular_velocity.x)<0.0001 && fabs(r.angular_velocity.y)<0.0001 && fabs(r.angular_velocity.z+1)<0.0001);
+    pico_head_tracking_destroy(&t);
+    c=config;c.max_age_ns=1000000;c.max_gap_ns=1000000;
+    assert(pico_head_tracking_create(&c,&t) && pico_head_tracking_begin(t,1));
+    push_pair(t,0,1,1,1);push_pair(t,1,1,1,1);
+    query(t,1002000000,1003000000,false);
+    pico_head_tracking_destroy(&t);
+    assert(pico_head_tracking_create(&config,&t) && pico_head_tracking_begin(t,1));
+    for (unsigned i=0;i<4500;i++) for(unsigned sensor=0;sensor<2;sensor++) {
+        struct ssc_imu_event e=event(i,sensor,1,0);
+        e.time.timestamp_ns=1000000000+(int64_t)i*10000;
+        assert(pico_head_tracking_push(t,&e,e.time.timestamp_ns+10));
+    }
+    query(t,1044990010,1000010000,false);
+    query(t,1044990010,1004050000,true);
+    query(t,1044990010,1004055000,true);
+    pico_head_tracking_destroy(&t);
+    query(NULL,now,sample,false);
+    assert(!pico_head_tracking_get_at(NULL,now,sample,NULL));
+    printf("PICO_HEAD_TIME_PASS queries=%u history=1 prediction=1 world_velocity=1 stale_refusal=1\n",time_queries);
+}
+
 struct concurrent {struct pico_head_tracking *t;atomic_bool done;};
 static void *reader(void *data)
 {
@@ -207,4 +293,5 @@ int main(void)
     }
     pico_head_tracking_destroy(&c.t);
     printf("PICO_HEAD_TRACKING_PASS pairs=%u\n",pairs);
+    motion_queries();
 }

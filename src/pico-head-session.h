@@ -16,6 +16,8 @@ bool pico_head_session_create(const struct ssc_imu_session_config *sensors,
                               struct pico_head_session **session);
 bool pico_head_session_get(struct pico_head_session *session, int64_t now_ns,
                            struct xrt_space_relation *relation, int64_t *sample_time_ns);
+bool pico_head_session_get_at(struct pico_head_session *session, int64_t now_ns,
+                              int64_t at_ns, struct xrt_space_relation *relation);
 void pico_head_session_get_status(struct pico_head_session *session,
                                   struct ssc_imu_session_status *status);
 void pico_head_session_stop(struct pico_head_session *session);

@@ -77,10 +77,10 @@ int main(void)
     space_create.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
     XR(xrCreateReferenceSpace(session, &space_create, &head));
     XrQuaternionf first = {0};
-    unsigned accepted = 0;
+    unsigned accepted = 0, predicted = 0;
     bool moved = false;
     deadline = now() + 20;
-    while ((!moved || accepted < 10) && now() < deadline) {
+    while ((!moved || accepted < 10 || predicted < 10) && now() < deadline) {
         struct timespec ts;
         assert(!clock_gettime(CLOCK_MONOTONIC, &ts));
         XrTime time;
@@ -110,12 +110,31 @@ int main(void)
                 assert(fabsf(views[i].fov.angleDown + 0.65f) < 0.0001f);
                 assert(fabsf(views[i].pose.position.x - (i ? 0.032f : -0.032f)) < 0.0001f);
             }
+            XrSpaceVelocity velocity = {.type = XR_TYPE_SPACE_VELOCITY};
+            XrSpaceLocation future = {.type = XR_TYPE_SPACE_LOCATION, .next = &velocity};
+            XR(xrLocateSpace(head, local, time + 20000000, &future));
+            if ((future.locationFlags & (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT)) ==
+                (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT)) {
+                XrQuaternionf later = future.pose.orientation;
+                float relative_y = -later.w*q.y + later.y*q.w - later.z*q.x + later.x*q.z;
+                assert(fabsf(relative_y - sinf(0.35f * 0.02f / 2)) < 0.0001f);
+                assert(velocity.velocityFlags & XR_SPACE_VELOCITY_ANGULAR_VALID_BIT);
+                assert(!(velocity.velocityFlags & XR_SPACE_VELOCITY_LINEAR_VALID_BIT));
+                assert(fabsf(velocity.angularVelocity.x) < 0.0001f &&
+                       fabsf(velocity.angularVelocity.y - 0.35f) < 0.0001f &&
+                       fabsf(velocity.angularVelocity.z) < 0.0001f);
+                predicted++;
+            }
+            XrSpaceLocation distant = {.type = XR_TYPE_SPACE_LOCATION};
+            XR(xrLocateSpace(head, local, time + 5000000000LL, &distant));
+            assert(!(distant.locationFlags & (XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT)));
             accepted++;
         }
         delay();
     }
     printf("PICO_HMD_ORIENTATION samples=%u moved=%d\n", accepted, moved); fflush(stdout);
-    assert(accepted >= 10 && moved);
+    assert(accepted >= 10 && moved && predicted >= 10);
+    printf("PICO_HMD_PREDICTION samples=%u bounded=1 angular_velocity=1\n", predicted); fflush(stdout);
     f = fopen("/hmd-phase", "w"); assert(f && fputs("stale", f) >= 0); assert(!fclose(f));
     unsigned invalid = 0;
     deadline = now() + 5;

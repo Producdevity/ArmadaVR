@@ -88,6 +88,13 @@ bool pico_head_session_get(struct pico_head_session *s, int64_t now_ns,
     return pico_head_tracking_get(s && !atomic_load(&s->stopping) ? s->tracking : NULL, now_ns, relation, sample_time_ns);
 }
 
+bool pico_head_session_get_at(struct pico_head_session *s, int64_t now_ns,
+                              int64_t at_ns, struct xrt_space_relation *relation)
+{
+    return pico_head_tracking_get_at(s && !atomic_load(&s->stopping) ? s->tracking : NULL,
+                                    now_ns, at_ns, relation);
+}
+
 void pico_head_session_get_status(struct pico_head_session *s,
                                   struct ssc_imu_session_status *status)
 {

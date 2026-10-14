@@ -7,6 +7,7 @@ from pathlib import Path
 import runpy
 import struct
 import sys
+import time
 
 if (Path('/proc/device-tree/compatible').read_bytes().split(b'\0')[0] != b'linux,dummy-virt' or
         'reframed.ssc_test=1' not in Path('/proc/cmdline').read_text().split()):
@@ -38,7 +39,7 @@ for index, name in enumerate(names):
     data.append({'sensor': {'data_type': name, 'uid_high': hex(high), 'uid_low': hex(low)},
                  'attributes': {'name': {'id': 0, 'value': name}, 'vendor': {'id': 1, 'value': 'fixture'},
                                 'available': {'id': 3, 'value': not (index == 1 and fault == 'gyro-unavailable')},
-                                'sample_rate': {'id': 6, 'value': 0.0 if is_calibration else 1000.0},
+                                'sample_rate': {'id': 6, 'value': 0.0 if is_calibration else 100.0 if hmd_runtime else 1000.0},
                                 'rigid_body': {'id': 19, 'value': 1 if index == 3 and fault == 'bias-wrong-body' else 0},
                                 'stream_type': {'id': 16, 'value': 1 if is_calibration else 0}}, 'measurements': []})
     if index == 3 and fault == 'bias-missing-body':
@@ -62,7 +63,7 @@ def client_request(message):
         envelope.ParseFromString(message)
         config = common.SscEnableConfigRequest()
         config.ParseFromString(envelope.request.msg)
-        assert config.sample_rate == 1000.0
+        assert config.sample_rate == (100.0 if hmd_runtime else 1000.0)
         print('SSC_TEST_RATE', result[1], result[2], config.sample_rate, flush=True)
     return result
 
@@ -151,7 +152,7 @@ def measurement(high, low, index):
             event.msg_id = 1025
     if hmd_runtime:
         message.uid.high, message.uid.low = high, low
-        event.timestamp = clock.ssc_test_ticks() // 1920000 * 1920000
+        event.timestamp = clock.ssc_test_ticks() // 192000 * 192000
         values = (0.25, 0.5, -0.75) if is_calibration else ((0.25, 10.31, -0.75) if sensor == 0 else (0.25, 0.85, -0.75))
         event.msg_id = (1022 if is_calibration else 1025) if Path('/hmd-phase').read_text() == 'running' else 1234
         event.msg = b'\x0a\x0c' + struct.pack('<3f', *values) + accuracy
@@ -161,5 +162,17 @@ def measurement(high, low, index):
 ssc.generate_protobuf_sensor_measurement = staticmethod(measurement)
 if hmd_runtime:
     runpy.run_path('/controller-mock.py', run_name='pico_controller_mock')['install'](ssc, common, clock.ssc_test_ticks)
+
+    def runtime_measurements(self, high, low, node, port, transaction_id):
+        index = 0
+        while True:
+            payload = ssc.generate_protobuf_sensor_measurement(high, low, index)
+            packet = ssc.generate_report_large_indication(payload, transaction_id)
+            if self._qrtr.qrtr_sendto(self.sock, node, port, ctypes.c_char_p(packet), len(packet)) != 0:
+                break
+            time.sleep(0.01)
+            index += 1
+
+    namespace['SSCMockingServer']._sensor_measurement = runtime_measurements
 multiprocessing.set_start_method('fork')
 namespace['SSCMockingServer']().start()

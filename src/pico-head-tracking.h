@@ -33,6 +33,14 @@ bool pico_head_tracking_push(struct pico_head_tracking *tracking,
  * Invalid, incomplete, future or stale data clears both outputs. */
 bool pico_head_tracking_get(struct pico_head_tracking *tracking, int64_t now_ns,
                             struct xrt_space_relation *relation, int64_t *sample_time_ns);
+#define PICO_HEAD_MAX_PREDICTION_NS INT64_C(50000000)
+
+/* Resolve CLOCK_MONOTONIC query times from this stream's history. Forward
+ * prediction includes timestamp uncertainty in the 50 ms limit; older-than-
+ * history, stale and invalid requests clear the output. No position is inferred.
+ * Angular velocity is in tracking-origin coordinates, as required by Monado. */
+bool pico_head_tracking_get_at(struct pico_head_tracking *tracking, int64_t now_ns,
+                               int64_t at_ns, struct xrt_space_relation *relation);
 void pico_head_tracking_disconnect(struct pico_head_tracking *tracking);
 void pico_head_tracking_destroy(struct pico_head_tracking **tracking);
 

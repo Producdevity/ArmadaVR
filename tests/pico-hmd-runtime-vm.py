@@ -23,7 +23,7 @@ config = {'schema_version': 1, 'device': 'PICOA7H10', 'serial': 'synthetic-hmd',
                      'grid_width': 2, 'grid_height': 2,
                      'distortion': [[u, v, u, v, u, v] for v in (0, 1) for u in (0, 1)]} for i in range(2)],
           'imu': {'suids': [[f'{0xACC10001+i:016x}', f'{0xACC20001+i:016x}'] for i in range(4)],
-                  'sample_rates': [1000, 1000], 'sensor_to_head': [1, 0, 0, 0, 1, 0, 0, 0, 1],
+                  'sample_rates': [100, 100], 'sensor_to_head': [1, 0, 0, 0, 1, 0, 0, 0, 1],
                   'acceleration_scale': 1, 'angular_velocity_scale': 1, 'max_age_ns': 500000000,
                   'max_gap_ns': 350000000, 'minimum_accuracy': 3, 'startup_timeout_ns': 15000000000,
                   'report_timeout_ns': 1000000000, 'bias_max_age_ns': 1000000000}}

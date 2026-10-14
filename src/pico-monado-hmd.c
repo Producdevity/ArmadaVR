@@ -121,14 +121,12 @@ static bool optics_valid(const struct pico_hmd_config *c)
 static xrt_result_t get_pose(struct xrt_device *xdev, enum xrt_input_name name,
                              int64_t at_timestamp_ns, struct xrt_space_relation *relation)
 {
-    (void)at_timestamp_ns;
     if (!relation) return XRT_ERROR_INVALID_ARGUMENT;
     memset(relation, 0, sizeof(*relation));
     relation->pose.orientation.w = 1;
     if (name != XRT_INPUT_GENERIC_HEAD_POSE) return XRT_ERROR_INPUT_UNSUPPORTED;
     struct pico_hmd *hmd = (struct pico_hmd *)xdev;
-    int64_t time;
-    pico_head_session_get(hmd->session, (int64_t)os_monotonic_get_ns(), relation, &time);
+    pico_head_session_get_at(hmd->session, (int64_t)os_monotonic_get_ns(), at_timestamp_ns, relation);
     return XRT_SUCCESS;
 }
 

@@ -1,8 +1,8 @@
 # Pico HMD integration
 
 The native Monado Pico driver can expose an HMD backed by the four-subscription
-SSC head session. It reports orientation only. Position, yaw calibration,
-prediction, cameras, eye tracking and proximity sensing are not implemented.
+SSC head session. It reports orientation and angular velocity. Position, yaw
+calibration, cameras, eye tracking and proximity sensing are not implemented.
 No HMD is opened by default.
 
 Set both `PICO_HMD_CONFIG` to a private calibration JSON file and
@@ -14,8 +14,13 @@ separate through `PICO_SSC_CONFIG` and `PICO_SSC_COUNTER`.
 The HMD owns its sensor session. Destruction stops subscriptions, drains their
 callbacks and joins the worker before freeing optics or tracking state. Stale,
 missing or rejected sensor data produces an invalid orientation rather than a
-stationary tracked pose. The latest accepted capture is returned without
-extrapolating to the requested display time.
+stationary tracked pose. Queries use the requested monotonic display timestamp:
+exact samples and interpolation come from a 4,096-entry history; forward
+prediction uses calibrated gyro velocity and is limited to 50 ms, including
+timestamp uncertainty. Requests before retained history, beyond that horizon
+or with stale samples return an invalid relation. Stream restarts clear history.
+Angular velocity is expressed in tracking-origin coordinates, as Monado requires.
+This bounds extrapolation; it does not establish physical tracking accuracy.
 
 ## Calibration file
 
@@ -66,12 +71,16 @@ RGB sampling, invalid inputs, loss of orientation validity, copied calibration
 ownership and repeated session teardown. Separate parser and prober tests cover
 required calibration fields and explicit activation. These checks do not prove
 physical optical correctness, tracking accuracy, scanout or recoverable boot.
+Pose-time tests cover exact queries, interpolation, all three prediction axes,
+sensor rotation and scaling, tracking-origin velocity, uncertainty limits,
+stale data, stream changes and history wraparound.
 
 The diskless Pico-kernel integration test runs the installed Monado service,
 OpenXR loader and application over actual QRTR sockets with a synthetic SSC
 server. It selects the Pico HMD and both controllers together, checks each
 hand's button and touch transitions, both eye poses and FOVs, changing fused
-orientation and invalid orientation after reports stop. Controller input remains
+orientation, distinct poses for queries 20 ms apart, angular velocity and refusal
+of a distant future query. Orientation becomes invalid after reports stop. Controller input remains
 available after head tracking is lost. Two fresh service starts must exit
 cleanly. The test uses the null compositor and synthetic calibration; it does
 not validate display output, optics, controller poses or positional tracking.

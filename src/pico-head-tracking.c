@@ -1,6 +1,8 @@
 #include "pico-head-tracking.h"
 
 #include <math/m_imu_3dof.h>
+#include <math/m_api.h>
+#include <math/m_relation_history.h>
 #include <float.h>
 #include <math.h>
 #include <pthread.h>
@@ -18,6 +20,7 @@ struct sample {
 struct pico_head_tracking {
     struct pico_head_tracking_config config;
     struct m_imu_3dof fusion;
+    struct m_relation_history *history;
     pthread_mutex_t lock;
     struct sample queue[2][QUEUE_SIZE];
     unsigned count[2];
@@ -84,6 +87,7 @@ bool pico_head_tracking_create(const struct pico_head_tracking_config *config,
     if (pthread_mutex_init(&t->lock, NULL)) { free(t); return false; }
     t->config = *config;
     m_imu_3dof_init(&t->fusion, M_IMU_3DOF_USE_GRAVITY_DUR_300MS);
+    m_relation_history_create(&t->history);
     *tracking = t;
     return true;
 }
@@ -97,6 +101,7 @@ bool pico_head_tracking_begin(struct pico_head_tracking *t, uint64_t generation)
         /* Monado's reset retains FIFO contents; a new stream needs empty history. */
         m_imu_3dof_close(&t->fusion);
         m_imu_3dof_init(&t->fusion, M_IMU_3DOF_USE_GRAVITY_DUR_300MS);
+        m_relation_history_clear(t->history);
         memset(t->count, 0, sizeof(t->count));
         memset(t->last_ticks, 0, sizeof(t->last_ticks));
         memset(t->last_time, 0, sizeof(t->last_time));
@@ -142,6 +147,17 @@ static void pair(struct pico_head_tracking *t)
         t->uncertainty_ns = a.time.uncertainty_ns > g.time.uncertainty_ns ?
                             a.time.uncertainty_ns : g.time.uncertainty_ns;
         t->valid = initialized;
+        if (initialized) {
+            struct xrt_space_relation relation = {0};
+            relation.pose.orientation = q;
+            math_quat_rotate_derivative(&q, &g.vector, &relation.angular_velocity);
+            relation.relation_flags = XRT_SPACE_RELATION_ORIENTATION_VALID_BIT |
+                XRT_SPACE_RELATION_ORIENTATION_TRACKED_BIT | XRT_SPACE_RELATION_ANGULAR_VELOCITY_VALID_BIT;
+            if (!m_relation_history_push(t->history, &relation, timestamp)) {
+                t->valid = t->active = false;
+                return;
+            }
+        }
     }
 }
 
@@ -189,6 +205,29 @@ bool pico_head_tracking_get(struct pico_head_tracking *t, int64_t now_ns,
     return valid;
 }
 
+bool pico_head_tracking_get_at(struct pico_head_tracking *t, int64_t now_ns,
+                               int64_t at_ns, struct xrt_space_relation *relation)
+{
+    if (!relation) return false;
+    memset(relation, 0, sizeof(*relation));
+    if (!t || at_ns <= 0) return false;
+    pthread_mutex_lock(&t->lock);
+    struct ssc_timestamp time = {t->paired_ns, t->uncertainty_ns};
+    bool valid = t->active && t->valid && current(time, now_ns, t->config.max_age_ns);
+    if (valid && at_ns > t->paired_ns)
+        valid = t->uncertainty_ns <= PICO_HEAD_MAX_PREDICTION_NS &&
+            at_ns - t->paired_ns <= PICO_HEAD_MAX_PREDICTION_NS - t->uncertainty_ns;
+    if (valid && at_ns < now_ns) valid = now_ns - at_ns <= t->config.max_age_ns;
+    if (valid) {
+        enum m_relation_history_result result = m_relation_history_get(t->history, at_ns, relation);
+        valid = result == M_RELATION_HISTORY_RESULT_EXACT ||
+            result == M_RELATION_HISTORY_RESULT_INTERPOLATED || result == M_RELATION_HISTORY_RESULT_PREDICTED;
+    }
+    if (!valid) memset(relation, 0, sizeof(*relation));
+    pthread_mutex_unlock(&t->lock);
+    return valid;
+}
+
 void pico_head_tracking_disconnect(struct pico_head_tracking *t)
 {
     if (!t) return;
@@ -203,6 +242,7 @@ void pico_head_tracking_destroy(struct pico_head_tracking **tracking)
     if (!tracking || !*tracking) return;
     struct pico_head_tracking *t = *tracking;
     *tracking = NULL;
+    m_relation_history_destroy(&t->history);
     m_imu_3dof_close(&t->fusion);
     pthread_mutex_destroy(&t->lock);
     free(t);
