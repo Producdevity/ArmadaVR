@@ -928,3 +928,11 @@ ARM64 sanitizer builds. The retained kernel generic-blob parser accepts those
 commands and rejects truncated payloads and out-of-range offsets in a host
 memory harness. These checks establish command representation, not clock-tree
 operation, sensor timing or capture performance.
+
+`pico_camera_ife_bandwidth_blob` encodes a single-ISP RDI0 bandwidth vote. The
+caller supplies CAMNOC, MNOC average and MNOC peak bytes per second, including
+mode-specific margins. Other paths and DDR votes remain zero. The stock-sized
+payload includes ten path records and an unused zero second-ISP tail. 320 cases
+match the retained stock calculation, covering startup boost, binning, pixel
+sizes and line periods. Host/ARM64 sanitizer tests and the retained generic
+parser also pass. No operating point is selected and no bus vote is submitted.

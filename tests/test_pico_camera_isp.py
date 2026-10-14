@@ -20,6 +20,9 @@ class PicoCameraISPTests(unittest.TestCase):
     def test_clock_and_frame_rate_blobs(self):
         self.compile_test("pico-camera-blob", "PICO_CAMERA_BLOB_PASS")
 
+    def test_bandwidth_blob(self):
+        self.compile_test("pico-camera-bandwidth", "PICO_CAMERA_BANDWIDTH_PASS")
+
     def compile_test(self, name, expected):
         root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temp:

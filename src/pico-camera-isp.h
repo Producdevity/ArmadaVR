@@ -119,4 +119,19 @@ bool pico_camera_ife_clock_blob(const struct pico_camera_ife_clocks *clocks,
 bool pico_camera_ife_hfr_blob(uint32_t batch_size, bool batched,
                               void *output, size_t size);
 
+#define PICO_CAMERA_BANDWIDTH_BLOB_SIZE 1132
+
+struct pico_camera_ife_bandwidth {
+    uint64_t camnoc_bytes_per_second;
+    uint64_t mnoc_average_bytes_per_second;
+    uint64_t mnoc_peak_bytes_per_second;
+};
+
+/* Single-ISP, one active RDI0 path. Votes must include the selected mode's
+ * blanking and burst requirements; this does not estimate them. Other paths
+ * and DDR votes remain zero, matching the retained b1977 RDI-only configuration.
+ * The unused second-ISP tail is retained to match the stock payload size. */
+bool pico_camera_ife_bandwidth_blob(const struct pico_camera_ife_bandwidth *bandwidth,
+                                    void *output, size_t size);
+
 #endif

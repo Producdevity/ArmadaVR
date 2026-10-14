@@ -254,3 +254,26 @@ bool pico_camera_ife_hfr_blob(uint32_t batch_size, bool batched, void *output, s
     memcpy(output, bytes, sizeof(bytes));
     return true;
 }
+
+bool pico_camera_ife_bandwidth_blob(const struct pico_camera_ife_bandwidth *b, void *output, size_t size)
+{
+    if (!b || !output || size < PICO_CAMERA_BANDWIDTH_BLOB_SIZE ||
+        !b->camnoc_bytes_per_second || !b->mnoc_average_bytes_per_second ||
+        b->mnoc_peak_bytes_per_second < b->mnoc_average_bytes_per_second) return false;
+    uint8_t bytes[PICO_CAMERA_BANDWIDTH_BLOB_SIZE] = {0};
+    put32(bytes, (1128U << 8) | 9);
+    put32(bytes + 8, 10);
+    for (unsigned i = 0; i < 10; ++i) {
+        uint8_t *path = bytes + 12 + i * 56;
+        put32(path, i >= 4 && i <= 7 ? 3 : 1);
+        put32(path + 4, 1);
+        put32(path + 8, i);
+        if (i == 4) {
+            put64(path + 16, b->camnoc_bytes_per_second);
+            put64(path + 24, b->mnoc_average_bytes_per_second);
+            put64(path + 32, b->mnoc_peak_bytes_per_second);
+        }
+    }
+    memcpy(output, bytes, sizeof(bytes));
+    return true;
+}
