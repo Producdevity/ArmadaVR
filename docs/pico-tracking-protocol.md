@@ -1232,3 +1232,29 @@ also feeds all 244 submitted packets through the retained kernel's probe
 packet dispatch, I2C identity and combined power-sequence parsers. Memory
 lookup is simulated and optional register-command branches are not exercised;
 no physical probe, power sequence or sensor identity is verified by this test.
+
+### Stereo acquisition ownership
+
+`pico-camera-session` queries the two selected sensors and PHYs before creating
+any handles. Their slots, sensor-to-PHY routing and PHY versions must match the
+explicit configuration. It then owns one CRM session, sensor/PHY/IFE device
+handles, two separate RDI0 hardware inputs and synchronized sensor/IFE links.
+The caller still supplies already probed devices and must configure them before
+streaming. No descriptor is opened or sensor module selected by this owner.
+
+Cleanup requires stopped consumers and independently established quiescence.
+It unlinks before releasing hardware and devices, and destroys the CRM session
+only after its children have been released. Failed releases are attempted once.
+An acquisition failure without a returned handle retains the entire session:
+an unknown link may still hold its devices. The enclosing owner must close all
+exclusive descriptors and establish quiescence before disposing of that state.
+Host and ARM64 sanitizer tests cover 300 lifecycles and 52 failure cases,
+including failures before and after handle copy-back.
+
+The retained sensor kernel returns success for tracking-camera identification
+without reading a chip ID; its eye-camera path does perform the read. Therefore
+probe success and slot queries alone do not prove the selected tracking sensor
+is present. Native physical identification and camera ownership must be verified
+before enabling capture. The four-camera vendor build flag also suppresses
+ordinary tracking-camera register writes; it is not selected by the current
+kernel build and must not be enabled as a substitute for that verification.

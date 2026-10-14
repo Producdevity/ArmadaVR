@@ -71,6 +71,8 @@
     "pico-camera-sensor-setup.h",
     "pico-camera-probe-setup.c",
     "pico-camera-probe-setup.h",
+    "pico-camera-session.c",
+    "pico-camera-session.h",
     "pico-camera-ife.c",
     "pico-camera-ife.h",
     "pico-camera-front-end.c",
