@@ -95,7 +95,9 @@ def main():
         dataset['configuration'] + '"\nmarg-data=""\nprint-queue=0\nuse-double=0\ndeterministic=0\nnum-threads=1\n')
     (args.output / 'bounded.toml').write_text((args.output / 'reference.toml').read_text() + 'nonblocking-input=1\n')
     source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-camera-capture.c', 'src/pico-camera-capture.h', 'src/pico-camera-stream.c', 'src/pico-camera-stream.h', 'src/pico-camera-events.c', 'src/pico-camera-events.h', 'src/pico-camera-control.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h', 'src/pico-slam-tracking.c', 'src/pico-slam-tracking.h', 'src/pico-slam-session.c', 'src/pico-slam-session.h',
-                    'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
+                    'src/pico-camera-transport.c', 'src/pico-camera-transport.h', 'src/pico-camera-request.c', 'src/pico-camera-request.h',
+                    'src/pico-camera-control.c', 'src/pico-camera-isp.c', 'src/pico-camera-isp.h', 'src/pico-camera-buffer.h', 'src/ion-buffer.h',
+                    'tests/pico-camera-replay.c', 'tests/pico-camera-replay.h', 'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/source/thirdparty -I/out/include -isystem /monado/src/xrt/include"
@@ -103,6 +105,10 @@ cc -std=c11 $flags -c /repo/src/pico-camera.c -o /out/camera.o
 cc -std=c11 $flags -c /repo/src/pico-camera-capture.c -o /out/capture.o
 cc -std=c11 $flags -c /repo/src/pico-camera-stream.c -o /out/stream.o
 cc -std=c11 $flags -c /repo/src/pico-camera-events.c -o /out/events.o
+for part in transport request control isp; do
+    cc -std=c11 $flags -c /repo/src/pico-camera-$part.c -o /out/camera-$part.o
+done
+cc -std=c11 $flags -c /repo/tests/pico-camera-replay.c -o /out/camera-replay.o
 cc -std=c11 $flags -c /repo/src/pico-slam-input.c -o /out/input.o
 cc -std=c11 $flags -I/source/thirdparty -c /repo/src/pico-slam-session.c -o /out/session.o
 mathflags="$flags -pthread -ffunction-sections -fdata-sections -isystem /monado/src/xrt/auxiliary -isystem /monado/src/external/cjson $(pkg-config --cflags eigen3)"
@@ -128,6 +134,7 @@ done
 /out/replay /dataset /out/bounded.toml /out/poses-native.csv 3 > /out/native-replay.log 2>&1
 /out/replay /dataset /out/bounded.toml /out/poses-capture.csv 4 > /out/capture-replay.log 2>&1
 /out/replay /dataset /out/bounded.toml /out/poses-stream.csv 5 > /out/stream-replay.log 2>&1
+/out/replay /dataset /out/bounded.toml /out/poses-transport.csv 6 > /out/transport-replay.log 2>&1
 '''
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
@@ -197,12 +204,21 @@ done
                 stream_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
                 stream_metrics['max_error_m'] > dataset['max_rigid_error_m']):
             raise ValueError('Event stream trajectory acceptance failed')
+        transport_log = (args.output / 'transport-replay.log').read_text()
+        if ('PICO_SLAM_SESSION_REPLAY_PASS poses=185 images=370 stopped_invalid=1' not in transport_log or
+                'PICO_SLAM_TRANSPORT_PASS buffers=372 simulated_ioctls=1 simulated_dma=1 poisoned=1' not in transport_log):
+            raise ValueError('Owned camera transport replay did not finish')
+        transport_metrics = trajectory_metrics(args.output / 'poses-transport.csv', reference / 'mav0/gt/data.csv')
+        if (transport_metrics['poses'] != dataset['poses'] or
+                transport_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
+                transport_metrics['max_error_m'] > dataset['max_rigid_error_m']):
+            raise ValueError('Owned camera transport trajectory acceptance failed')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')
         if build['stage_sha256'] != basalt.tree_digest(prefix):
             raise ValueError('Basalt bundle changed during replay')
         basalt.verify(args.basalt_source, profile)
-        report.update(status='passed', trajectories=results, session_trajectory=session_metrics, native_trajectory=native_metrics, capture_trajectory=capture_metrics, stream_trajectory=stream_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
+        report.update(status='passed', trajectories=results, session_trajectory=session_metrics, native_trajectory=native_metrics, capture_trajectory=capture_metrics, stream_trajectory=stream_metrics, transport_trajectory=transport_metrics, lifecycle_cycles=70, bounded_input_cycles=30,
                       input_test_binary_sha256=digest(args.output / 'input-test'),
                       lifecycle_binary_sha256=digest(args.output / 'lifecycle'),
                       binary_sha256=digest(args.output / 'replay'),

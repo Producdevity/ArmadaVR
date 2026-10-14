@@ -1183,3 +1183,23 @@ to sample value 8, then masks it to 0 in the RDI register. This differs from the
 CSI RAW8 data type. Unsupported conversions remain null. All eight saved modules
 and eight varied filter fixtures match the original parser/conversion functions,
 covering 72 mode records; this still does not identify the active physical module.
+
+### Owned stereo event transport
+
+`pico-camera-transport` joins request ownership to the event/capture path for two
+explicit cameras. It prepares and reserves both images before submitting their
+shared request ID, bounds pending work to eight pairs and drains at most 64 events
+per poll. Sequence gaps, timeouts, malformed events and partial submissions stop
+the generation. Successful fences allow synchronized CPU reads; all other pending
+resources remain held until independently established quiescence. The caller
+retains the configured devices and exclusive subscribed, nonblocking event fds.
+
+Host and ARM64 sanitizer tests deliver 4,800 frames across queue saturation,
+request progression and sequence wrap, and exercise 44 failure scenarios including
+an uncertain fence destruction that is never retried. The maintained Basalt replay
+also runs through this transport, actual request/packet/control code and simulated
+ioctls/DMA, releasing and poisoning all 372 image buffers after copying. It delivers
+370 images and 3,467 IMU samples, produces 185 poses and invalidates tracking on
+shutdown. Reference trajectory RMS error is 6.417 mm, maximum 16.607 mm, after rigid
+alignment without scale fitting. The reference data/calibration belong to a Valve
+Index; these results do not measure Pico accuracy, physical DMA or live throughput.

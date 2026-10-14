@@ -5,6 +5,7 @@ extern "C" {
 #include "pico-slam-tracking.h"
 #include "pico-slam-session.h"
 #include "pico-camera-stream.h"
+#include "pico-camera-replay.h"
 }
 #include <algorithm>
 #include <array>
@@ -59,6 +60,11 @@ static void capture_invalid(void *opaque, uint64_t generation) {
   CHECK(generation == 1);
   ++s->invalidations;
   pico_slam_session_stop(s->session);
+}
+static bool transport_frame(void *opaque, uint64_t generation, const pico_camera_capture_frame *frame, int64_t now) {
+  auto *s = static_cast<CaptureSink *>(opaque);
+  ++s->frames;
+  return pico_slam_session_captured(s->session, generation, frame, now);
 }
 static vit_tracker_t *tracker;
 static std::vector<vit_pose_data_t> observed;
@@ -149,7 +155,8 @@ static void put64(uint8_t *p, uint64_t n) {
 int main(int argc, char **argv) {
   CHECK(argc == 5);
   image_bytes = std::stoi(argv[4]);
-  CHECK(image_bytes <= 5);
+  CHECK(image_bytes <= 6);
+  bool transport_input = image_bytes == 6;
   bool capture_input = image_bytes >= 4;
   bool stream_input = image_bytes == 5;
   bool native_input = image_bytes >= 3;
@@ -218,10 +225,16 @@ int main(int argc, char **argv) {
     CHECK(pico_slam_tracking_begin(tracking, 1));
   }
   CaptureSink capture_sink{session};
+  pico_camera_transport *transport = nullptr;
   pico_camera_capture *capture_owner = nullptr;
   pico_camera_stream *camera_stream = nullptr;
   uint32_t event_sequence[2] = {UINT32_MAX-3, UINT32_MAX-3};
-  if (capture_input) {
+  if (transport_input) {
+    pico_camera_transport_config config{};
+    pico_camera_replay_config(&config, first.cols, first.rows, c.camera_ids);
+    pico_camera_transport_ops ops{transport_frame, capture_invalid};
+    CHECK(!pico_camera_transport_create(&config, &ops, &capture_sink, &transport));
+  } else if (capture_input) {
     pico_camera_capture_config cfg{1, {c.camera_ids[0], c.camera_ids[1], 0, 0}, 2, 100000000};
     pico_camera_capture_ops ops{capture_sync, capture_frame, capture_release, capture_invalid};
     if (stream_input) {
@@ -305,6 +318,11 @@ int main(int argc, char **argv) {
             left[ci][0] == right[ci][0]);
       int64_t time = std::stoll(left[ci][0]);
       arrival = time + 2000000;
+      int64_t transport_offset = -10000 - static_cast<int64_t>(ci % 7);
+      if (transport_input) {
+        int64_t offsets[2] = {transport_offset, transport_offset};
+        CHECK(!pico_camera_transport_queue(transport, offsets, arrival));
+      }
       for (int i = 1; i >= 0; --i) {
         auto &r = i ? right[ci] : left[ci];
         CHECK(std::filesystem::path(r[1]).filename() == r[1]);
@@ -320,7 +338,9 @@ int main(int argc, char **argv) {
             std::copy(image.ptr(row), image.ptr(row) + image.cols, padded.data() + 1 + row * stride);
           pico_slam_mono8_frame view{c.camera_ids[i], static_cast<uint32_t>(image.cols),
             static_cast<uint32_t>(image.rows), stride, padded.size() - 1, padded.data() + 1, time, ci};
-          if (capture_input) {
+          if (transport_input) {
+            pico_camera_replay_feed(i, view.pixels, view.stride, time - transport_offset);
+          } else if (capture_input) {
             pico_camera_capture_buffer buffer{&padded, ci + 1, 100 + i, 200 + i,
               c.camera_ids[i], view.width, view.height, static_cast<uint32_t>(stride),
               view.pixels, view.size};
@@ -378,6 +398,7 @@ int main(int argc, char **argv) {
           std::fill(wire.begin(), wire.end(), 0xa5);
         }
       }
+      if (transport_input) CHECK(pico_camera_transport_poll(transport, arrival) == 4);
       ++ci;
     }
     pop();
@@ -398,7 +419,12 @@ int main(int argc, char **argv) {
   }
   pico_slam_input_destroy(&input);
   pop();
-  if (capture_input) {
+  if (transport_input) {
+    CHECK(!pico_camera_transport_destroy(&transport));
+    capture_sink.releases = pico_camera_replay_finish();
+    CHECK(capture_sink.frames == left.size()*2 && capture_sink.frames == capture_sink.releases && capture_sink.invalidations == 1);
+    printf("PICO_SLAM_TRANSPORT_PASS buffers=%u simulated_ioctls=1 simulated_dma=1 poisoned=1\n", capture_sink.releases);
+  } else if (capture_input) {
     if (stream_input) CHECK(pico_camera_stream_destroy(&camera_stream));
     else CHECK(pico_camera_capture_destroy(&capture_owner));
     CHECK(capture_sink.frames == left.size()*2 && capture_sink.releases == capture_sink.frames && capture_sink.invalidations == 1);

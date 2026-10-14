@@ -15,6 +15,8 @@ struct pico_camera_request_config {
     bool synchronized;
 };
 
+bool pico_camera_request_config_valid(const struct pico_camera_request_config *config);
+
 /* Prepare one mono8 RDI request for already initialized, linked devices. The
  * caller supplies queried MMUs, the selected ION heap and calibrated geometry.
  * The request owns pixel/command/packet buffers and a registered fence; it opens

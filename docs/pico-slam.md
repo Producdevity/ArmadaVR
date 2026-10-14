@@ -135,6 +135,13 @@ produces all 185 estimator poses and 184 usable head poses, then invalidates the
 provider on shutdown. Its producer is paced against the estimator, using recorded
 time. This establishes session integration, not real-time Pico throughput.
 
+The owned stereo transport now feeds this session in the maintained replay.
+It creates real request packets and routes simulated kernel events through the
+production request, stream and capture code. All 372 buffers are released after
+copying; the estimator receives 370 images and 3,467 IMU samples and returns 185
+poses. Reference RMS error is 6.417 mm with rigid alignment and no scale fit.
+Physical sensor identities, calibration and capture timing are still required.
+
 ## Remaining integration
 
 - Capture native camera buffers with known ownership, format and exposure times.

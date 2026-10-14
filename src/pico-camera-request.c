@@ -12,7 +12,7 @@ struct pico_camera_request {
     unsigned in_flight;
     bool prepared, submitted, completed, fence_release_failed;
 };
-static bool valid(const struct pico_camera_request_config *c)
+bool pico_camera_request_config_valid(const struct pico_camera_request_config *c)
 {
     return c && c->crm_fd >= 0 && c->sync_fd >= 0 && c->ion_fd >= 0 &&
         c->sensor_fd >= 0 && c->ife_fd >= 0 && c->session > 0 && c->link > 0 &&
@@ -37,7 +37,7 @@ static int write_packet(struct pico_camera_buffer *buffer, const struct pico_cam
 int pico_camera_request_prepare(const struct pico_camera_request_config *config,
                                 struct pico_camera_request **request)
 {
-    if (!request || *request || !valid(config)) return -EINVAL;
+    if (!request || *request || !pico_camera_request_config_valid(config)) return -EINVAL;
     struct pico_camera_request *r = calloc(1, sizeof(*r));
     if (!r) return -ENOMEM;
     *request = r; r->config = *config;
