@@ -63,6 +63,8 @@ def validate(directory):
             raise ValueError('Monado is not a native ARM64 ELF: ' + name)
     if b'Unable to select a compatible display plane' not in (prefix / 'bin/monado-service').read_bytes():
         raise ValueError('Monado service omits the display selection patch')
+    if b'XRT_COMPOSITOR_FORCE_DISPLAY_MODE' not in (prefix / 'bin/monado-service').read_bytes():
+        raise ValueError('Monado service omits exact display mode selection')
     manifest = json.loads((prefix / 'share/openxr/1/openxr_monado.json').read_text())
     if manifest['runtime']['library_path'] != '/opt/reframed-vr/monado/lib64/libopenxr_monado.so':
         raise ValueError('Unexpected Monado OpenXR runtime path')

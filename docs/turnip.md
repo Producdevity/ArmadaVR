@@ -161,6 +161,20 @@ attached headset. BOE/JDI/Sharp variants, selected panel, orientation, mode,
 optics/calibration and compositor timing must be matched to the actual device.
 Do not select the highest advertised refresh rate automatically for bring-up.
 
+The native Monado bundle accepts `XRT_COMPOSITOR_FORCE_DISPLAY_MODE` as
+`WIDTHxHEIGHT@REFRESH_MILLIHZ`. For example, `1920x3664@72000` requests exactly
+that tuple; this is syntax, not an accepted mode for a particular headset.
+Use a tuple from the selected DRM/Vulkan display's verified mode inventory.
+The selector refuses malformed, absent or duplicate matches, and refuses a
+conflict with `XRT_COMPOSITOR_DESIRED_MODE` if a numeric index is also supplied.
+It never falls back to the automatic selector after an explicit tuple fails.
+The constraint is checked before creating a display surface. Without it,
+the existing numeric-index and automatic selection behavior remains.
+
+This removes dependence on mode-list ordering; it does not identify a connector,
+validate panel timing or establish physical scanout. Display identity and the
+HMD's calibrated layout still need to agree with the selected mode.
+
 No physical compositor service is enabled by this change. DMA allocation,
 GPU rendering, PRIME import/modifiers, correct binocular output and timing,
 tracking/calibration, thermal behavior, exact-device boot acceptance and recovery

@@ -100,6 +100,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL get_caps(VkPhysicalDevice p, VkDisplayMode
 static VKAPI_ATTR VkResult VKAPI_CALL create_surface(VkInstance i, const VkDisplaySurfaceCreateInfoKHR *info, const VkAllocationCallbacks *a, VkSurfaceKHR *out)
 { (void)i; (void)a; ++surface_calls; created = *info; if (surface_failure) return surface_failure; *out = HANDLE(VkSurfaceKHR, 99); return VK_SUCCESS; }
 
+static const char *display_mode_request;
+static char *display_environment(const char *name)
+{
+    CHECK(strcmp(name, "XRT_COMPOSITOR_FORCE_DISPLAY_MODE") == 0);
+    return (char *)display_mode_request;
+}
+#define getenv display_environment
+
 #include "enumerate-under-test.h"
 #if MONADO_WINDOW_TEST
 #include "vk_display-under-test.h"
@@ -130,7 +138,7 @@ static void reset(void)
         planes[i].currentStackIndex=i;
     }
     query_failure=fill_failure=capability_failure=surface_failure=VK_SUCCESS;
-    surface_calls=capability_calls=0;
+    surface_calls=capability_calls=0; display_mode_request=NULL;
 }
 
 #if MONADO_WINDOW_TEST
@@ -179,6 +187,49 @@ int main(void)
     alarm(10); reset(); plane_count=0;
     CHECK(surface()!=VK_SUCCESS && surface_calls==0); // Upstream dereferenced empty plane inventory.
 #if !MONADO_BASELINE
+    reset(); c.settings.desired_mode=-1; display_mode_request="640x480@72000";
+    CHECK(surface()==VK_SUCCESS && created.displayMode==modes[0].displayMode && c.frame_interval_ns==13888888);
+    const char *bad_modes[]={"", "640x480", "640x480@72", "640x480@72000junk", " 640x480@72000",
+        "640x480@72000 ", "-640x480@72000", "+640x480@72000", "640X480@72000", "640x480@72.000",
+        "0x480@72000", "640x0@72000", "640x480@0", "4294967296x480@72000", "640x4294967296@72000",
+        "640x480@4294967296", "00000000640x480@72000", "641x480@72000", "640x481@72000", "640x480@72001",
+        "640xx480@72000", "640x480@@72000", "640x480@72000\n", "640x480@72000@"};
+    for (unsigned i=0;i<sizeof(bad_modes)/sizeof(bad_modes[0]);i++) {
+        reset(); c.settings.desired_mode=-1; display_mode_request=bad_modes[i];
+        CHECK(surface()!=VK_SUCCESS && surface_calls==0 && c.frame_interval_ns==11111111);
+    }
+    reset(); display_mode_request="640x480@90000";
+    CHECK(surface()!=VK_SUCCESS && surface_calls==0 && c.frame_interval_ns==11111111);
+    reset(); c.settings.desired_mode=1; display_mode_request="640x480@90000";
+    CHECK(surface()==VK_SUCCESS && created.displayMode==modes[1].displayMode);
+    reset(); c.settings.desired_mode=-1; display_mode_request="640x480@72000";
+    modes[1].parameters=modes[0].parameters;
+    CHECK(surface()!=VK_SUCCESS && surface_calls==0 && c.frame_interval_ns==11111111);
+    reset(); c.settings.desired_mode=-1; display_mode_request="640x480@72000";
+    modes[0].displayMode=VK_NULL_HANDLE; CHECK(surface()!=VK_SUCCESS && surface_calls==0);
+    reset(); c.settings.desired_mode=2; display_mode_request="640x480@72000";
+    CHECK(surface()!=VK_SUCCESS && surface_calls==0);
+    const uint32_t rates[]={72000,90000,120000};
+    char exact[64];
+    unsigned exact_cases=0;
+    for (unsigned a=0;a<3;a++) for (unsigned b=0;b<3;b++) for (unsigned d=0;d<3;d++) {
+        if (a==b || a==d || b==d) continue;
+        for (unsigned pick=0;pick<3;pick++) {
+            reset(); mode_count=3; c.settings.desired_mode=-1;
+            unsigned order[]={a,b,d};
+            for (unsigned i=0;i<3;i++) modes[i]=(VkDisplayModePropertiesKHR){.displayMode=HANDLE(VkDisplayModeKHR,10+order[i]),
+                .parameters={.visibleRegion={1920,3664},.refreshRate=rates[order[i]]}};
+            snprintf(exact,sizeof(exact),"1920x3664@%u",rates[pick]); display_mode_request=exact;
+            CHECK(surface()==VK_SUCCESS && created.displayMode==HANDLE(VkDisplayModeKHR,10+pick));
+            CHECK(created.imageExtent.width==1920 && created.imageExtent.height==3664);
+            CHECK(c.frame_interval_ns==INT64_C(1000000000000)/rates[pick]);
+            exact_cases++;
+        }
+    }
+    reset(); c.settings.desired_mode=-1; display_mode_request="4294967295x4294967295@4294967295";
+    modes[0].parameters=(VkDisplayModeParametersKHR){{UINT32_MAX,UINT32_MAX},UINT32_MAX};
+    CHECK(surface()==VK_SUCCESS && created.displayMode==modes[0].displayMode);
+    printf("EXACT_MODE_PERMUTATIONS=%u; malformed/missing/ambiguous/conflicting requests refused before surface creation.\n",exact_cases);
     int invalid[]={-2,2,INT_MAX};
     for (unsigned i=0;i<sizeof(invalid)/sizeof(invalid[0]);i++) {
         reset(); c.settings.desired_mode=invalid[i]; CHECK(surface()!=VK_SUCCESS && surface_calls==0);

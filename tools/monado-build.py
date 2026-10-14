@@ -149,6 +149,8 @@ def build(profile):
             raise ValueError('Direct display was excluded by the actual preprocessor configuration')
         if b'Unable to select a compatible display plane' not in (prefix / 'bin/monado-service').read_bytes():
             raise ValueError('Installed service does not contain the display selection implementation')
+        if b'XRT_COMPOSITOR_FORCE_DISPLAY_MODE' not in (prefix / 'bin/monado-service').read_bytes():
+            raise ValueError('Installed service omits exact display mode selection')
         if 'ssc_dependency' in report:
             if 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' not in cache:
                 raise ValueError('Pico driver was disabled')

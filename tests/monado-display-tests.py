@@ -20,7 +20,7 @@ def function(source, name):
     return source[match.start():end] + '\n'
 
 
-def run(source, output, baseline=False):
+def run(source, output, baseline=False, mode_baseline=False):
     if output.exists():
         raise ValueError('Choose a new output directory')
     output.mkdir(parents=True)
@@ -36,7 +36,10 @@ def run(source, output, baseline=False):
         path = source / ('src/xrt/compositor/main/comp_window_' + part + '.c')
         text = path.read_text()
         if part == 'direct':
-            names = ['get_vk', 'choose_best_vk_mode_auto', 'print_modes', 'get_primary_display_mode', 'choose_alpha_mode']
+            names = ['get_vk', 'choose_best_vk_mode_auto', 'print_modes']
+            if not baseline and not mode_baseline:
+                names += ['parse_display_mode', 'choose_exact_vk_mode']
+            names += ['get_primary_display_mode', 'choose_alpha_mode']
             if not baseline:
                 names.append('choose_display_plane')
             names.append('comp_window_direct_create_surface')
@@ -53,7 +56,7 @@ def run(source, output, baseline=False):
             subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=True, timeout=60)
         with (output / (part + '-test.log')).open('wb') as log:
             result = subprocess.run([str(executable.resolve())], stdout=log, stderr=subprocess.STDOUT, timeout=20)
-        if (result.returncode == 0) == baseline:
+        if (result.returncode == 0) == (baseline or (mode_baseline and part == 'direct')):
             raise RuntimeError('Unexpected ' + part + ' result: ' + str(result.returncode))
         results.append({'part': part, 'returncode': result.returncode, 'command': command})
     path = source / 'src/xrt/ipc/client/ipc_client_space_overseer.c'
@@ -96,7 +99,7 @@ def run(source, output, baseline=False):
     if result.returncode != (1 if baseline else 0):
         raise RuntimeError('Unexpected projection path result: ' + str(result.returncode))
     results.append({'part': 'projection', 'returncode': result.returncode, 'command': command})
-    report = {'status': 'regressions-reproduced' if baseline else 'passed', 'results': results,
+    report = {'status': 'regressions-reproduced' if baseline or mode_baseline else 'passed', 'results': results,
               'scope': 'actual compositor functions with modeled Vulkan and IPC, real space references; no rendering or hardware timing',
               'source_sha256': {str(p.relative_to(source)): hashlib.sha256(p.read_bytes()).hexdigest() for p in [
                   source / 'src/xrt/auxiliary/vk/vk_enumerate.c',
@@ -116,5 +119,8 @@ if __name__ == '__main__':
     parser.add_argument('source', type=Path)
     parser.add_argument('output', type=Path)
     parser.add_argument('--baseline', action='store_true')
+    parser.add_argument('--mode-baseline', action='store_true')
     args = parser.parse_args()
-    run(args.source, args.output, args.baseline)
+    if args.baseline and args.mode_baseline:
+        parser.error('Choose only one baseline')
+    run(args.source, args.output, args.baseline, args.mode_baseline)

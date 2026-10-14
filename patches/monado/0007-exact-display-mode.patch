@@ -1,0 +1,86 @@
+--- a/src/xrt/compositor/main/comp_window_direct.c
++++ b/src/xrt/compositor/main/comp_window_direct.c
+@@ -13,6 +13,9 @@
+ 
+ #include "util/u_misc.h"
+ 
++#include <limits.h>
++#include <stdlib.h>
++
+ 
+ static inline struct vk_bundle *
+ get_vk(struct comp_target_swapchain *cts)
+@@ -71,6 +74,50 @@
+ 		COMP_PRINT_MODE(ct->c, "| %2d | %dx%d@%.2f", i, width, height, refresh);
+ 	}
+ 	COMP_PRINT_MODE(ct->c, "Listed %d modes", mode_count);
++}
++
++static bool
++parse_display_mode(const char *text, VkDisplayModeParametersKHR *out)
++{
++	uint32_t values[3] = {0};
++	const char delimiters[3] = {'x', '@', '\0'};
++	for (unsigned i = 0; i < 3; i++) {
++		unsigned digits = 0;
++		while (*text >= '0' && *text <= '9') {
++			uint32_t digit = (uint32_t)(*text++ - '0');
++			if (++digits > 10 || values[i] > (UINT32_MAX - digit) / 10) {
++				return false;
++			}
++			values[i] = values[i] * 10 + digit;
++		}
++		if (digits == 0 || values[i] == 0 || *text != delimiters[i]) {
++			return false;
++		}
++		if (i < 2) {
++			text++;
++		}
++	}
++	*out = (VkDisplayModeParametersKHR){{values[0], values[1]}, values[2]};
++	return true;
++}
++
++static int
++choose_exact_vk_mode(const VkDisplayModePropertiesKHR *properties,
++                     uint32_t count,
++                     const VkDisplayModeParametersKHR *wanted)
++{
++	int selected = -1;
++	for (uint32_t i = 0; i < count; i++) {
++		const VkDisplayModeParametersKHR *p = &properties[i].parameters;
++		if (p->visibleRegion.width == wanted->visibleRegion.width &&
++		    p->visibleRegion.height == wanted->visibleRegion.height && p->refreshRate == wanted->refreshRate) {
++			if (selected >= 0 || i > INT_MAX) {
++				return -1;
++			}
++			selected = (int)i;
++		}
++	}
++	return selected;
+ }
+ 
+ static VkDisplayModeKHR
+@@ -122,6 +169,22 @@
+ 		COMP_ERROR(ct->c, "Requested mode index %d, but only %u modes found", desired_mode, mode_count);
+ 		free(mode_properties);
+ 		return VK_NULL_HANDLE;
++	}
++
++	const char *exact_mode = getenv("XRT_COMPOSITOR_FORCE_DISPLAY_MODE");
++	if (exact_mode != NULL) {
++		VkDisplayModeParametersKHR wanted;
++		if (!parse_display_mode(exact_mode, &wanted)) {
++			COMP_ERROR(ct->c, "Expected display mode WIDTHxHEIGHT@REFRESH_MILLIHZ");
++			free(mode_properties);
++			return VK_NULL_HANDLE;
++		}
++		chosen_mode = choose_exact_vk_mode(mode_properties, mode_count, &wanted);
++		if (chosen_mode < 0 || (desired_mode >= 0 && chosen_mode != desired_mode)) {
++			COMP_ERROR(ct->c, "Exact display mode is absent, ambiguous or conflicts with the requested index");
++			free(mode_properties);
++			return VK_NULL_HANDLE;
++		}
+ 	} else if (desired_mode == -1) {
+ 		chosen_mode = choose_best_vk_mode_auto(ct, mode_properties, mode_count);
+ 	} else {
