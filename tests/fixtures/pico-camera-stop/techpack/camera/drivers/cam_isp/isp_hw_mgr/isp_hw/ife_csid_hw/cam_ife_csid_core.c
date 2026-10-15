@@ -94,4 +94,3 @@ int cam_ife_csid_stop(void *hw_priv,
 	return rc;
 
 }
-

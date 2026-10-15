@@ -43,7 +43,7 @@ def verify_source(source):
         for start, end in SECTIONS[name]:
             offset = text.index(start)
             expected += text[offset:text.index(end, offset)] + "\n"
-        if (FIXTURE / name).read_text() != expected:
+        if (FIXTURE / name).read_text() != expected.rstrip() + "\n":
             raise ValueError("Camera stop fixture differs from the actual kernel: " + name)
 
 

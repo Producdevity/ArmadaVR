@@ -136,4 +136,3 @@ static int __cam_isp_ctx_stop_dev_in_activated(struct cam_context *ctx,
 	trace_cam_context_state("ISP", ctx);
 	return rc;
 }
-

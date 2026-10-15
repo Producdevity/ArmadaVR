@@ -271,4 +271,3 @@ static int cam_ife_mgr_stop_hw(void *hw_mgr_priv, void *stop_hw_args)
 end:
 	return rc;
 }
-
