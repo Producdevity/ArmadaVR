@@ -207,6 +207,14 @@ with an explicit frame period and timeout. Calibrated exposure-center offsets
 apply to newly queued requests. The caller must poll during silence too, so
 clock expiry, lost IMU and missing fences stop the generation.
 
+Live callers use `pico_slam_live_poll_clock()` with a serialized monotonic-clock
+callback. The owner refreshes time after each event dequeue, before request
+allocation and before polling the estimator again. A frame can complete during
+an ioctl; judging it against the earlier poll-start time would incorrectly
+reject it as future input. Clock failure or regression stops the generation,
+and empty event queues still receive a fresh timeout check. Timestamp-only
+polling remains available for fixed recorded batches.
+
 Stop invalidates poses and attempts all affected stream stops. The caller must
 then establish DMA quiescence independently before retiring requests,
 unsubscribing events and releasing command buffers and hardware handles. An

@@ -27,6 +27,12 @@ int pico_slam_live_prepare(const struct pico_slam_live_config *config, struct pi
  * are verified SOF-to-exposure-center values for the newly queued requests. */
 int pico_slam_live_poll(struct pico_slam_live *live, const int64_t center_offsets_ns[2],
                        int64_t now_ns, size_t *poses);
+/* Use this entry point for live events. The serialized, non-reentrant callback
+ * reads CLOCK_MONOTONIC (positive nanoseconds, zero on failure). Samples are
+ * refreshed after dequeue, before request allocation and before estimator poll.
+ * The timestamp-only variant is for fixed recorded batches. */
+int pico_slam_live_poll_clock(struct pico_slam_live *live, const int64_t center_offsets_ns[2],
+                              int64_t (*clock)(void *), void *clock_data, size_t *poses);
 struct pico_slam_tracking *pico_slam_live_tracking(struct pico_slam_live *live);
 /* Stop callbacks, invalidate poses and attempt every affected camera stop once.
  * Success only acknowledges the controls; it does not establish DMA quiescence. */

@@ -44,7 +44,7 @@ int main(int argc,char **argv)
     CHECK(argc==4 || argc==5);
     if(argc==5) {
         Dl_info library{};
-        CHECK(dladdr(dlsym(RTLD_DEFAULT,"pico_slam_live_prepare"),&library) && library.dli_fname && !strcmp(library.dli_fname,argv[4]));
+        CHECK(dladdr(dlsym(RTLD_DEFAULT,"pico_slam_live_poll_clock"),&library) && library.dli_fname && !strcmp(library.dli_fname,argv[4]));
         printf("PICO_SLAM_INSTALLED_LIBRARY path=%s\n",library.dli_fname);
     }
     cv::setNumThreads(1);std::filesystem::path root=argv[1];
@@ -86,12 +86,13 @@ int main(int argc,char **argv)
     unsigned hmd_poses=0,view_pairs=0,predictions=0,rejected_predictions=0,active_inputs=0;
 #endif
     int64_t offsets[2]={-10000,-10000};size_t received;
-    CHECK(pico_slam_live_poll(live,offsets,now,&received)==0 && !received);
+    auto clock=[](void *data)->int64_t{return *(int64_t *)data;};
+    CHECK(pico_slam_live_poll_clock(live,offsets,clock,&now,&received)==0 && !received);
     std::ofstream output(argv[3]);CHECK(output.good());output.precision(12);
     output<<"timestamp_ns,x,y,z,qx,qy,qz,qw\n";
     unsigned poses=0,heads=0,skipped=0;int64_t last=0;
     auto poll=[&] {
-        CHECK(pico_slam_live_poll(live,offsets,now,&received)==1 && received==observed.size());
+        CHECK(pico_slam_live_poll_clock(live,offsets,clock,&now,&received)==1 && received==observed.size());
         for(const auto &p:observed) {
             CHECK(p.timestamp>last);last=p.timestamp;
             output<<p.timestamp<<','<<p.px<<','<<p.py<<','<<p.pz<<','<<p.ox<<','<<p.oy<<','<<p.oz<<','<<p.ow<<'\n';

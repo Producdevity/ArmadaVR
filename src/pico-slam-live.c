@@ -127,11 +127,13 @@ static int fail(struct pico_slam_live *s, int error)
     return error;
 }
 
-static int refill(struct pico_slam_live *s, const int64_t offsets[2], int64_t now)
+static int refill(struct pico_slam_live *s, const int64_t offsets[2], int64_t now,
+                  int64_t (*clock)(void *), void *clock_data)
 {
     for (unsigned i = 0; i < s->queue_depth; ++i) {
         if (s->pending[i].request) continue;
         if (s->next_request > INT64_MAX) return -EOVERFLOW;
+        if (clock) { now = clock(clock_data); if (now <= 0) return -EIO; }
         int result = pico_camera_transport_queue(s->transport, offsets, now);
         if (result) return result;
         s->pending[i].request = s->next_request++;
@@ -139,7 +141,8 @@ static int refill(struct pico_slam_live *s, const int64_t offsets[2], int64_t no
     return 0;
 }
 
-int pico_slam_live_poll(struct pico_slam_live *s, const int64_t offsets[2], int64_t now, size_t *poses)
+static int poll_live(struct pico_slam_live *s, const int64_t offsets[2], int64_t now, size_t *poses,
+                     int64_t (*clock)(void *), void *clock_data)
 {
     if (!s || !poses) return -EINVAL;
     *poses = 0;
@@ -150,20 +153,49 @@ int pico_slam_live_poll(struct pico_slam_live *s, const int64_t offsets[2], int6
     if (result < 0) { *poses = 0; return fail(s, result); }
     if (!result) return 0;
     if (!s->streaming) {
-        result = refill(s, offsets, now);
+        result = refill(s, offsets, now, clock, clock_data);
         if (!result) result = pico_camera_rig_start(s->rig);
         if (result) { *poses = 0; return fail(s, result); }
         s->streaming = true;
     }
-    result = pico_camera_transport_poll(s->transport, now);
+    result = clock ? pico_camera_transport_poll_clock(s->transport, clock, clock_data) :
+                     pico_camera_transport_poll(s->transport, now);
     if (result < 0 || s->failed) { *poses = 0; return fail(s, result < 0 ? result : -EIO); }
+    if (clock) {
+        now = clock(clock_data);
+        if (now <= 0) { *poses = 0; return fail(s, -EIO); }
+    }
     size_t delivered = 0;
     result = pico_slam_runtime_poll(s->runtime, now, &delivered);
     if (result != 1) { *poses = 0; return fail(s, result < 0 ? result : -EIO); }
     *poses += delivered;
-    result = refill(s, offsets, now);
+    result = refill(s, offsets, now, clock, clock_data);
     if (result) { *poses = 0; return fail(s, result); }
     return 1;
+}
+
+int pico_slam_live_poll(struct pico_slam_live *s, const int64_t offsets[2], int64_t now, size_t *poses)
+{ return poll_live(s, offsets, now, poses, NULL, NULL); }
+
+struct poll_clock { int64_t (*read)(void *); void *data; int64_t last; };
+static int64_t read_clock(void *data)
+{
+    struct poll_clock *clock = data;
+    int64_t now = clock->read(clock->data);
+    if (now <= 0 || now < clock->last) return 0;
+    clock->last = now;
+    return now;
+}
+int pico_slam_live_poll_clock(struct pico_slam_live *s, const int64_t offsets[2],
+                              int64_t (*clock)(void *), void *clock_data, size_t *poses)
+{
+    if (!s || !poses) return -EINVAL;
+    *poses = 0;
+    if (!clock) return fail(s, -EINVAL);
+    struct poll_clock current = {clock, clock_data, 0};
+    int64_t now = read_clock(&current);
+    if (now <= 0) return fail(s, -EIO);
+    return poll_live(s, offsets, now, poses, read_clock, &current);
 }
 
 struct pico_slam_tracking *pico_slam_live_tracking(struct pico_slam_live *s)

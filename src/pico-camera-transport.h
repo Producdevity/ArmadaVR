@@ -32,6 +32,12 @@ int pico_camera_transport_queue(struct pico_camera_transport *transport,
  * Call regularly even when descriptors are silent, to enforce timeouts. This
  * does not wait, refill requests, poll the estimator or derive clock alignment. */
 int pico_camera_transport_poll(struct pico_camera_transport *transport, int64_t now_ns);
+/* Live descriptors require a fresh CLOCK_MONOTONIC sample after each dequeue,
+ * including empty queues. The callback returns positive nanoseconds or zero on
+ * failure. Clock failure/regression stops the generation; calls cannot re-enter.
+ * The timestamp-only variant above is for a fixed recorded event batch. */
+int pico_camera_transport_poll_clock(struct pico_camera_transport *transport,
+                                     int64_t (*clock)(void *), void *clock_data);
 void pico_camera_transport_stop(struct pico_camera_transport *transport);
 /* Stop scheduling/callbacks and independently establish device/DMA quiescence
  * before this call. It retires outstanding requests and borrowed reservations.

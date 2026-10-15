@@ -19,8 +19,19 @@ static unsigned event_head[2],event_tail[2],sequence[2],event_error;
 static unsigned frame_failure, stale_cookie, corrupt_sequence, pending_camera;
 static uint64_t request_id;
 static int64_t event_time;
+static unsigned clock_calls, clock_fault;
+static int64_t transport_clock(void *opaque)
+{
+    assert(opaque==&clock_calls);++clock_calls;
+    if(clock_calls==2) {
+        if(clock_fault==1)return 0;
+        if(clock_fault==2)return 199;
+        if(clock_fault==3)return 1100;
+    }
+    return 190+10*clock_calls;
+}
 static struct pico_camera_event events[2][32];
-static struct pico_camera_transport *retained;
+static struct pico_camera_transport *volatile retained;
 static uint64_t get(const void *data, unsigned offset, unsigned size)
 {
     const uint8_t *p = (const uint8_t *)data + offset; uint64_t value = 0;
@@ -120,6 +131,7 @@ static bool frame(void *opaque, uint64_t generation, const struct pico_camera_ca
 {
     assert(opaque == &frames && generation == 17 && now > 0 && f->buffer.pixels[0] == 0x5a);
     assert(f->center_ns == event_time - (f->buffer.camera_id == 7 ? 10 : 20));
+    assert(now >= f->center_ns);
     ++frames;return !frame_failure;
 }
 static void invalid(void *opaque,uint64_t generation)
@@ -185,6 +197,21 @@ int main(void)
         else assert(result==(fault==3?-EINTR:-EIO));
         cleanup(&t);++faults;
     }
+    for(unsigned n=0;n<4;n++) {
+        struct pico_camera_transport *clocked=create();event_time=230;
+        assert(!pico_camera_transport_queue(clocked,offsets,100));clock_calls=0;clock_fault=n;
+        unsigned before=frames;
+        int result=pico_camera_transport_poll_clock(clocked,transport_clock,&clock_calls);
+        if(!n)assert(result==4 && frames==before+2 && clock_calls==7 && !live_buffers);
+        else assert(result==-EIO && frames==before && clock_calls==2);
+        cleanup(&clocked);
+    }
+    clock_fault=3;clock_calls=0;
+    struct pico_camera_transport *silent=create();assert(!pico_camera_transport_queue(silent,offsets,100));
+    event_head[0]=event_tail[0];event_head[1]=event_tail[1];
+    assert(pico_camera_transport_poll_clock(silent,transport_clock,&clock_calls)==-EIO && clock_calls==2);
+    cleanup(&silent);
+    printf("PICO_CAMERA_TRANSPORT_CLOCK_PASS cases=5 dequeues_refreshed=1 silent_timeout=1\n");
     struct pico_camera_transport *t=create();assert(!pico_camera_transport_queue(t,offsets,100));
     fail_io_at=io_calls+1;assert(pico_camera_transport_poll(t,200)==-EIO);
     assert(pico_camera_transport_quiesced(t)==-EIO && live_buffers);

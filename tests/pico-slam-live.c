@@ -8,6 +8,15 @@ static unsigned io_fault, subscribed, unsubscribed, queued, camera_starts, camer
 static unsigned delivery, delivered_camera;
 static bool nonblocking = true;
 static uint64_t expected_first;
+static int64_t completed_at, owner_now;
+static unsigned clock_calls, fail_clock, clock_checks;
+static bool regress_clock;
+static int64_t live_clock(void *data)
+{
+    assert(data==&owner_now);
+    if(++clock_calls==fail_clock)return regress_clock?owner_now-1:0;
+    return owner_now;
+}
 struct pico_camera_rig { bool stopped, quiesced; };
 struct pico_camera_transport {
     struct pico_camera_transport_config config;
@@ -80,12 +89,20 @@ int pico_camera_transport_poll(struct pico_camera_transport *t,int64_t now)
     for(unsigned i=0;i<count;i++) {
         unsigned camera=delivery==3?1-i:delivered_camera++%2;
         struct pico_camera_capture_frame f={.buffer={.camera_id=camera,.request_id=t->pending[slot],
-            .width=3,.height=2,.stride=16,.size=19,.pixels=pixels},.center_ns=now,.frame_number=t->sequence};
+            .width=3,.height=2,.stride=16,.size=19,.pixels=pixels},.center_ns=completed_at ? completed_at : now,.frame_number=t->sequence};
         if(io_fault==9)f.buffer.request_id=UINT64_MAX;
         if(!t->ops.frame(t->opaque,55,&f,now)){t->ops.invalidate(t->opaque,55);return -EIO;}
     }
     if(count==2 || !(delivered_camera%2)){t->pending[slot]=0;++t->sequence;}
     return (int)count;
+}
+int pico_camera_transport_poll_clock(struct pico_camera_transport *t,
+                                     int64_t (*clock)(void *), void *data)
+{
+    if(completed_at && delivery)owner_now=completed_at+1000;
+    int64_t now=clock(data);
+    if(now<=0){t->ops.invalidate(t->opaque,55);return -EIO;}
+    return pico_camera_transport_poll(t,now);
 }
 void pico_camera_transport_stop(struct pico_camera_transport *t)
 { assert(t==capture); if(!t->stopped){t->stopped=true;t->ops.invalidate(t->opaque,55);} }
@@ -151,6 +168,25 @@ int main(void)
         }
         finish(&s);++live_cycles;
     }
+    c=config();assert(!pico_slam_live_prepare(&c,&s));paired(now-1000,now,1);
+    assert(pico_slam_live_poll(s,offsets,now,&poses)==1);
+    completed_at=now+1000;delivery=2;owner_now=now;
+    assert(pico_slam_live_poll_clock(s,offsets,live_clock,&owner_now,&poses)==1 && !poses);
+    completed_at=0;delivery=0;owner_now=now+4000;
+    paired(now+3000,owner_now,1);
+    assert(pico_slam_live_poll_clock(s,offsets,live_clock,&owner_now,&poses)==1 && poses==1);
+    finish(&s);++clock_checks;
+    for(unsigned n=0;n<5;n++) {
+        c=config();assert(!pico_slam_live_prepare(&c,&s));paired(now-1000,now,1);
+        assert(pico_slam_live_poll(s,offsets,now,&poses)==1);
+        owner_now=now+2000;clock_calls=0;fail_clock=n<3?n+1:n-1;regress_clock=n>=3;
+        assert(pico_slam_live_poll_clock(s,offsets,live_clock,&owner_now,&poses)<0 && !poses);
+        fail_clock=0;regress_clock=false;finish(&s);++clock_checks;
+    }
+    c=config();assert(!pico_slam_live_prepare(&c,&s));
+    assert(pico_slam_live_poll_clock(s,offsets,NULL,NULL,&poses)==-EINVAL && !poses);
+    finish(&s);++clock_checks;
+    printf("PICO_SLAM_LIVE_CLOCK_PASS cases=%u arrival_after_poll_start=1\n",clock_checks);
     c=config();bad=c;bad.tracking.generation=0;
     assert(pico_slam_live_prepare(&bad,&s)<0 && s && !mock && !capture);
     assert(!pico_slam_live_stop(s) && !pico_slam_live_quiesced(s) && !pico_slam_live_destroy(&s));
