@@ -1179,6 +1179,21 @@ control modes, simultaneous errors and delay boundaries. The original code fails
 rail state; failures swallowed by the shared regulator core remain a separate
 limitation, and no DMA or recovery acceptance follows from these tests.
 
+Patch `0047-camera-sensor-stop-errors.patch` retains the first reported failure
+from the sensor clock, regulator and pinctrl cleanup. The sensor wrapper also
+returns a failed CCI release instead of reporting success. Existing cleanup order, delays, regulator-handle changes and the vendor's
+nonfatal BoB mode-switch policy remain unchanged. A failed power sequence still
+prevents subsequent CCI release, as in the existing wrapper.
+
+The exact retained functions pass 6,146 host and ARM64 sanitizer cases covering
+combined errors, optional clocks and pinctrl, delay boundaries and CCI release.
+Absent optional GPIO tables retain their existing nonfatal behavior; the retained
+GPIO free operation has no hardware error return.
+The original fails 9,856 assertions. A negative return leaves cleanup uncertain;
+callers must retain their owner and must not retry power-down automatically.
+This patch does not repair the vendor's discarded failed regulator handles or
+establish physical power state, DMA quiescence or recovery.
+
 ### Native sensor initialization
 
 `pico-camera-sensor-setup` copies explicit initialization, mode, optional
