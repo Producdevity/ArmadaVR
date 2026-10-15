@@ -26,4 +26,4 @@ out=$(cd "$out" && pwd)
     --mount "type=bind,src=$PWD/tests,dst=/project/tests,readonly" \
     --mount "type=bind,src=$PWD/$archive,dst=/archive.tar.gz,readonly" \
     --mount "type=bind,src=$out,dst=/output" \
-    "${extra[@]}" "$image" -c 'exec python3 -B /project/tools/monado-build.py build'
+    ${extra[@]+"${extra[@]}"} "$image" -c 'exec python3 -B /project/tools/monado-build.py build'

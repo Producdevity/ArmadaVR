@@ -235,7 +235,7 @@ fi
 if test -f /output/monado.json; then
     chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 /usr/bin/ldd -r /opt/reframed-vr/monado/bin/monado-service > /output/monado-dependencies.txt 2>&1
     python3 -c 'from pathlib import Path; data=Path("/output/monado-dependencies.txt").read_text(); assert "not found" not in data and "undefined symbol" not in data, data'
-    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/reframed-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
+    chroot /tmp/root /usr/bin/env LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 /usr/bin/python3 -c 'import ctypes,os; [ctypes.CDLL("/opt/reframed-vr/monado/lib64/"+name,mode=os.RTLD_NOW) for name in ("libopenxr_monado.so","libmonado.so","libquest_tracking.so")]; print("Monado ARM64 client libraries RTLD_NOW: passed")' > /output/monado-loader.txt 2>&1
 fi
 if test -f /output/lepton.json; then
     chroot /tmp/root /bin/sh -ec '
@@ -665,7 +665,7 @@ data=subprocess.check_output(['ldd','-r',prefix+'/bin/monado-service'],text=True
 print(data,flush=True)
 if 'not found' in data or 'undefined symbol' in data:
     raise SystemExit('Monado runtime image has unresolved dependencies')
-for name in ('libopenxr_monado.so','libmonado.so'):
+for name in ('libopenxr_monado.so','libmonado.so','libquest_tracking.so'):
     ctypes.CDLL(prefix+'/lib64/'+name,mode=os.RTLD_NOW)
 print('Monado runtime image preflight: passed')
 """
