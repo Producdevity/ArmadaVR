@@ -1,0 +1,58 @@
+--- a/techpack/camera/drivers/cam_utils/cam_soc_util.c
++++ b/techpack/camera/drivers/cam_utils/cam_soc_util.c
+@@ -2171,4 +2171,8 @@
+ 	if (regulator_count_voltages(rgltr) > 0) {
+-		regulator_set_load(rgltr, 0);
+-		regulator_set_voltage(rgltr, 0, rgltr_max_volt);
++		int result;
++
++		rc = regulator_set_load(rgltr, 0);
++		result = regulator_set_voltage(rgltr, 0, rgltr_max_volt);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -2387,6 +2391,6 @@
+ 
+-static void cam_soc_util_regulator_disable_default(
++static int cam_soc_util_regulator_disable_default(
+ 	struct cam_hw_soc_info *soc_info)
+ {
+-	int j = 0;
++	int j = 0, rc = 0, result;
+ 	uint32_t num_rgltr = soc_info->num_rgltr;
+@@ -2395,3 +2399,3 @@
+ 		if (soc_info->rgltr_ctrl_support == true) {
+-			cam_soc_util_regulator_disable(soc_info->rgltr[j],
++			result = cam_soc_util_regulator_disable(soc_info->rgltr[j],
+ 				soc_info->rgltr_name[j],
+@@ -2402,6 +2406,10 @@
+ 		} else {
++			result = 0;
+ 			if (soc_info->rgltr[j])
+-				regulator_disable(soc_info->rgltr[j]);
+-		}
+-	}
++				result = regulator_disable(soc_info->rgltr[j]);
++		}
++		if (!rc)
++			rc = result;
++	}
++	return rc;
+ }
+@@ -2887,3 +2895,3 @@
+ {
+-	int rc = 0;
++	int rc = 0, result;
+ 
+@@ -2893,3 +2901,3 @@
+ 	if (disable_irq)
+-		rc |= cam_soc_util_irq_disable(soc_info);
++		rc = cam_soc_util_irq_disable(soc_info);
+ 
+@@ -2898,3 +2906,5 @@
+ 
+-	cam_soc_util_regulator_disable_default(soc_info);
++	result = cam_soc_util_regulator_disable_default(soc_info);
++	if (!rc)
++		rc = result;
+ 

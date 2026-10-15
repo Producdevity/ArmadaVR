@@ -699,3 +699,25 @@ not validate the headset's factory calibration.
 Packet routing and offline fixtures can advance independently. A complete 6DoF
 result cannot be claimed until these inputs are obtained and validated; the
 work remains part of the headset port.
+
+## Camera shutdown errors
+
+The Linux kernel patch set preserves errors from the Quest camera sensor,
+platform-power and CSI-PHY shutdown paths. Previously, sensor regulator/pinctrl
+and CCI-release failures could return success, platform shutdown discarded
+regulator errors, and the PHY stop handler shadowed its returned status. The
+PHY handler also now rejects incomplete user copies and invalid stop counts or
+handles before changing ownership counters.
+
+Cleanup keeps the vendor ordering, optional GPIO-table validation, nonfatal BoB
+policy, hardware-no-op modes, aggregator branch and startup unwind. Where several
+cleanup operations fail, the caller receives the first reported error. This does
+not prove that rails are off, CSI has stopped, DMA is quiescent, or retrying the
+same stop request is safe. Regulator-core failures that its own API hides remain
+outside these patches.
+
+The regression tools compare exact excerpts from the pinned Quest kernel with
+the patched code: 4,610 sensor cases, 2,372 platform-power cases and 600 PHY cases.
+They model hardware operations and check cleanup ordering and reported failures
+under host and ARM64 ASan/UBSan. Full-source patch application and kernel builds
+are separate checks; none establish physical camera operation or flash readiness.

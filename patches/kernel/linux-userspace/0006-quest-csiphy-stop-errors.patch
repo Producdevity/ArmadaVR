@@ -1,0 +1,72 @@
+--- a/techpack/camera/drivers/cam_sensor_module/cam_csiphy/cam_csiphy_core.c
++++ b/techpack/camera/drivers/cam_sensor_module/cam_csiphy/cam_csiphy_core.c
+@@ -2095,3 +2095,3 @@
+ 	case CAM_STOP_DEV: {
+-		int32_t offset, rc = 0;
++		int32_t offset, result;
+ 		struct cam_start_stop_dev_cmd config;
+@@ -2100,3 +2100,4 @@
+ 					sizeof(config));
+-		if (rc < 0) {
++		if (rc) {
++			rc = -EFAULT;
+ 			CAM_ERR(CAM_CSIPHY, "Failed copying from User");
+@@ -2105,3 +2106,5 @@
+ 
+-		if (csiphy_dev->csiphy_state != CAM_CSIPHY_START) {
++		if (csiphy_dev->csiphy_state != CAM_CSIPHY_START ||
++			!csiphy_dev->start_dev_count) {
++			rc = -EINVAL;
+ 			CAM_ERR(CAM_CSIPHY, "Csiphy:%d Not in right state to stop : %d",
+@@ -2114,3 +2117,5 @@
+ 		if (offset < 0 ||
+-			offset >= csiphy_dev->session_max_device_support) {
++			offset >= csiphy_dev->session_max_device_support ||
++			offset >= csiphy_dev->acquire_count) {
++			rc = -EINVAL;
+ 			CAM_ERR(CAM_CSIPHY, "Index is invalid: %d", offset);
+@@ -2130,3 +2135,3 @@
+ 			if (csiphy_dev->csiphy_info[offset].secure_mode)
+-				cam_csiphy_program_secure_mode(
++				rc = cam_csiphy_program_secure_mode(
+ 					csiphy_dev,
+@@ -2139,3 +2144,5 @@
+ 
+-			cam_csiphy_update_lane(csiphy_dev, offset, false);
++			result = cam_csiphy_update_lane(csiphy_dev, offset, false);
++			if (!rc)
++				rc = result;
+ 
+@@ -2154,3 +2161,3 @@
+ 		if (csiphy_dev->csiphy_info[offset].secure_mode)
+-			cam_csiphy_program_secure_mode(
++			rc = cam_csiphy_program_secure_mode(
+ 				csiphy_dev,
+@@ -2174,10 +2181,13 @@
+ 
+-		rc = cam_csiphy_disable_hw(csiphy_dev);
+-		if (rc < 0)
++		result = cam_csiphy_disable_hw(csiphy_dev);
++		if (!rc)
++			rc = result;
++		if (result < 0)
+ 			CAM_ERR(CAM_CSIPHY, "Failed in csiphy release");
+ 
+-		if (cam_csiphy_cpas_ops(csiphy_dev->cpas_handle, false)) {
++		result = cam_csiphy_cpas_ops(csiphy_dev->cpas_handle, false);
++		if (!rc)
++			rc = result;
++		if (result)
+ 			CAM_ERR(CAM_CSIPHY, "Failed in de-voting CPAS");
+-			rc = -EFAULT;
+-		}
+ 
+--- a/techpack/camera/drivers/cam_sensor_module/cam_csiphy/cam_csiphy_soc.c
++++ b/techpack/camera/drivers/cam_sensor_module/cam_csiphy/cam_csiphy_soc.c
+@@ -251,5 +251,3 @@
+ 
+-	cam_soc_util_disable_platform_resource(soc_info, true, true);
+-
+-	return 0;
++	return cam_soc_util_disable_platform_resource(soc_info, true, true);
+ }

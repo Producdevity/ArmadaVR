@@ -1,0 +1,61 @@
+--- a/techpack/camera/drivers/cam_sensor_module/cam_sensor/cam_sensor_core.c
++++ b/techpack/camera/drivers/cam_sensor_module/cam_sensor/cam_sensor_core.c
+@@ -2074,7 +2074,7 @@
+ 	 * Don't de init cci in case of hw_no_io_ops
+ 	 */
+ 	if (!s_ctrl->hw_no_io_ops)
+-		camera_io_release(&(s_ctrl->io_master_info));
++		rc = camera_io_release(&(s_ctrl->io_master_info));
+ 
+ 	return rc;
+ }
+--- a/techpack/camera/drivers/cam_sensor_module/cam_sensor_utils/cam_sensor_util.c
++++ b/techpack/camera/drivers/cam_sensor_module/cam_sensor_utils/cam_sensor_util.c
+@@ -2382,7 +2382,7 @@
+ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
+ 		struct cam_hw_soc_info *soc_info)
+ {
+-	int index = 0, ret = 0, num_vreg = 0, i;
++	int index = 0, ret = 0, first_error = 0, num_vreg = 0, i;
+ 	struct cam_sensor_power_setting *pd = NULL;
+ 	struct cam_sensor_power_setting *ps = NULL;
+ 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
+@@ -2429,6 +2429,8 @@
+ 			if (ret < 0) {
+ 				CAM_ERR(CAM_SENSOR,
+ 					"config clk reg failed rc: %d", ret);
++				if (!first_error)
++					first_error = ret;
+ 				continue;
+ 			}
+ 			break;
+@@ -2472,6 +2474,8 @@
+ 					soc_info->rgltr_op_mode[ps->seq_val],
+ 					soc_info->rgltr_delay[ps->seq_val]);
+ 					if (ret) {
++						if (!first_error)
++							first_error = ret;
+ 						CAM_ERR(CAM_SENSOR,
+ 						"Reg: %s disable failed",
+ 						soc_info->rgltr_name[
+@@ -2517,8 +2521,11 @@
+ 		ret = pinctrl_select_state(
+ 				ctrl->pinctrl_info.pinctrl,
+ 				ctrl->pinctrl_info.gpio_state_suspend);
+-		if (ret)
++		if (ret) {
+ 			CAM_ERR(CAM_SENSOR, "cannot set pin to suspend state");
++			if (!first_error)
++				first_error = ret;
++		}
+ 
+ 		devm_pinctrl_put(ctrl->pinctrl_info.pinctrl);
+ 	}
+@@ -2526,5 +2533,5 @@
+ 	cam_sensor_util_request_gpio_table(soc_info, 0);
+ 	ctrl->cam_pinctrl_status = 0;
+ 
+-	return 0;
+-}
++	return first_error;
++}
