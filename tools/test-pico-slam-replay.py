@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay pinned reference camera/IMU data through Pico input and native Basalt."""
+"""Replay reference camera/IMU data through Pico and Quest input with native Basalt."""
 import argparse
 import importlib.util
 import json
@@ -120,6 +120,7 @@ def main():
     for part in ('runtime', 'live'):
         source_paths += ['src/pico-slam-' + part + suffix for suffix in ('.c', '.h')]
     source_paths += ['src/pico-monado-hmd.c', 'src/pico-monado-hmd.h', 'src/ssc-imu-session.h', 'tests/pico-slam-live-replay.cpp', 'tools/monado-artifact.py', 'tools/ssc-artifact.py']
+    source_paths += ['tests/quest-slam-replay.cpp', 'tests/quest-slam-replay-io.c', 'src/quest-slam-runtime.h', 'src/quest-imu-stream.h', 'src/quest-imu.h', 'src/imu-calibration.h', 'src/imu-time-align.h', 'src/syncboss-imu.h']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/source/thirdparty -I/out/include -isystem /monado/src/xrt/include"
@@ -173,6 +174,12 @@ for fault in camera-silence clock-regression; do
     /out/installed-live-replay /dataset /out/bounded.toml /out/poses-fault-$fault.csv /pico-runtime/lib64/libpico_tracking.so $fault > /out/fault-$fault.log 2>&1
 done
 /out/installed-live-replay /dataset /out/bounded.toml /out/poses-installed-live.csv /pico-runtime/lib64/libpico_tracking.so > /out/installed-live-replay.log 2>&1
+cc -std=gnu11 $flags -c /repo/tests/quest-slam-replay-io.c -o /out/quest-replay-io.o
+c++ -std=c++17 $flags -pthread -I/source/thirdparty/vit /repo/tests/quest-slam-replay.cpp /out/quest-replay-io.o $(pkg-config --cflags --libs opencv4) -L/pico-runtime/lib64 -lquest_tracking -L/opt/reframed-vr/basalt/lib64 -lbasalt -Wl,--export-dynamic -ldl -o /out/quest-replay
+for fault in camera-silence clock-regression; do
+    /out/quest-replay /dataset /out/bounded.toml /out/poses-quest-$fault.csv /pico-runtime/lib64/libquest_tracking.so $fault > /out/quest-$fault.log 2>&1
+done
+/out/quest-replay /dataset /out/bounded.toml /out/poses-quest-normal.csv /pico-runtime/lib64/libquest_tracking.so > /out/quest-normal.log 2>&1
 """
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
     command = [args.engine, 'run', '--rm', '--name', name, '--pull', 'never', '--network', 'none', '--read-only',
@@ -306,6 +313,18 @@ done
             report['installed_runtime'] = installed
             report['installed_live_trajectory'] = metrics
             report['installed_live_binary_sha256'] = digest(args.output / 'installed-live-replay')
+            quest = {}
+            for cause in ('camera-silence', 'clock-regression', 'normal'):
+                quest_log = (args.output / f'quest-{cause}.log').read_text()
+                if (not re.search(r'QUEST_SLAM_REPLAY_PASS poses=185 images=370 imu=[0-9]+ head_poses=184 startup_skipped=1 modeled_fifo=1 stopped_invalid=1 installed_library=1', quest_log) or
+                        (cause != 'normal' and f'QUEST_SLAM_FAULT_PASS cause={cause} invalid_before_explicit_stop=1 implicit_restart=0' not in quest_log)):
+                    raise ValueError('Installed Quest replay did not finish: ' + cause)
+                metrics = trajectory_metrics(args.output / f'poses-quest-{cause}.csv', reference / 'mav0/gt/data.csv')
+                if (metrics['poses'] != dataset['poses'] or metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or metrics['max_error_m'] > dataset['max_rigid_error_m']):
+                    raise ValueError('Installed Quest trajectory acceptance failed: ' + cause)
+                quest[cause] = {'trajectory': metrics, 'log_sha256': digest(args.output / f'quest-{cause}.log')}
+            report['installed_quest_replay'] = quest
+            report['installed_quest_binary_sha256'] = digest(args.output / 'quest-replay')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')
         if build['stage_sha256'] != basalt.tree_digest(prefix):

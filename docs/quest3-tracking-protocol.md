@@ -755,6 +755,22 @@ expected. Those records are reframed into FIFO messages with a simulated read
 clock; this does not validate live FIFO acquisition, MCU scales or active model
 selection.
 
+The maintained `tools/test-pico-slam-replay.py` also exercises the installed
+Quest library with the native Basalt estimator. Its test-only FIFO interposer
+supplies calibrated reference IMU vectors in copied packet format and controls
+only the Quest owner's monotonic clock. Basalt workers use the real host clock;
+reference camera images are copied through the production input owner before the
+caller overwrites its buffer. The reference run produces 185 estimator poses,
+184 tracked pose queries, 370 images and 3,467 IMU samples. Camera silence with
+continuing IMU input and clock regression invalidate poses before an explicit
+stop and refuse implicit restart. Fresh processes repeat the normal run.
+
+This uses the Valve Index reference dataset and its calibration, not Quest camera
+frames or measured Quest accuracy. Native ARM64 replay passed the existing rigid
+trajectory limits without fitting scale; the accompanying Pico replay and fault
+checks also passed. Evidence is retained in
+`output/quest-offline-parity-20261015-v1/installed-replay-v1/acceptance.json`.
+
 ## Basalt lens compatibility
 
 The pinned Basalt `Fisheye624Camera` represents Fisheye62 by setting both focal
