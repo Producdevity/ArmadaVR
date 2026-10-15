@@ -1,8 +1,11 @@
 # Pico HMD integration
 
 The native Monado Pico driver can expose an HMD backed by the four-subscription
-SSC head session. It reports orientation and angular velocity. Position, yaw
-calibration, cameras, eye tracking and proximity sensing are not implemented.
+SSC head session. This automatic-prober path reports orientation and angular
+velocity. An explicit capture owner can instead supply the
+[visual-inertial pose provider](pico-slam.md#hmd-pose-output), including position;
+that integration is verified offline but still requires physical camera and
+IMU calibration. Eye tracking and proximity sensing are not implemented.
 No HMD is opened by default.
 
 Set both `PICO_HMD_CONFIG` to a private calibration JSON file and

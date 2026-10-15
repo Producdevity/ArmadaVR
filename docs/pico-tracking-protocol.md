@@ -1334,3 +1334,40 @@ implementations with simulated CRM memory and ioctls. Host and ARM64 sanitizer
 runs cover 200 complete lifecycles, 104 memory-operation failures, 37 control
 failures and 19 stop/release failures. Those last 19 owners stay retained.
 These tests do not establish physical camera startup or DMA quiescence.
+
+## Native camera node inventory
+
+`tools/pico-camera-inventory.py` collects one explicitly selected media graph
+on ARM64 Linux. It verifies the character-device number against sysfs, opens
+only that `/dev/mediaN` node read-only, and uses `MEDIA_IOC_DEVICE_INFO` and
+`MEDIA_IOC_G_TOPOLOGY`. It never opens the request-manager, sync or sensor
+control nodes. Opening the request-manager itself is not a metadata-only
+operation: the retained driver initializes its memory manager on open and
+shuts down camera contexts on close.
+
+After the boot/recovery gates and a native Linux boot, copy the collector into
+RAM and select the media node established by the native sysfs inventory:
+
+```sh
+python3 /run/pico-camera-inventory.py --media /dev/mediaN > /run/camera-media.json
+```
+
+Replace `N` with the actual node number. The collector accepts only the retained
+request-manager and sync driver/model pairs. It reports the complete graph,
+custom camera function IDs, interface device numbers and interface-to-entity
+links. It does not derive a sensor slot, optical identity or calibration from a
+node name. In particular, entities may exist before the camera driver creates
+subdevice nodes; an empty interface list is retained, not filled with guessed
+`/dev/v4l-subdevN` paths. No node-creation command is issued.
+
+The v2 topology API provides a versioned snapshot with explicit interface
+links. Camera function names are interpreted only within the matching vendor
+media controller. Collection bounds allocations and retries a changed graph
+at most three times; incomplete or malformed graphs produce no JSON result.
+
+Run `tools/test-pico-camera-inventory.py PINNED_KERNEL_ARCHIVE --output NEW_DIR`
+in offline ARM64 Linux to compare the collector's ioctl numbers, record sizes
+and field offsets against the exact Pico UAPI header, then exercise its mocked
+syscalls. This establishes metadata decoding and refusal behavior, not actual
+camera presence or capture. The standalone collector is not an automatically
+started service and is not included in the existing first-boot diagnostic.
