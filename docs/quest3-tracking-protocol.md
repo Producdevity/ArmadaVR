@@ -838,3 +838,18 @@ partial copy-back followed by errors, positive ioctl returns and invalid inputs
 under ASan/UBSan. This proves payload compatibility and bounded handling, not
 hardware capabilities or capture. Capability queries do not identify which
 physical camera corresponds to an online calibration ID.
+
+
+The Quest control layer also supplies explicit CRM session, legacy link,
+activation, two-link synchronization, scheduling and flush calls. It uses Quest
+opcodes and retains positive returned handles after failed copy-back; no retry,
+node opening or automatic cleanup occurs. A failed call can still have changed
+kernel state, even when no handle reaches userspace. The owner must establish
+quiescence before reuse. Flush alone does not establish DMA quiescence.
+
+The native request test uses the pinned vendor structures to inspect every
+payload and reserved field. It exercises 282 ioctls across 311 cases, including
+all supported link counts, both master links, scheduling flags, maximum request
+IDs, partial handle returns and interrupted operations. This is transport ABI
+coverage; sensor acquisition, ISP resources, buffer allocation, hardware clock
+mapping and actual capture remain separate integration requirements.
