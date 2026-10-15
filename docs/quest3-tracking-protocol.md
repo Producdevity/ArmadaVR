@@ -822,3 +822,19 @@ request-manager opcodes differ: create-session is `0x10f`, link is `0x111` and
 schedule is `0x113`, compared with Pico's `0x10b`, `0x10d` and `0x10f`. Pico's
 control layer cannot be used unchanged on Quest. Camera configuration, native
 capture, exposure timing and DMA quiescence still require their own validation.
+
+`src/quest-camera-control.c` queries explicitly identified sensor, CSI PHY and ISP
+descriptors without acquiring devices or issuing configuration/start commands.
+Quest's ISP response contains eight hardware classes (216 bytes), rather than
+Pico's five (144 bytes). The wrapper retains the reported hardware counts and
+nonsecure MMU handles and rejects out-of-range response counts. Queries preserve
+caller output on errors and do not retry interrupted calls. Opening or closing
+the CRM node remains the caller's responsibility and has global side effects.
+
+`tools/test-quest-camera-control.py` builds the transport against the exact Quest
+vendor headers in ARM64 Linux. Its ioctl substitute interprets the real vendor
+structures, writes all eight ISP entries, and covers zero/full/invalid counts,
+partial copy-back followed by errors, positive ioctl returns and invalid inputs
+under ASan/UBSan. This proves payload compatibility and bounded handling, not
+hardware capabilities or capture. Capability queries do not identify which
+physical camera corresponds to an online calibration ID.
