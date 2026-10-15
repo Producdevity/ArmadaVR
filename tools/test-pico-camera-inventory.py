@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the media collector's ABI against pinned Pico headers in offline ARM64 Linux."""
+"""Verify the media collector against pinned headset headers in offline ARM64 Linux."""
 import argparse
 import hashlib
 import importlib.util
@@ -12,7 +12,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ('tools/pico-camera-inventory.py', 'tools/test-pico-camera-inventory.py',
-          'tests/test_pico_camera_inventory.py', 'tests/pico-camera-inventory-abi.c')
+          'tests/test_pico_camera_inventory.py', 'tests/pico-camera-inventory-abi.c', 'tests/quest-camera-inventory-abi.c')
 
 
 def digest(path):
@@ -23,13 +23,13 @@ def digest(path):
 def run(args):
     if sys.platform != 'linux' or platform.machine() != 'aarch64':
         raise ValueError('Use offline ARM64 Linux')
-    profile = json.loads((ROOT / 'profiles/kernel/pico-neo3.json').read_text())
+    profile = json.loads((ROOT / 'profiles/kernel' / (args.target + '.json')).read_text())
     archive_sha = digest(args.archive)
     if archive_sha != profile['full_source']['sha256']:
-        raise ValueError('Kernel archive differs from the pinned Pico source')
+        raise ValueError('Kernel archive differs from the pinned target source')
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    report = {'status': 'started', 'kernel_commit': profile['commit'], 'archive_sha256': archive_sha,
+    report = {'status': 'started', 'target': args.target, 'kernel_commit': profile['commit'], 'archive_sha256': archive_sha,
               'inputs_sha256': {name: digest(ROOT / name) for name in INPUTS},
               'physical_capture_verified': False, 'device_access': False, 'commands': []}
 
@@ -47,6 +47,16 @@ def run(args):
         with tarfile.open(args.archive) as archive:
             name = profile['full_source']['archive_root'] + '/include/uapi/linux/media.h'
             header.write_bytes(archive.extractfile(name).read())
+            if args.target == 'quest3':
+                media = out / 'include/media'
+                media.mkdir()
+                for member in archive:
+                    relative = member.name.removeprefix(profile['full_source']['archive_root'] + '/')
+                    if member.isfile() and relative.startswith('techpack/camera/include/uapi/media/'):
+                        if member.size > 1024 * 1024 or relative != 'techpack/camera/include/uapi/media/' + Path(relative).name:
+                            raise ValueError('Unexpected camera header')
+                        (media / Path(relative).name).write_bytes(archive.extractfile(member).read())
+                report['camera_header_sha256'] = {path.name: digest(path) for path in media.iterdir()}
         report['media_header_sha256'] = digest(header)
         binary = out / 'media-abi'
         command(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-D__user=', '-I', str(out / 'include'),
@@ -61,6 +71,19 @@ def run(args):
         if abi != expected:
             raise ValueError('Collector layout differs from pinned kernel headers')
         report['abi'] = abi
+        if args.target == 'quest3':
+            native = out / 'quest-abi'
+            command(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror', '-D__user=', '-I', str(out / 'include'),
+                     str(ROOT / 'tests/quest-camera-inventory-abi.c'), '-o', str(native)], 'quest-build.log')
+            quest = json.loads(command([str(native)], 'quest-abi.json'))
+            expected = {'roles': list(range(0x10000, 0x10000 + len(inventory.QUEST_ROLES))),
+                        'models': list(inventory.MODELS.values()), 'sync_role': 0x10000,
+                        'control': 0xc01856c0, 'create_session': 0x10f, 'link': 0x111, 'schedule': 0x113,
+                        'sizes': [24, 8, 268, 40, 16]}
+            if quest != expected:
+                raise ValueError('Quest inventory or command ABI differs from pinned headers')
+            report['quest_abi'] = quest
+            report['pico_control_opcodes_compatible'] = False
         command([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'tests',
                  '-p', 'test_pico_camera_inventory.py', '-v'], 'tests.log')
         command([sys.executable, '-B', str(ROOT / INPUTS[0]), '--help'], 'help.log')
@@ -80,4 +103,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--target', choices=('pico-neo3', 'quest3'), default='pico-neo3')
     run(parser.parse_args())

@@ -99,6 +99,24 @@ class CameraInventoryTests(unittest.TestCase):
         self.assertEqual(json.loads(json.dumps(report)), report)
         self.assertEqual(self.device.calls, [camera.DEVICE_INFO, camera.GET_TOPOLOGY, camera.GET_TOPOLOGY])
 
+    def test_quest_roles_and_version_are_explicit(self):
+        with self.assertRaises(ValueError):
+            camera.device_info(7, 'quest3')
+        self.device.media_version = 0x050af6
+        info = camera.device_info(7, 'quest3')
+        records = {name: [] for name in graph()}
+        records['entities'] = [(i + 1, b'node\0', 0x10000 + i, 0) for i in range(22)]
+        report = camera.describe(info, 1, records, 'quest3')
+        self.assertEqual([e['role'] for e in report['entities']], [*camera.QUEST_ROLES, None])
+        self.assertEqual(report['target'], 'quest3')
+        self.assertFalse(report['hardware_capture_verified'])
+        self.assertIsNone(camera.describe(info, 1, records)['entities'][20]['role'])
+        for function, args in ((camera.device_info, (7, 'unknown')),
+                               (camera.describe, (info, 1, records, 'unknown')),
+                               (camera.collect, ('/dev/media0', 'unknown'))):
+            with self.assertRaises(ValueError):
+                function(*args)
+
     def test_sync_role_is_scoped_to_sync_model(self):
         self.device.driver, self.device.model = b'cam_sync', b'cam_sync_device'
         report = self.description()

@@ -790,3 +790,19 @@ The output records its source hash, camera order, effective IMU transform and
 calibrated field-of-view boundary in a private manifest. It neither enables a
 sensor nor establishes that these are the active camera IDs, rate, noise or
 calibration on the device. Those confirmations remain required before live use.
+
+## Native camera inventory
+
+`tools/pico-camera-inventory.py --target quest3 --media /dev/mediaN` reuses the
+bounded media-controller collector with the Quest kernel's 21 entity roles.
+It opens only the explicitly selected media node and issues device-info and
+topology queries. It does not open camera subdevices, probe a sensor, allocate
+buffers or start capture. The target selects a known ABI; it does not authenticate
+the headset or infer the active camera pair from node names.
+
+The native ARM64 check compares the collector with the pinned Quest media and
+camera headers. Common control structures have matching sizes, but the Quest
+request-manager opcodes differ: create-session is `0x10f`, link is `0x111` and
+schedule is `0x113`, compared with Pico's `0x10b`, `0x10d` and `0x10f`. Pico's
+control layer cannot be used unchanged on Quest. Camera configuration, native
+capture, exposure timing and DMA quiescence still require their own validation.

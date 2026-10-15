@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read Pico media-controller metadata without opening camera or sync controls."""
+"""Read Pico or Quest media metadata without opening camera or sync controls."""
 import argparse
 import ctypes
 import errno
@@ -25,6 +25,8 @@ RECORDS = (
 MODELS = {'cam_req_mgr': 'cam-req-mgr-devnode', 'cam_sync': 'cam_sync_device'}
 ROLES = ('request-manager', 'sensor', 'ife', 'icp', 'lrme', 'jpeg', 'face-detection',
          'cpas', 'csiphy', 'actuator', 'cci', 'flash', 'eeprom', 'ois', 'custom')
+QUEST_ROLES = (*ROLES, 'ope', 'tfe', 'cre', 'tpg', 'sensorlite', 'remote-csiphy')
+TARGET_ROLES = {'pico-neo3': ROLES, 'quest3': QUEST_ROLES}
 
 
 def string(data):
@@ -34,15 +36,18 @@ def string(data):
     return data[:end].decode('utf-8')
 
 
-def device_info(fd):
+def device_info(fd, target='pico-neo3'):
+    if target not in TARGET_ROLES:
+        raise ValueError('Unknown camera inventory target')
     data = bytearray(256)
     fcntl.ioctl(fd, DEVICE_INFO, data, True)
     driver, model, serial, bus, version, hardware, driver_version = struct.unpack('<16s32s40s32sIII124x', data)
     info = dict(zip(('driver', 'model', 'serial', 'bus_info'), map(string, (driver, model, serial, bus))))
     if info['driver'] not in MODELS or info['model'] != MODELS[info['driver']]:
-        raise ValueError('Expected the Pico camera request-manager or sync media controller')
-    if version < 0x041300:
-        raise ValueError('Media topology requires Linux 4.19 or newer')
+        raise ValueError('Expected the camera request-manager or sync media controller')
+    minimum = 0x050a00 if target == 'quest3' else 0x041300
+    if version < minimum:
+        raise ValueError('Media topology requires Linux ' + ('5.10' if target == 'quest3' else '4.19') + ' or newer')
     return dict(info, media_version=version, hardware_revision=hardware, driver_version=driver_version)
 
 
@@ -74,7 +79,10 @@ def topology(fd):
     raise ValueError('Media topology changed during all three collection attempts')
 
 
-def describe(info, version, records):
+def describe(info, version, records, target='pico-neo3'):
+    if target not in TARGET_ROLES:
+        raise ValueError('Unknown camera inventory target')
+    roles = TARGET_ROLES[target]
     objects = {}
     for kind, rows in records.items():
         for row in rows:
@@ -84,8 +92,8 @@ def describe(info, version, records):
     entities = []
     for identifier, name, function, flags in records['entities']:
         role = None
-        if info['driver'] == 'cam_req_mgr' and 0x10000 <= function < 0x10000 + len(ROLES):
-            role = ROLES[function - 0x10000]
+        if info['driver'] == 'cam_req_mgr' and 0x10000 <= function < 0x10000 + len(roles):
+            role = roles[function - 0x10000]
         elif info['driver'] == 'cam_sync' and function == 0x10000:
             role = 'sync'
         entities.append(dict(id=identifier, name=string(name), function=function, flags=flags, role=role))
@@ -105,13 +113,15 @@ def describe(info, version, records):
     for entity in entities:
         entity['interfaces'] = [link['source_id'] for link in links
                                 if link['sink_id'] == entity['id'] and link['flags'] & 0x10000000]
-    return dict(schema_version=1, device=info, topology_version=version, entities=entities,
+    return dict(schema_version=1, target=target, device=info, topology_version=version, entities=entities,
                 interfaces=interfaces, pads=pads, links=links,
                 sensor_identity_verified=False, active_configuration_verified=False,
                 hardware_capture_verified=False)
 
 
-def collect(path):
+def collect(path, target='pico-neo3'):
+    if target not in TARGET_ROLES:
+        raise ValueError('Unknown camera inventory target')
     if sys.platform != 'linux' or platform.machine() != 'aarch64' or sys.byteorder != 'little' or ctypes.sizeof(ctypes.c_void_p) != 8:
         raise ValueError('Live collection requires little-endian ARM64 Linux')
     if not re.fullmatch(r'/dev/media(?:0|[1-9][0-9]{0,2})', path):
@@ -128,9 +138,9 @@ def collect(path):
         current = os.fstat(fd)
         if (current.st_mode, current.st_dev, current.st_ino, current.st_rdev) != (before.st_mode, before.st_dev, before.st_ino, before.st_rdev):
             raise ValueError('Media node changed while opening')
-        info = device_info(fd)
+        info = device_info(fd, target)
         version, records = topology(fd)
-        return dict(describe(info, version, records), path=path, device_number=list(numbers))
+        return dict(describe(info, version, records, target), path=path, device_number=list(numbers))
     finally:
         os.close(fd)
 
@@ -138,9 +148,10 @@ def collect(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--media', required=True, help='One explicit /dev/mediaN node; no subdevice is opened')
+    parser.add_argument('--target', choices=tuple(TARGET_ROLES), default='pico-neo3', help='Explicit kernel ABI profile; does not authenticate the unit')
     args = parser.parse_args()
     try:
-        report = collect(args.media)
+        report = collect(args.media, args.target)
     except (OSError, ValueError) as error:
         parser.exit(1, f'Camera inventory failed: {error}\n')
     print(json.dumps(report, indent=2))
