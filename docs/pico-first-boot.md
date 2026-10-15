@@ -296,7 +296,7 @@ Private audit and current-source receipts:
 ## Prepared artifact set
 
 The current private runtime set is
-`output/pico-camera-power-20261015-v1/first-boot-set.json`; its matching
+`output/pico-camera-sensor-stop-20261015-v1/first-boot-set.json`; its matching
 recovery references are in `recovery-session-set.json` in the same directory.
 The set binds the diagnostic, kernel, runtime container, external root, panel
 overlay, native package receipts and verification reports by size and SHA-256.
@@ -311,9 +311,11 @@ The kernel now [reports camera shutdown failures](pico-tracking-protocol.md#kern
 Camera startup, continuous request refill and IMU-to-pose delivery pass the
 [offline replay](pico-slam.md#continuous-capture). The replay also exercises
 tracked HMD poses and stereo views through the installed driver library, with
-simulated hardware and reference calibration. The packaged-root VM loads that
-same library, requires the live event-clock entry point and checks its refusal
-of missing configuration. Physical HMD and camera activation still require
+simulated hardware and reference calibration. Camera silence with continuing
+IMU input and a regressing poll clock both invalidate poses before explicit
+shutdown in that installed-library replay. The packaged-root VM loads the same
+library, requires the live event-clock entry point and checks its refusal of
+missing configuration. Physical HMD and camera activation still require
 explicit, verified configuration. The opt-in
 `pico-controller-config.py --motion-status` getter is prepared for a later stock
 capture. It has only been tested offline. Capture connected controllers'
