@@ -199,9 +199,28 @@ def build_inputs(profile, linux_userspace, qemu_abi):
     return extensions, patches
 
 
+
+def cgroup_memory_limit():
+    for name in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        path = Path(name)
+        if path.is_file():
+            value = path.read_text().strip()
+            return None if value == "max" else int(value)
+    return None
+
+
+def require_build_memory(profile, linux_userspace, configure_only, limit):
+    if (linux_userspace and not configure_only and
+            profile["repository"] == "facebookincubator/oculus-linux-kernel" and
+            limit is not None and limit < 6 * 1024**3):
+        raise ValueError("Quest Linux BTF generation requires at least 6 GiB of container memory")
+
+
 def build(profile, workspace, output, archive, linux_userspace=False, configure_only=False, qemu_abi=False):
     if sys.platform != "linux":
         raise ValueError("Use the Linux container workflow: just build-vendor-kernel")
+    memory_limit = cgroup_memory_limit()
+    require_build_memory(profile, linux_userspace, configure_only, memory_limit)
     extensions, patches = build_inputs(profile, linux_userspace, qemu_abi)
     targets = profile.get("build_targets", ["Image", "modules", "dtbs"])
     if targets not in (["Image", "modules"], ["Image", "modules", "dtbs"]):
@@ -222,7 +241,7 @@ def build(profile, workspace, output, archive, linux_userspace=False, configure_
               "variant": "qemu-abi" if qemu_abi else "linux-userspace" if linux_userspace else "vendor",
               "qemu_transports": qemu_abi,
               "build_targets": targets, "device_trees_compiled": False,
-              "limits": {"memory": os.environ.get("KERNEL_BUILD_MEMORY", "external"), "make_jobs": 2,
+              "limits": {"memory": os.environ.get("KERNEL_BUILD_MEMORY", "external"), "cgroup_memory_bytes": memory_limit, "make_jobs": 2,
                          "linker_threads": 1, "pahole_jobs": 1, "compile_seconds": 2700}}
     started = time.monotonic()
 
