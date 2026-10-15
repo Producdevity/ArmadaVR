@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--eigen', type=Path, help='Optional Eigen header directory')
     mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--quest-runtime', action='store_true', help='Test the copied-FIFO Quest owner and shared VIT session')
     mode.add_argument('--session', action='store_true', help='Test owned VIT session lifecycle')
     mode.add_argument('--sensors', action='store_true', help='Test the runtime with the actual SSC library in offline ARM64 Linux')
     parser.add_argument('--ssc-bundle', type=Path)
@@ -66,6 +67,8 @@ def main():
         local += ['src/ssc-imu-session.c', 'src/ssc-imu.c', 'src/ssc-calibration.c', 'src/ssc-clock.c']
     if args.imu:
         local = ['tests/pico-slam-imu.c', 'src/pico-slam-imu.c']
+    if args.quest_runtime:
+        local = ['tests/quest-slam-runtime.c', 'src/quest-slam-runtime.c', 'src/quest-imu.c', 'src/syncboss-imu.c', 'src/imu-calibration.c', 'src/imu-time-align.c', 'src/pico-slam-session.c', 'src/pico-camera.c', 'src/pico-slam-input.c', 'src/pico-slam-tracking.c']
     inputs = [ROOT / name for name in local]
     inputs += [auxiliary / ('math/' + name) for name in ['m_base.cpp', 'm_predict.c', 'm_relation_history.cpp', 'm_quatexpmap.cpp']]
     inputs += [auxiliary / ('util/' + name) for name in ['u_logging.c', 'u_debug.c']]
@@ -85,6 +88,9 @@ def main():
 
     if args.imu:
         report['scope'] = 'Bounded SSC pairing and cross-thread handoff with synthetic calibrated input; no device activation'
+
+    if args.quest_runtime:
+        report['scope'] = 'Quest FIFO owner and shared VIT/Monado session with modeled FIFO and estimator; no device activation'
 
     if args.runtime:
         report['scope'] = 'Actual runtime/session/queue with synthetic SSC worker and VIT backend; no device activation'
@@ -126,15 +132,16 @@ def main():
             compiler = args.cxx if path.suffix == '.cpp' else args.cc
             standard = '-std=c++17' if path.suffix == '.cpp' else '-std=gnu11'
             warning = ['-Wall', '-Wextra', '-Werror'] if path in inputs[:len(local)] else ['-w']
-            run([compiler, standard, *flags, *sanitize, *warning, '-c', str(path), '-o', str(obj)], name + '-compile.log', timeout=180)
+            overrides = ['-Dclock_gettime=quest_test_clock'] if args.quest_runtime and path.name == 'quest-slam-runtime.c' and path.parent.name == 'src' else []
+            run([compiler, standard, *flags, *sanitize, *warning, *overrides, '-c', str(path), '-o', str(obj)], name + '-compile.log', timeout=180)
             objects.append(str(obj))
         binary = output / 'pico-slam-tracking'
         collect = '-Wl,-dead_strip' if sys.platform == 'darwin' else '-Wl,--gc-sections'
         run([args.cxx, *sanitize, *objects, *link_flags, '-pthread', '-lm', collect, '-o', str(binary)], 'link.log')
         run([str(binary)] + (['no-qrtr'] if args.sensors else []), 'test.log', env=environment)
         log = (output / 'test.log').read_text()
-        expected = 'PICO_SLAM_LIVE_PASS cycles=200 faults=20 retained=5 poses=802' if args.live else 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=216' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
-        if expected not in log or (not args.session and not args.imu and not args.runtime and not args.sensors and not args.live and 'generations=1000 poses=10000 reader_queries=20000' not in log):
+        expected = 'QUEST_SLAM_RUNTIME_PASS runs=212' if args.quest_runtime else 'PICO_SLAM_LIVE_PASS cycles=200 faults=20 retained=5 poses=802' if args.live else 'PICO_SLAM_SENSORS_PASS mode=no-qrtr cycles=100' if args.sensors else 'PICO_SLAM_RUNTIME_PASS cycles=200 backend_faults=8 stream_faults=7 deferred=4 joined=216' if args.runtime else 'PICO_SLAM_IMU_PASS cycles=200 pairs=59800 threaded_pairs=10000 faults=22' if args.imu else 'PICO_SLAM_SESSION_PASS generations=1013' if args.session else 'PICO_SLAM_TRACKING_PASS'
+        if expected not in log or (not args.quest_runtime and not args.session and not args.imu and not args.runtime and not args.sensors and not args.live and 'generations=1000 poses=10000 reader_queries=20000' not in log):
             raise ValueError('Tracking tests did not complete')
         if args.sensors and ssc.package(bundle) != record:
             raise ValueError('SSC bundle changed during testing')

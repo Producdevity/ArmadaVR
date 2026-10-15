@@ -721,3 +721,48 @@ the patched code: 4,610 sensor cases, 2,372 platform-power cases and 600 PHY cas
 They model hardware operations and check cleanup ordering and reported failures
 under host and ARM64 ASan/UBSan. Full-source patch application and kernel builds
 are separate checks; none establish physical camera operation or flash readiness.
+
+## Native VIT tracking integration
+
+`quest-slam-runtime.c` connects the copied Syncboss FIFO owner to the bounded VIT
+session and Monado pose-history provider shared with the Pico pipeline. It uses
+the session's mono8 interface and does not open SSC or decode Pico snapshots.
+Preparation validates the supplied IMU configuration without opening a device;
+explicit start opens the FIFO once. The first aligned IMU sample starts the
+estimator. Camera/IMU gaps, rejected samples, backend errors, clock regression
+and clock-map expiry invalidate the pose provider and end the owner. Restart
+requires recreation, explicit sensor ownership and a new generation.
+
+The caller must supply the active calibration and MCU scales, IMU alignment,
+camera order, dimensions, exposure-center timestamps, bounded clock uncertainty,
+and matching camera-to-IMU and head transforms. The interface does not configure
+the MCU or cameras, establish DMA quiescence, or enable a Monado auto-prober.
+Temperature tables and the VIT library/configuration must outlive the owner;
+stop capture callbacks and release HMD references before destruction.
+
+Host and ARM64 sanitizer tests exercise 212 lifecycle and fault cases with the
+real shared session and Monado pose history, modeled FIFO input and a modeled VIT
+backend. Separately, 12,032 retained stopped-channel records replayed through the
+new FIFO owner produce 48,122 bit-identical calibrated samples across two saved
+calibration candidates and two rectification frames. Six history warmups are
+expected. Those records are reframed into FIFO messages with a simulated read
+clock; this does not validate live FIFO acquisition, MCU scales or active model
+selection.
+
+## Basalt lens compatibility
+
+The pinned Basalt `Fisheye624Camera` represents Fisheye62 by setting both focal
+lengths to the shared focal length, keeping the six radial and two tangential
+coefficients, and setting its four thin-prism coefficients to zero. This permits
+native image coordinates without a pinhole remapping stage. Image dimensions,
+crop, orientation, calibrated field of view and physical camera identity must
+still match the calibration.
+
+The original implementation returns nonfinite projections on the optical axis
+and nonfinite float derivatives near it. Its inverse also returned success after
+failed or incomplete convergence. Patch `0005-stabilize-fisheye624.patch` uses a
+stable chain-rule derivative with the analytic on-axis limit and bounded inverse
+iteration with convergence checks. Host and ARM64 sanitizer regressions cover
+10,334 projection, all-parameter derivative, inverse and invalid-input checks;
+the original code fails 982 assertions. These numerical tests do not establish
+camera capture or headset tracking accuracy.
