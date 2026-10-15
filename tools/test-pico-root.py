@@ -135,6 +135,17 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
                    '/lib/ld-linux-aarch64.so.1','--library-path',libraries,str(prefix/program)])
     assert 'not found' not in trace and 'undefined symbol' not in trace,(name,trace)
     packages[name]={'files':len(files),'links':len(links),'loader_relocations':True,'program_executed':False}
+if (expected.get('monado') or {}).get('ssc_dependency') is not None:
+    lib=ctypes.CDLL('/opt/reframed-vr/monado/lib64/libpico_tracking.so',mode=os.RTLD_NOW)
+    for name in ('pico_camera_probe_setup_prepare','pico_camera_rig_prepare','pico_slam_live_poll',
+                 'pico_slam_live_tracking','pico_slam_live_stop','pico_slam_live_quiesced','pico_monado_hmd_create'):
+        assert getattr(lib,name)
+    lib.pico_slam_live_prepare.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
+    lib.pico_slam_live_prepare.restype=ctypes.c_int
+    lib.pico_slam_live_destroy.argtypes=[ctypes.c_void_p]
+    lib.pico_slam_live_destroy.restype=ctypes.c_int
+    assert lib.pico_slam_live_prepare(None,None)==-22 and lib.pico_slam_live_destroy(None)==-22
+    packages['monado'].update(pico_runtime_loaded=True,invalid_configuration_refused=True,physical_tracking_verified=False)
 if expected.get('basalt') is not None:
     lib=ctypes.CDLL('/opt/reframed-vr/basalt/lib64/libbasalt.so.2',mode=os.RTLD_NOW)
     version=[ctypes.c_uint32() for _ in range(3)]
