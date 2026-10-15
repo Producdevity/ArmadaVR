@@ -869,3 +869,27 @@ also checks head poses, stereo views, bounded prediction and current-input
 activity against the actual Quest provider while Basalt estimates the reference
 trajectory. Reference data and synthetic display optics validate this software
 connection; they do not establish physical Quest tracking or optical accuracy.
+
+
+Quest also has `CAM_SET_STREAM_MODE` and `CAM_STREAM_MODE_CMD`, absent from
+Pico's older common-opcode range. `quest-camera-buffer.c` prepares explicit
+single-plane buffer sets and separate zero-timeout GET and one-buffer RETURN
+commands. It checks bounded payloads, unique owned handles, packet offsets,
+response counts and timestamp ranges. It preserves caller output on failure;
+a failed copy-back may still have transferred ownership in the kernel and
+requires stopping the owner. It does not prepare ISP packets, configure sensors,
+map DMA-BUFs, perform CPU-cache synchronization or start capture.
+
+In the pinned Quest source, ordinary successful requests skip SOF notification
+in `__cam_isp_ctx_send_sof_timestamp`. The stream path saves
+`stream_image->capture_timestamp` at buffer completion, but GET fills
+`sof_timestamp` from `ctx_isp->monotonic_timestamp` at dequeue. A queued buffer
+can therefore contain timestamps from different frames. The wrapper exposes
+the latter as `observed_monotonic_ns`; it must not be used to infer a same-frame
+clock mapping. Captured Qtimer SOF still needs measured alignment and exposure
+center timing before VIO input.
+
+The native vendor-header test checks 266 buffer ioctls, all 1-30 buffer counts,
+zero-wait and separate return payloads, malformed responses, partial failure
+output, and invalid handles/offsets under ASan/UBSan. Kernel timestamp ownership,
+ISP resources and real capture remain unverified by these transport tests.

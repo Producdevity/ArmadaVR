@@ -11,6 +11,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ('src/quest-camera-control.c', 'src/quest-camera-control.h',
+          'src/quest-camera-buffer.c', 'src/quest-camera-buffer.h', 'tests/quest-camera-buffer.c',
           'tests/quest-camera-control.c', 'tests/quest-camera-request.c', 'tools/test-quest-camera-control.py')
 
 
@@ -44,12 +45,14 @@ def run(args):
         report['headers'] = {p.name: digest(p) for p in sorted(header.iterdir())}
         binaries = {}
         for name, marker in [('control', 'QUEST_CAMERA_QUERY_PASS ioctls=30 hardware=0 isp_entries=8'),
-                             ('request', 'QUEST_CAMERA_REQUEST_PASS ioctls=282 cases=311 hardware=0 preserved_failure_handles=1')]:
+                             ('request', 'QUEST_CAMERA_REQUEST_PASS ioctls=282 cases=311 hardware=0 preserved_failure_handles=1'),
+                             ('buffer', 'QUEST_CAMERA_BUFFER_PASS ioctls=266 nonblocking=1 failure_output_preserved=1 hardware=0')]:
             binary = out / name
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          '-I', str(out / 'include'), '-I', str(ROOT / 'src'),
-                         str(ROOT / 'src/quest-camera-control.c'), str(ROOT / ('tests/quest-camera-' + name + '.c')),
+                         str(ROOT / ('src/quest-camera-buffer.c' if name == 'buffer' else 'src/quest-camera-control.c')),
+                         str(ROOT / ('tests/quest-camera-' + name + '.c')),
                          '-o', str(binary)], name + '-compile.log'), ([str(binary)], name + '-run.log')]
             for command, log in commands:
                 report['commands'].append(command)
