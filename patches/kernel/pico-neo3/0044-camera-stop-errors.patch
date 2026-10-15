@@ -1,0 +1,260 @@
+--- a/techpack/camera/drivers/cam_isp/isp_hw_mgr/cam_ife_hw_mgr.c
++++ b/techpack/camera/drivers/cam_isp/isp_hw_mgr/cam_ife_hw_mgr.c
+@@ -370,7 +370,7 @@
+-static void cam_ife_hw_mgr_stop_hw_res(
++static int cam_ife_hw_mgr_stop_hw_res(
+ 	struct cam_ife_hw_mgr_res   *isp_hw_res)
+ {
+-	int i;
++	int i, rc = 0, result;
+ 	struct cam_hw_intf      *hw_intf;
+-	uint32_t dummy_args;
++	uint32_t dummy_args = 0;
+ 
+@@ -386,14 +386,21 @@
+ 		if (hw_intf->hw_ops.stop)
+-			hw_intf->hw_ops.stop(hw_intf->hw_priv,
++			result = hw_intf->hw_ops.stop(hw_intf->hw_priv,
+ 				isp_hw_res->hw_res[i],
+ 				sizeof(struct cam_isp_resource_node));
+-		else
++		else {
+ 			CAM_ERR(CAM_ISP, "stop null");
++			result = -EINVAL;
++		}
++		if (!rc)
++			rc = result;
+ 		if (hw_intf->hw_ops.process_cmd &&
+ 			isp_hw_res->res_type == CAM_IFE_HW_MGR_RES_IFE_OUT) {
+-			hw_intf->hw_ops.process_cmd(hw_intf->hw_priv,
++			result = hw_intf->hw_ops.process_cmd(hw_intf->hw_priv,
+ 				CAM_ISP_HW_CMD_STOP_BUS_ERR_IRQ,
+ 				&dummy_args, sizeof(dummy_args));
++			if (!rc)
++				rc = result;
+ 		}
+ 	}
++	return rc;
+ }
+@@ -861,3 +868,3 @@
+ 	uint32_t i;
+-	int rc = 0;
++	int rc = 0, result;
+ 
+@@ -879,3 +886,3 @@
+ 				halt.halt_mode  = halt_mode;
+-				rc = hw_intf->hw_ops.process_cmd(
++				result = hw_intf->hw_ops.process_cmd(
+ 					hw_intf->hw_priv,
+@@ -884,3 +891,5 @@
+ 					sizeof(struct cam_csid_hw_halt_args));
+-				if (rc)
++				if (!rc)
++					rc = result;
++				if (result)
+ 					CAM_ERR(CAM_ISP, "Halt update failed");
+@@ -928,3 +937,3 @@
+ 		stop.stop_cmd = stop_cmd;
+-		hw_intf->hw_ops.stop(hw_intf->hw_priv, &stop, sizeof(stop));
++		return hw_intf->hw_ops.stop(hw_intf->hw_priv, &stop, sizeof(stop));
+ 	}
+@@ -4002,3 +4011,3 @@
+ {
+-	int                               rc        = 0;
++	int                               rc = 0, result;
+ 	struct cam_hw_stop_args          *stop_args = stop_hw_args;
+@@ -4061,3 +4070,3 @@
+ 				continue;
+-			cam_ife_mgr_csid_change_halt_mode(
++			result = cam_ife_mgr_csid_change_halt_mode(
+ 				&ctx->res_list_ife_csid,
+@@ -4065,2 +4074,4 @@
+ 				CAM_CSID_HALT_MODE_INTERNAL);
++			if (!rc)
++				rc = result;
+ 		}
+@@ -4071,4 +4082,6 @@
+ 	/* Stop the master CSID path first */
+-	cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_csid,
++	result = cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_csid,
+ 		master_base_idx, csid_halt_type);
++	if (!rc)
++		rc = result;
+ 
+@@ -4081,4 +4094,6 @@
+ 
+-		cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_csid,
++		result = cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_csid,
+ 			ctx->base[i].idx, csid_halt_type);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -4088,4 +4103,6 @@
+ 	/* Stop the master CIDs first */
+-	cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_cid,
++	result = cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_cid,
+ 			master_base_idx, csid_halt_type);
++	if (!rc)
++		rc = result;
+ 
+@@ -4097,4 +4114,6 @@
+ 			ctx->base[i].idx, i, master_base_idx);
+-		cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_cid,
++		result = cam_ife_mgr_csid_stop_hw(ctx, &ctx->res_list_ife_cid,
+ 			ctx->base[i].idx, csid_halt_type);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -4104,4 +4123,7 @@
+ 	/* IFE out resources */
+-	for (i = 0; i < CAM_IFE_HW_OUT_RES_MAX; i++)
+-		cam_ife_hw_mgr_stop_hw_res(&ctx->res_list_ife_out[i]);
++	for (i = 0; i < CAM_IFE_HW_OUT_RES_MAX; i++) {
++		result = cam_ife_hw_mgr_stop_hw_res(&ctx->res_list_ife_out[i]);
++		if (!rc)
++			rc = result;
++	}
+ 
+@@ -4111,3 +4133,5 @@
+ 	list_for_each_entry(hw_mgr_res, &ctx->res_list_ife_src, list) {
+-		cam_ife_hw_mgr_stop_hw_res(hw_mgr_res);
++		result = cam_ife_hw_mgr_stop_hw_res(hw_mgr_res);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -4116,3 +4140,5 @@
+ 	list_for_each_entry(hw_mgr_res, &ctx->res_list_ife_in_rd, list) {
+-		cam_ife_hw_mgr_stop_hw_res(hw_mgr_res);
++		result = cam_ife_hw_mgr_stop_hw_res(hw_mgr_res);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -4121,3 +4147,5 @@
+ 
+-	cam_ife_mgr_pause_hw(ctx);
++	result = cam_ife_mgr_pause_hw(ctx);
++	if (!rc)
++		rc = result;
+ 
+@@ -4129,3 +4157,4 @@
+ 			ctx->applied_req_id, rc, ctx->ctx_index);
+-		rc = -ETIMEDOUT;
++		if (!rc)
++			rc = -ETIMEDOUT;
+ 	}
+@@ -4135,4 +4164,7 @@
+ 
+-	if (cam_cdm_stream_off(ctx->cdm_handle))
++	result = cam_cdm_stream_off(ctx->cdm_handle);
++	if (result)
+ 		CAM_ERR(CAM_ISP, "CDM stream off failed %d", ctx->cdm_handle);
++	if (!rc)
++		rc = result;
+ 
+@@ -4140,3 +4172,3 @@
+ 	CAM_DBG(CAM_ISP,
+-		"Stop success for ctx id:%d rc :%d", ctx->ctx_index, rc);
++		"Stop finished for ctx id:%d rc :%d", ctx->ctx_index, rc);
+ 
+@@ -4144,7 +4176,6 @@
+ 	if (!atomic_dec_return(&g_ife_hw_mgr.active_ctx_cnt)) {
+-		rc = cam_ife_notify_safe_lut_scm(CAM_IFE_SAFE_DISABLE);
+-		if (rc) {
++		result = cam_ife_notify_safe_lut_scm(CAM_IFE_SAFE_DISABLE);
++		if (result) {
+ 			CAM_ERR(CAM_ISP,
+ 				"SAFE SCM call failed:Check TZ/HYP dependency");
+-			rc = 0;
+ 		}
+--- a/techpack/camera/drivers/cam_isp/cam_isp_context.c
++++ b/techpack/camera/drivers/cam_isp/cam_isp_context.c
+@@ -4895,3 +4895,3 @@
+ {
+-	int rc = 0;
++	int rc = 0, result;
+ 	uint32_t i;
+@@ -4916,3 +4916,3 @@
+ 		stop.args = (void *) &stop_isp;
+-		ctx->hw_mgr_intf->hw_stop(ctx->hw_mgr_intf->hw_mgr_priv,
++		rc = ctx->hw_mgr_intf->hw_stop(ctx->hw_mgr_intf->hw_mgr_priv,
+ 			&stop);
+@@ -5001,3 +5001,3 @@
+ 
+-	CAM_DBG(CAM_ISP, "Stop device success next state %d on ctx %u",
++	CAM_DBG(CAM_ISP, "Stop device finished next state %d on ctx %u",
+ 		ctx->state, ctx->ctx_id);
+@@ -5005,5 +5005,7 @@
+ 	if (!stop_cmd) {
+-		rc = __cam_isp_ctx_unlink_in_ready(ctx, NULL);
+-		if (rc)
+-			CAM_ERR(CAM_ISP, "Unlink failed rc=%d", rc);
++		result = __cam_isp_ctx_unlink_in_ready(ctx, NULL);
++		if (result)
++			CAM_ERR(CAM_ISP, "Unlink failed rc=%d", result);
++		if (!rc)
++			rc = result;
+ 	}
+@@ -5019,3 +5021,3 @@
+ 
+-	__cam_isp_ctx_stop_dev_in_activated_unlock(ctx, cmd);
++	rc = __cam_isp_ctx_stop_dev_in_activated_unlock(ctx, cmd);
+ 	ctx_isp->init_received = false;
+--- a/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/ife_csid_hw/cam_ife_csid_core.c
++++ b/techpack/camera/drivers/cam_isp/isp_hw_mgr/isp_hw/ife_csid_hw/cam_ife_csid_core.c
+@@ -4069,3 +4069,3 @@
+ {
+-	int rc = 0;
++	int rc = 0, result;
+ 	struct cam_ife_csid_hw               *csid_hw;
+@@ -4103,2 +4103,3 @@
+ 	for (i = 0; i < csid_stop->num_res; i++) {
++		result = 0;
+ 		res = csid_stop->node_res[i];
+@@ -4110,5 +4111,9 @@
+ 			if (csid_hw->res_type == CAM_ISP_IFE_IN_RES_TPG)
+-				rc = cam_ife_csid_tpg_stop(csid_hw, res);
++				result = cam_ife_csid_tpg_stop(csid_hw, res);
+ 			break;
+ 		case CAM_ISP_RESOURCE_PIX_PATH:
++			if (res->res_id >= CAM_IFE_PIX_PATH_RES_MAX) {
++				result = -EINVAL;
++				break;
++			}
+ 			res_mask |= (1 << res->res_id);
+@@ -4116,3 +4121,3 @@
+ 				res->res_id == CAM_IFE_PIX_PATH_RES_PPP) {
+-				rc = cam_ife_csid_disable_pxl_path(csid_hw,
++				result = cam_ife_csid_disable_pxl_path(csid_hw,
+ 					res, csid_stop->stop_cmd);
+@@ -4122,3 +4127,3 @@
+ 				res->res_id == CAM_IFE_PIX_PATH_RES_RDI_3) {
+-				rc = cam_ife_csid_disable_rdi_path(csid_hw,
++				result = cam_ife_csid_disable_rdi_path(csid_hw,
+ 					res, csid_stop->stop_cmd);
+@@ -4127,3 +4132,3 @@
+ 			res->res_id == CAM_IFE_PIX_PATH_RES_UDI_2) {
+-				rc = cam_ife_csid_disable_udi_path(csid_hw,
++				result = cam_ife_csid_disable_udi_path(csid_hw,
+ 					res, csid_stop->stop_cmd);
+@@ -4132,3 +4137,3 @@
+ 					res->res_id);
+-				return -EINVAL;
++				result = -EINVAL;
+ 			}
+@@ -4140,8 +4145,14 @@
+ 				res->res_type);
++			result = -EINVAL;
+ 			break;
+ 		}
++		if (!rc)
++			rc = result;
+ 	}
+ 
+-	if (res_mask)
+-		rc = cam_ife_csid_poll_stop_status(csid_hw, res_mask);
++	if (res_mask) {
++		result = cam_ife_csid_poll_stop_status(csid_hw, res_mask);
++		if (!rc)
++			rc = result;
++	}
+ 

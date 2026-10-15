@@ -1128,6 +1128,30 @@ Successful stop ioctls do not establish DMA quiescence or permit automatic buffe
 release. Initialization packets, sensor pairing, synchronization, calibration and
 physical completion remain separate requirements.
 
+### Kernel camera stop failures
+
+Patch `0044-camera-stop-errors.patch` preserves reported stop failures through
+CSID resources, the IFE hardware manager and the ISP ioctl handler. The original
+path discarded lower-level errors and could replace a configuration timeout
+with a later successful secure-world call. It also replaced CSID disable errors
+with the result of a later status poll. The patch retains the first failure while
+attempting the remaining shutdown operations and preserving the existing context
+cleanup and state transition. The existing nonfatal SAFE-SCM policy is unchanged.
+Invalid CSID resource IDs are rejected before constructing the resource mask.
+
+`tools/test-pico-camera-stop.py` verifies its excerpts against the pinned kernel
+source, then compares the original and patched functions under ASan/UBSan. Its
+1,799 cases cover simultaneous failures, frame-boundary and immediate stops,
+stop-only requests, multiple active contexts, missing stop callbacks, CSID path
+variants and invalid resources. It also verifies that later stops, fence cleanup
+and CRM notification still run. Both host and ARM64 runs pass with the patch;
+the original produces 1,794 failed assertions.
+
+Hardware callbacks, register polling and locks are modeled in these tests.
+Reporting an error reliably does not prove DMA quiescence after a successful
+stop, and it does not authorize releasing retained buffers or enabling capture
+on an unverified physical configuration.
+
 ### Native sensor initialization
 
 `pico-camera-sensor-setup` copies explicit initialization, mode, optional
