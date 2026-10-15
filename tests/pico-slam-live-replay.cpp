@@ -41,8 +41,10 @@ static std::vector<std::vector<std::string>> csv(const std::filesystem::path &p)
 }
 int main(int argc,char **argv)
 {
-    CHECK(argc==4 || argc==5);
-    if(argc==5) {
+    CHECK(argc==4 || argc==5 || argc==6);
+    const char *fault=argc==6?argv[5]:nullptr;
+    CHECK(!fault || !strcmp(fault,"camera-silence") || !strcmp(fault,"clock-regression"));
+    if(argc>=5) {
         Dl_info library{};
         CHECK(dladdr(dlsym(RTLD_DEFAULT,"pico_slam_live_poll_clock"),&library) && library.dli_fname && !strcmp(library.dli_fname,argv[4]));
         printf("PICO_SLAM_INSTALLED_LIBRARY path=%s\n",library.dli_fname);
@@ -61,7 +63,7 @@ int main(int argc,char **argv)
     c.tracking.backend={vit_api_get_version,vit_tracker_create,vit_tracker_destroy,vit_tracker_has_image_format,
         vit_tracker_start,vit_tracker_stop,imu,image,vit_tracker_pop_pose,pose_data,vit_pose_destroy};
     c.tracking.backend_config=argv[2];c.tracking.generation=1;
-    c.tracking.clock_expires_ns=std::stoll(inertial.back()[0])+100000000;
+    c.tracking.clock_expires_ns=std::stoll(inertial.back()[0])+1000000000;
     pico_camera_replay_live_config(&c,first.cols,first.rows,c.tracking.input.camera_ids);
     pico_slam_live *live=nullptr;CHECK(!pico_slam_live_prepare(&c,&live));
     auto *tracking=pico_slam_live_tracking(live);CHECK(tracking);
@@ -169,6 +171,41 @@ int main(int argc,char **argv)
     }
     auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(15);
     while(last<std::stoll(left.back()[0]) && std::chrono::steady_clock::now()<deadline){poll();std::this_thread::sleep_for(std::chrono::milliseconds(10));}
+    unsigned fault_imus=0;
+    int64_t normal_now=now;
+    if(fault) {
+        int result=1;
+        if(!strcmp(fault,"clock-regression")) {
+            --now;
+            result=pico_slam_live_poll_clock(live,offsets,clock,&now,&received);
+        } else {
+            const auto &r=inertial.back();
+            for(unsigned step=1;step<=7 && result==1;++step) {
+                xrt_imu_sample sample{};
+                sample.timestamp_ns=std::stoll(r[0])+step*20000000;
+                sample.gyro_rad_secs={std::stod(r[1]),std::stod(r[2]),std::stod(r[3])};
+                sample.accel_m_s2={std::stod(r[4]),std::stod(r[5]),std::stod(r[6])};
+                now=sample.timestamp_ns+2000000;
+                pico_camera_replay_imu(&sample,inertial.size()+step,now);
+                unsigned before=imus;
+                result=pico_slam_live_poll_clock(live,offsets,clock,&now,&received);
+                fault_imus+=imus-before;
+                CHECK(observed.empty() && !received);
+            }
+        }
+        CHECK(result<0 && !received);
+        if(!strcmp(fault,"camera-silence")) CHECK(fault_imus>0 && now<c.tracking.clock_expires_ns);
+        xrt_space_relation invalid{};int64_t invalid_time;
+        CHECK(!pico_slam_tracking_get(tracking,normal_now,last,&invalid,&invalid_time));
+#ifdef PICO_REPLAY_INSTALLED
+        pico_camera_replay_clock(normal_now);
+        CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,last,&invalid)==XRT_SUCCESS && !invalid.relation_flags);
+        CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active);
+        pico_camera_replay_clock(0);
+#endif
+        CHECK(pico_slam_live_poll_clock(live,offsets,clock,&now,&received)<0 && !received);
+        printf("PICO_SLAM_FAULT_PASS cause=%s invalid_before_explicit_stop=1 implicit_restart=0 continued_imu=%u\n",fault,fault_imus);
+    }
     CHECK(!pico_slam_live_stop(live));xrt_space_relation stopped{};int64_t time;
     CHECK(!pico_slam_tracking_get(tracking,now,last,&stopped,&time));
 #ifdef PICO_REPLAY_INSTALLED
@@ -181,7 +218,7 @@ int main(int argc,char **argv)
 #endif
     CHECK(!pico_slam_live_quiesced(live));CHECK(!pico_slam_live_destroy(&live));
     unsigned buffers=pico_camera_replay_finish();
-    CHECK(skipped==1 && imus==inertial.size() && poses==left.size()-1 && images==poses*2 && heads>=180);
+    CHECK(skipped==1 && imus==inertial.size()+fault_imus && poses==left.size()-1 && images==poses*2 && heads>=180);
     CHECK(buffers==images+2);output.close();
     printf("PICO_SLAM_LIVE_REPLAY_PASS poses=%u images=%u imu=%u head_poses=%u buffers=%u startup_skipped=%u simulated_ioctls=1 simulated_ssc=1 stopped_invalid=1\n",
         poses,images,imus,heads,buffers,skipped);

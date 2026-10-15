@@ -259,6 +259,14 @@ subscription. Input is paced separately for this test so the estimator can
 produce poses within the production prediction window; this is not a headset
 throughput measurement.
 
+The installed-library replay also injects camera silence while synthetic IMU
+reports continue, and a regressing poll clock. Each run first establishes the
+reference trajectory and tracked HMD output. Both failures invalidate the pose
+provider and HMD before an explicit stop, refuse further polling, and retire all
+372 buffers after simulated DMA quiescence. A subsequent fresh-process replay
+completes normally. These checks exercise the installed runtime and actual Basalt;
+they do not prove recovery of a physical sensor or estimator relocalization.
+
 This is an internal interface tied to the exact Monado headers and driver
 revision. It does not enable camera capture in the automatic prober or provide
 physical calibration. A physical owner still needs exclusive device access,

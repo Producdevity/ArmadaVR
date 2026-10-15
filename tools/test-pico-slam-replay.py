@@ -169,6 +169,9 @@ done
         script += r"""
 c++ -std=c++17 $flags -DPICO_REPLAY_INSTALLED -pthread -I/source/thirdparty/vit /repo/tests/pico-slam-live-replay.cpp /out/camera-replay.o $(pkg-config --cflags --libs opencv4) -L/pico-runtime/lib64 -lpico_tracking -L/opt/reframed-vr/basalt/lib64 -lbasalt -Wl,-rpath-link,/pico-ssc/lib64 -ldl -o /out/installed-live-replay
 export LD_LIBRARY_PATH=/pico-runtime/lib64:/pico-ssc/lib64:$LD_LIBRARY_PATH
+for fault in camera-silence clock-regression; do
+    /out/installed-live-replay /dataset /out/bounded.toml /out/poses-fault-$fault.csv /pico-runtime/lib64/libpico_tracking.so $fault > /out/fault-$fault.log 2>&1
+done
 /out/installed-live-replay /dataset /out/bounded.toml /out/poses-installed-live.csv /pico-runtime/lib64/libpico_tracking.so > /out/installed-live-replay.log 2>&1
 """
     name = 'reframed-vio-' + uuid.uuid4().hex[:12]
@@ -284,6 +287,22 @@ export LD_LIBRARY_PATH=/pico-runtime/lib64:/pico-ssc/lib64:$LD_LIBRARY_PATH
                 raise ValueError('Installed runtime trajectory acceptance failed')
             if modules['monado'].package(args.monado_bundle) != installed or modules['ssc'].package(args.ssc_bundle) != installed['ssc_dependency']:
                 raise ValueError('Installed runtime changed during replay')
+            faults = {}
+            for cause in ('camera-silence', 'clock-regression'):
+                fault_log = (args.output / f'fault-{cause}.log').read_text()
+                match = re.search(rf'PICO_SLAM_FAULT_PASS cause={cause} invalid_before_explicit_stop=1 implicit_restart=0 continued_imu=(\d+)', fault_log)
+                if (not match or (int(match[1]) > 0) != (cause == 'camera-silence') or
+                        'PICO_SLAM_INSTALLED_HMD_PASS poses=184 stereo_views=184' not in fault_log or
+                        'buffers=372 startup_skipped=1 simulated_ioctls=1 simulated_ssc=1 stopped_invalid=1' not in fault_log):
+                    raise ValueError('Installed fault shutdown did not finish: ' + cause)
+                fault_metrics = trajectory_metrics(args.output / f'poses-fault-{cause}.csv', reference / 'mav0/gt/data.csv')
+                if (fault_metrics['poses'] != dataset['poses'] or fault_metrics['rigid_rmse_m'] > dataset['max_rigid_rmse_m'] or
+                        fault_metrics['max_error_m'] > dataset['max_rigid_error_m']):
+                    raise ValueError('Installed fault precondition trajectory failed: ' + cause)
+                faults[cause] = {'trajectory': fault_metrics, 'continued_imu_samples': int(match[1]),
+                                 'invalid_before_explicit_stop': True, 'implicit_restart': False,
+                                 'log_sha256': digest(args.output / f'fault-{cause}.log')}
+            report['installed_fault_shutdown'] = faults
             report['installed_runtime'] = installed
             report['installed_live_trajectory'] = metrics
             report['installed_live_binary_sha256'] = digest(args.output / 'installed-live-replay')
