@@ -93,6 +93,10 @@
     {
       "path": "patches/basalt/0004-honor-grayscale-depth-and-stride.patch",
       "sha256": "21aa8fb5ab0f0689625f86e9d79fdb3ff4888a7dc3e678925f9ff6b6f3901cb7"
+    },
+    {
+      "path": "patches/basalt/0005-stabilize-fisheye624.patch",
+      "sha256": "d887fefaf864495e56410d3abdc3f8054712490b8239e0ffa0ad1f4840b446eb"
     }
   ]
 }

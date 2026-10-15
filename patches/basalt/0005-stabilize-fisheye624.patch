@@ -1,0 +1,614 @@
+--- a/thirdparty/basalt-headers/include/basalt/camera/fisheye624_camera.hpp
++++ b/thirdparty/basalt-headers/include/basalt/camera/fisheye624_camera.hpp
+@@ -42,6 +42,7 @@
+ #pragma once
+ 
+ #include <basalt/camera/camera_static_assert.hpp>
++#include <limits>
+ 
+ #include <basalt/utils/sophus_utils.hpp>
+ 
+@@ -107,445 +108,74 @@
+ 
+   static std::string getName() { return "fisheye624"; }
+ 
+-  // project function: project 3D points to 2D image plane
+   template <class DerivedPoint3D, class DerivedPoint2D, class DerivedJ3D = std::nullptr_t,
+             class DerivedJparam = std::nullptr_t>
+   inline bool project(const Eigen::MatrixBase<DerivedPoint3D>& p3d, Eigen::MatrixBase<DerivedPoint2D>& proj,
+                       DerivedJ3D d_proj_d_p3d = nullptr, DerivedJparam d_proj_d_param = nullptr) const {
+     checkProjectionDerivedTypes<DerivedPoint3D, DerivedPoint2D, DerivedJ3D, DerivedJparam, N>();
+-
+-    const typename EvalOrReference<DerivedPoint3D>::Type p3d_eval(p3d);
+-
+-    const Scalar& fx = param_[0];
+-    const Scalar& fy = param_[1];
+-    const Scalar& cx = param_[2];
+-    const Scalar& cy = param_[3];
+-    const Scalar& k1 = param_[4];
+-    const Scalar& k2 = param_[5];
+-    const Scalar& k3 = param_[6];
+-    const Scalar& k4 = param_[7];
+-    const Scalar& k5 = param_[8];
+-    const Scalar& k6 = param_[9];
+-    const Scalar& p1 = param_[10];
+-    const Scalar& p2 = param_[11];
+-    const Scalar& s1 = param_[12];
+-    const Scalar& s2 = param_[13];
+-    const Scalar& s3 = param_[14];
+-    const Scalar& s4 = param_[15];
+-
+-    const Scalar& x = p3d_eval[0];
+-    const Scalar& y = p3d_eval[1];
+-    const Scalar& z = p3d_eval[2];
+-
+-    const Scalar xp = x / z;
+-    const Scalar yp = y / z;
+-    const Scalar rp2 = xp * xp + yp * yp;  // r^2
+-    const Scalar rp = std::sqrt(rp2);      // r
+-    // calculate theta angle
+-    const Scalar th = std::atan(rp);  // theta, incident light and optical axis angle
+-    const Scalar th2 = th * th;
+-    // calculate angle and direction
+-    const Scalar cos_phi = xp / rp;  // cos(phi)
+-    const Scalar sin_phi = yp / rp;  // sin(phi)
+-    // calculate radial distortion polynomial
+-    // (th+ k1 * th^3 + k2* th^5 + ...) = th * (1 + k1 * th^2 + k2* th^4 + ...)
+-    //                                  = th * (1 + th^2 * (k1 + th^2 * (k2 + ...)))
+-    Scalar theta_dist = th * (S1 + th2 * (k1 + th2 * (k2 + th2 * (k3 + th2 * (k4 + th2 * (k5 + th2 * k6))))));
+-    // distorted radial coordinate
+-    const Scalar xr = theta_dist * cos_phi;
+-    const Scalar yr = theta_dist * sin_phi;
+-    const Scalar rd2 = xr * xr + yr * yr;
+-    // tangential distortion
+-    const Scalar dx_tan = (S2 * xr * xr + rd2) * p1 + S2 * xr * yr * p2;
+-    const Scalar dy_tan = (S2 * yr * yr + rd2) * p2 + S2 * xr * yr * p1;
+-    // thin prism distortion
+-    const Scalar dx_prism = s1 * rd2 + s2 * rd2 * rd2;
+-    const Scalar dy_prism = s3 * rd2 + s4 * rd2 * rd2;
+-    // final distorted coordinate
+-    const Scalar xpp = xr + dx_tan + dx_prism;
+-    const Scalar ypp = yr + dy_tan + dy_prism;
+-    const Scalar u = fx * xpp + cx;
+-    const Scalar v = fy * ypp + cy;
+-
+-    proj[0] = u;
+-    proj[1] = v;
+-
+-    bool positive_z = z >= Sophus::Constants<Scalar>::epsilonSqrt();
+-    bool is_valid = positive_z;
+-
+-    // The following derivative expressions were computed automatically with
+-    // sympy, see python/fisheye624/main_jacobians.py.
++    const typename EvalOrReference<DerivedPoint3D>::Type point(p3d);
++    if (!valid_parameters() || !point.allFinite() || point[2] < Sophus::Constants<Scalar>::epsilonSqrt()) return false;
++    const Scalar z = point[2];
++    const Vec2 q = point.template head<2>() / z;
++    Vec2 radial, distorted;
++    Mat22 radial_j, tangent_j;
++    Scalar theta, theta_by_r;
++    if (!radial_terms(q, radial, radial_j, theta, theta_by_r)) return false;
++    tangent_terms(radial, distorted, tangent_j);
++    const Vec2 result{param_[0] * distorted[0] + param_[2], param_[1] * distorted[1] + param_[3]};
++    if (!result.allFinite()) return false;
++    const Mat22 scaled = param_.template head<2>().asDiagonal() * tangent_j;
+     if constexpr (!std::is_same_v<DerivedJ3D, std::nullptr_t>) {
+       BASALT_ASSERT(d_proj_d_p3d);
+-
+-      d_proj_d_p3d->setZero();
+-
+-      const Scalar v0 = z * z;
+-      const Scalar v1 = x * x;
+-      const Scalar v2 = y * y;
+-      const Scalar v3 = v1 + v2;
+-      const Scalar v4 = v3 * S1 / v0;
+-      const Scalar v5 = std::pow(v4, S3 / S2);
+-      const Scalar v6 = z * z * z;
+-      const Scalar v7 = v5 * v6;
+-      const Scalar v8 = v0 + v3;
+-      const Scalar v9 = v1 * v8;
+-      const Scalar v10 = S4 * v9;
+-      const Scalar v11 = std::sqrt(v4);
+-      const Scalar v12 = std::atan(v11);
+-      const Scalar v13 = v12 * v12;
+-      const Scalar v14 = k6 * v13;
+-      const Scalar v15 = k4 + v13 * (k5 + v14);
+-      const Scalar v16 = k3 + v13 * v15;
+-      const Scalar v17 = k2 + v13 * v16;
+-      const Scalar v18 = k1 + v13 * v17;
+-      const Scalar v19 = v13 * v18 + S1;
+-      const Scalar v20 = v13 * (v19 * v19);
+-      const Scalar v21 = p2 * v20;
+-      const Scalar v22 = v21 * y;
+-      const Scalar v23 = S1 / v11;
+-      const Scalar v24 = v3 * v3 * v3;
+-      const Scalar v25 = S2 * v23 * v24 * v8 * S1 / z;
+-      const Scalar v26 = v13 * (v13 * (v13 * (v13 * (k5 + S2 * v14) + v15) + v16) + v17) + v18;
+-      const Scalar v27 = v13 * v26;
+-      const Scalar v28 = S2 * v27;
+-      const Scalar v29 = v19 + v28;
+-      const Scalar v30 = v24 * v29;
+-      const Scalar v31 = v23 * v30;
+-      const Scalar v32 = S4 * z;
+-      const Scalar v33 = v19 * v19 * v19;
+-      const Scalar v34 = v12 * v12 * v12;
+-      const Scalar v35 = s2 * v33 * v34;
+-      const Scalar v36 = v3 * v8;
+-      const Scalar v37 = v19 * y;
+-      const Scalar v38 = y * z;
+-      const Scalar v39 = S8 * v27;
+-      const Scalar v40 = v3 * v3;
+-      const Scalar v41 = v12 * v19;
+-      const Scalar v42 = v40 * v41;
+-      const Scalar v43 = v29 * v40;
+-      const Scalar v44 = v23 * v43;
+-      const Scalar v45 = s1 * v44;
+-      const Scalar v46 = v36 * v41;
+-      const Scalar v47 = S3 * v46;
+-      const Scalar v48 = S3 * v1 + v2;
+-      const Scalar v49 = v0 * v11;
+-      const Scalar v50 = v29 * v49;
+-      const Scalar v51 = v41 * v8;
+-      const Scalar v52 = v48 * v50 - v48 * v51;
+-      const Scalar v53 = S2 * v41;
+-      const Scalar v54 = v53 * x;
+-      const Scalar v55 = S1 / v8;
+-      const Scalar v56 = v55 * S1 / v40;
+-      const Scalar v57 = fx * v56;
+-      const Scalar v58 = S1 / v5 * S1 / v6;
+-      const Scalar v59 = S4 * x;
+-      const Scalar v60 = p2 * v59;
+-      const Scalar v61 = v2 * v8;
+-      const Scalar v62 = v20 * v61;
+-      const Scalar v63 = S2 * v36;
+-      const Scalar v64 = v38 * x;
+-      const Scalar v65 = v11 * v41 * v64;
+-      const Scalar v66 = v29 * v3 * v64;
+-      const Scalar v67 = v19 * x;
+-      const Scalar v68 = S8 * v26 * v34 * v49;
+-      const Scalar v69 = S4 * v35;
+-      const Scalar v70 = v53 * y;
+-      const Scalar v71 = z * z * z * z * z * z * z * z * z * z * z * z * z * z * z * z * z;
+-      const Scalar v72 = std::pow(v4, S17 / S2);
+-      const Scalar v73 = v71 * v72;
+-      const Scalar v74 = v28 * v73;
+-      const Scalar v75 = v29 * v41 * (v3 * v3 * v3 * v3 * v3 * v3 * v3 * v3);
+-      const Scalar v76 = -v0 * v5 * v51 + v11 * v46 + v43;
+-      const Scalar v77 = v76 * (v3 * v3 * v3 * v3 * v3 * v3 * v3);
+-      const Scalar v78 = v53 * v76 * (v3 * v3 * v3 * v3 * v3 * v3);
+-      const Scalar v79 = v55 * S1 / v71 * S1 / v72;
+-      const Scalar v80 = p1 * y;
+-      const Scalar v81 = v20 * v80;
+-      const Scalar v82 = S4 * s4 * v33 * v34;
+-      const Scalar v83 = s3 * v44;
+-      const Scalar v84 = v1 + S3 * v2;
+-      const Scalar v85 = v50 * v84 - v51 * v84;
+-      const Scalar v86 = fy * v56;
+-      const Scalar v87 = p1 * x;
+-
+-      const Scalar du_dx =
+-          v57 * v58 *
+-          (v1 * v31 - v10 * v22 * v7 + v22 * v25 + v30 * v32 * v35 * x +
+-           v42 * (p2 * v1 * v32 * v37 + p2 * v1 * v38 * v39 + v36 - v9) + v54 * v7 * (p1 * (v47 + v52) + v45));
+-      const Scalar du_dy = v57 * (p2 * v2 * v67 * v68 + v21 * v63 * x + v44 * v69 * y - v60 * v62 +
+-                                  v65 * (4 * p2 * v19 * y * z - v8) + v66 + v70 * (p1 * (v46 + v52) + v45));
+-      const Scalar du_dz = -fx * v79 * (v60 * v75 * y + v67 * v73 + v69 * v77 + v74 * x + v78 * (p1 * v48 + s1 * v3));
+-      const Scalar dv_dx = v86 * (p1 * v1 * v37 * v68 - v10 * v81 + v44 * v82 * x + v54 * (p2 * (v46 + v85) + v83) +
+-                                  v63 * v81 + v65 * (4 * p1 * v19 * x * z - v8) + v66);
+-      const Scalar dv_dy =
+-          v58 * v86 *
+-          (-p1 * v59 * v62 * v7 + v2 * v31 + v20 * v25 * v87 + v30 * v38 * v82 +
+-           v42 * (p1 * v2 * v32 * v67 + v2 * v39 * v87 * z + v36 - v61) + v7 * v70 * (p2 * (v47 + v85) + v83));
+-      const Scalar dv_dz = -fy * v79 * (v37 * v73 + v59 * v75 * v80 + v74 * y + v77 * v82 + v78 * (p2 * v84 + s3 * v3));
+-
+-      (*d_proj_d_p3d)(0, 0) = du_dx;
+-      (*d_proj_d_p3d)(0, 1) = du_dy;
+-      (*d_proj_d_p3d)(0, 2) = du_dz;
+-      (*d_proj_d_p3d)(1, 0) = dv_dx;
+-      (*d_proj_d_p3d)(1, 1) = dv_dy;
+-      (*d_proj_d_p3d)(1, 2) = dv_dz;
+-    } else {
+-      UNUSED(d_proj_d_p3d);
+-    }
+-
++      Mat24 normalized = Mat24::Zero();
++      normalized(0, 0) = S1 / z;
++      normalized(1, 1) = S1 / z;
++      normalized.template block<2, 1>(0, 2) = -q / z;
++      *d_proj_d_p3d = scaled * radial_j * normalized;
++      if (!d_proj_d_p3d->allFinite()) return false;
++    }
+     if constexpr (!std::is_same_v<DerivedJparam, std::nullptr_t>) {
+       BASALT_ASSERT(d_proj_d_param);
+       d_proj_d_param->setZero();
+-
+-      const Scalar w0 = x * x;
+-      const Scalar w1 = y * y;
+-      const Scalar w2 = w0 + w1;
+-      const Scalar w3 = std::sqrt(w2 * S1 / (z * z));
+-      const Scalar w4 = w3 * z;
+-      const Scalar w5 = w4 * x;
+-      const Scalar w6 = std::atan(w3);
+-      const Scalar w7 = w6 * w6;
+-      const Scalar w8 = w7 * (k1 + w7 * (k2 + w7 * (k3 + w7 * (k4 + w7 * (k5 + k6 * w7))))) + S1;
+-      const Scalar w9 = w6 * w6 * w6;
+-      const Scalar w10 = w2 * w9 * (w8 * w8 * w8);
+-      const Scalar w11 = s2 * w10;
+-      const Scalar w12 = S2 * x * y;
+-      const Scalar w13 = S3 * w0 + w1;
+-      const Scalar w14 = w6 * w8;
+-      const Scalar w15 = w14 * (p1 * w13 + p2 * w12 + s1 * w2);
+-      const Scalar w16 = S1 / w2;
+-      const Scalar w17 = w14 * w16;
+-      const Scalar w18 = w16 * w9;
+-      const Scalar w19 = fx * (S4 * w11 + S2 * w15 + w5);
+-      const Scalar w20 = w6 * w6 * w6 * w6 * w6;
+-      const Scalar w21 = w16 * w19;
+-      const Scalar w22 = w6 * w6 * w6 * w6 * w6 * w6 * w6;
+-      const Scalar w23 = w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6;
+-      const Scalar w24 = w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6;
+-      const Scalar w25 = w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6 * w6;
+-      const Scalar w26 = w7 * (w8 * w8);
+-      const Scalar w27 = fx * w26;
+-      const Scalar w28 = w16 * w27;
+-      const Scalar w29 = (w6 * w6 * w6 * w6) * (w8 * w8 * w8 * w8);
+-      const Scalar w30 = w4 * y;
+-      const Scalar w31 = s4 * w10;
+-      const Scalar w32 = w0 + S3 * w1;
+-      const Scalar w33 = w14 * (p1 * w12 + p2 * w32 + s3 * w2);
+-      const Scalar w34 = fy * (w30 + S4 * w31 + S2 * w33);
+-      const Scalar w35 = w16 * w34;
+-      const Scalar w36 = fy * w26;
+-      const Scalar w37 = w16 * w36;
+-
+-      const Scalar du_fx = w17 * (w11 + w15 + w5);
+-      const Scalar du_fy = S0;
+-      const Scalar du_cx = S1;
+-      const Scalar du_cy = S0;
+-      const Scalar du_k1 = w18 * w19;
+-      const Scalar du_k2 = w20 * w21;
+-      const Scalar du_k3 = w21 * w22;
+-      const Scalar du_k4 = w21 * w23;
+-      const Scalar du_k5 = w21 * w24;
+-      const Scalar du_k6 = w21 * w25;
+-      const Scalar du_p1 = w13 * w28;
+-      const Scalar du_p2 = w12 * w28;
+-      const Scalar du_s1 = w27;
+-      const Scalar du_s2 = fx * w29;
+-      const Scalar du_s3 = S0;
+-      const Scalar du_s4 = S0;
+-      const Scalar dv_fx = S0;
+-      const Scalar dv_fy = w17 * (w30 + w31 + w33);
+-      const Scalar dv_cx = S0;
+-      const Scalar dv_cy = S1;
+-      const Scalar dv_k1 = w18 * w34;
+-      const Scalar dv_k2 = w20 * w35;
+-      const Scalar dv_k3 = w22 * w35;
+-      const Scalar dv_k4 = w23 * w35;
+-      const Scalar dv_k5 = w24 * w35;
+-      const Scalar dv_k6 = w25 * w35;
+-      const Scalar dv_p1 = w12 * w37;
+-      const Scalar dv_p2 = w32 * w37;
+-      const Scalar dv_s1 = S0;
+-      const Scalar dv_s2 = S0;
+-      const Scalar dv_s3 = w36;
+-      const Scalar dv_s4 = fy * w29;
+-
+-      (*d_proj_d_param)(0, 0) = du_fx;
+-      (*d_proj_d_param)(0, 1) = du_fy;
+-      (*d_proj_d_param)(0, 2) = du_cx;
+-      (*d_proj_d_param)(0, 3) = du_cy;
+-      (*d_proj_d_param)(0, 4) = du_k1;
+-      (*d_proj_d_param)(0, 5) = du_k2;
+-      (*d_proj_d_param)(0, 6) = du_k3;
+-      (*d_proj_d_param)(0, 7) = du_k4;
+-      (*d_proj_d_param)(0, 8) = du_k5;
+-      (*d_proj_d_param)(0, 9) = du_k6;
+-      (*d_proj_d_param)(0, 10) = du_p1;
+-      (*d_proj_d_param)(0, 11) = du_p2;
+-      (*d_proj_d_param)(0, 12) = du_s1;
+-      (*d_proj_d_param)(0, 13) = du_s2;
+-      (*d_proj_d_param)(0, 14) = du_s3;
+-      (*d_proj_d_param)(0, 15) = du_s4;
+-
+-      (*d_proj_d_param)(1, 0) = dv_fx;
+-      (*d_proj_d_param)(1, 1) = dv_fy;
+-      (*d_proj_d_param)(1, 2) = dv_cx;
+-      (*d_proj_d_param)(1, 3) = dv_cy;
+-      (*d_proj_d_param)(1, 4) = dv_k1;
+-      (*d_proj_d_param)(1, 5) = dv_k2;
+-      (*d_proj_d_param)(1, 6) = dv_k3;
+-      (*d_proj_d_param)(1, 7) = dv_k4;
+-      (*d_proj_d_param)(1, 8) = dv_k5;
+-      (*d_proj_d_param)(1, 9) = dv_k6;
+-      (*d_proj_d_param)(1, 10) = dv_p1;
+-      (*d_proj_d_param)(1, 11) = dv_p2;
+-      (*d_proj_d_param)(1, 12) = dv_s1;
+-      (*d_proj_d_param)(1, 13) = dv_s2;
+-      (*d_proj_d_param)(1, 14) = dv_s3;
+-      (*d_proj_d_param)(1, 15) = dv_s4;
+-    } else {
+-      UNUSED(d_proj_d_param);
+-    }
+-
+-    return is_valid;
+-  }
+-
+-  // distortion function
++      (*d_proj_d_param)(0, 0) = distorted[0];
++      (*d_proj_d_param)(1, 1) = distorted[1];
++      (*d_proj_d_param)(0, 2) = S1;
++      (*d_proj_d_param)(1, 3) = S1;
++      Scalar power = theta_by_r;
++      for (int i = 0; i < 6; ++i) {
++        power *= theta * theta;
++        d_proj_d_param->col(4 + i) = scaled * (q * power);
++      }
++      const Scalar u = radial[0], v = radial[1], r2 = radial.squaredNorm();
++      (*d_proj_d_param)(0, 10) = param_[0] * (r2 + S2 * u * u);
++      (*d_proj_d_param)(1, 10) = param_[1] * S2 * u * v;
++      (*d_proj_d_param)(0, 11) = param_[0] * S2 * u * v;
++      (*d_proj_d_param)(1, 11) = param_[1] * (r2 + S2 * v * v);
++      (*d_proj_d_param)(0, 12) = param_[0] * r2;
++      (*d_proj_d_param)(0, 13) = param_[0] * r2 * r2;
++      (*d_proj_d_param)(1, 14) = param_[1] * r2;
++      (*d_proj_d_param)(1, 15) = param_[1] * r2 * r2;
++      if (!d_proj_d_param->allFinite()) return false;
++    }
++    proj = result;
++    return true;
++  }
++
+   template <class DerivedJundist = std::nullptr_t>
+   inline void distort(const Vec2& undist, Vec2& dist, DerivedJundist d_dist_d_undist = nullptr) const {
+-    const Scalar& k1 = param_[4];
+-    const Scalar& k2 = param_[5];
+-    const Scalar& k3 = param_[6];
+-    const Scalar& k4 = param_[7];
+-    const Scalar& k5 = param_[8];
+-    const Scalar& k6 = param_[9];
+-    const Scalar& p1 = param_[10];
+-    const Scalar& p2 = param_[11];
+-    const Scalar& s1 = param_[12];
+-    const Scalar& s2 = param_[13];
+-    const Scalar& s3 = param_[14];
+-    const Scalar& s4 = param_[15];
+-
+-    const Scalar xp = undist.x();
+-    const Scalar yp = undist.y();
+-    const Scalar rp2 = xp * xp + yp * yp;  // r^2
+-    const Scalar rp = std::sqrt(rp2);      // r
+-    // calculate theta angle
+-    const Scalar th = std::atan(rp);  // theta, incident light and optical axis angle
+-    const Scalar th2 = th * th;
+-    // calculate angle and direction
+-    const Scalar cos_phi = xp / rp;  // cos(phi)
+-    const Scalar sin_phi = yp / rp;  // sin(phi)
+-    // calculate radial distortion polynomial
+-    // (th+ k1 * th^3 + k2* th^5 + ...) = th * (1 + k1 * th^2 + k2* th^4 + ...)
+-    //                                  = th * (1 + th^2 * (k1 + th^2 * (k2 + ...)))
+-    Scalar theta_dist = th * (S1 + th2 * (k1 + th2 * (k2 + th2 * (k3 + th2 * (k4 + th2 * (k5 + th2 * k6))))));
+-    // distorted radial coordinate
+-    const Scalar xr = theta_dist * cos_phi;
+-    const Scalar yr = theta_dist * sin_phi;
+-    const Scalar rd2 = xr * xr + yr * yr;
+-    // tangential distortion
+-    const Scalar dx_tan = (S2 * xr * xr + rd2) * p1 + S2 * xr * yr * p2;
+-    const Scalar dy_tan = (S2 * yr * yr + rd2) * p2 + S2 * xr * yr * p1;
+-    // thin prism distortion
+-    const Scalar dx_prism = s1 * rd2 + s2 * rd2 * rd2;
+-    const Scalar dy_prism = s3 * rd2 + s4 * rd2 * rd2;
+-    // final distorted coordinate
+-    const Scalar xpp = xr + dx_tan + dx_prism;
+-    const Scalar ypp = yr + dy_tan + dy_prism;
+-    dist.x() = xpp;
+-    dist.y() = ypp;
+-
+-    // The following derivative expressions were computed automatically with
+-    // sympy, see python/fisheye624/main_jacobians.py.
++    Vec2 radial;
++    Mat22 radial_j, tangent_j;
++    Scalar theta, theta_by_r;
++    if (!valid_parameters() || !radial_terms(undist, radial, radial_j, theta, theta_by_r)) {
++      dist.setConstant(std::numeric_limits<Scalar>::quiet_NaN());
++      if constexpr (!std::is_same_v<DerivedJundist, std::nullptr_t>)
++        d_dist_d_undist->setConstant(std::numeric_limits<Scalar>::quiet_NaN());
++      return;
++    }
++    tangent_terms(radial, dist, tangent_j);
+     if constexpr (!std::is_same_v<DerivedJundist, std::nullptr_t>) {
+       BASALT_ASSERT(d_dist_d_undist);
+-
+-      d_dist_d_undist->setZero();
+-
+-      const Scalar v0 = xp * xp;
+-      const Scalar v1 = yp * yp;
+-      const Scalar v2 = v0 + v1;
+-      const Scalar v3 = v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2;
+-      const Scalar v4 = std::atan(std::sqrt(v2));
+-      const Scalar v5 = v4 * v4;
+-      const Scalar v6 = k6 * v5;
+-      const Scalar v7 = k4 + v5 * (k5 + v6);
+-      const Scalar v8 = k3 + v5 * v7;
+-      const Scalar v9 = k2 + v5 * v8;
+-      const Scalar v10 = k1 + v5 * v9;
+-      const Scalar v11 = v10 * v5 + S1;
+-      const Scalar v12 = v2 + S1;
+-      const Scalar v13 = v12 * v4;
+-      const Scalar v14 = v11 * v13;
+-      const Scalar v15 = v14 * v3;
+-      const Scalar v16 = v0 * v11;
+-      const Scalar v17 = v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2;
+-      const Scalar v18 = v13 * v17;
+-      const Scalar v19 = std::pow(v2, S33 / S2);
+-      const Scalar v20 = S2 * yp;
+-      const Scalar v21 = v12 * v5 * (v11 * v11);
+-      const Scalar v22 = p2 * v21;
+-      const Scalar v23 = std::pow(v2, S31 / S2);
+-      const Scalar v24 = S4 * yp;
+-      const Scalar v25 = v23 * v24;
+-      const Scalar v26 = v5 * (v10 + v5 * (v5 * (v5 * (v5 * (k5 + S2 * v6) + v7) + v8) + v9));
+-      const Scalar v27 = S2 * v26;
+-      const Scalar v28 = v11 + v27;
+-      const Scalar v29 = v19 * v28;
+-      const Scalar v30 = v17 * v28;
+-      const Scalar v31 = p2 * v4;
+-      const Scalar v32 = S4 * xp;
+-      const Scalar v33 = v1 * v11;
+-      const Scalar v34 = v1 * v27 + v33;
+-      const Scalar v35 = v0 * v27 + v16;
+-      const Scalar v36 = v34 + v35;
+-      const Scalar v37 = v11 * v11 * v11;
+-      const Scalar v38 = v4 * v4 * v4;
+-      const Scalar v39 = s2 * v36 * v37 * v38;
+-      const Scalar v40 = v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2;
+-      const Scalar v41 = v2 * v2 * v2;
+-      const Scalar v42 = v36 * v41;
+-      const Scalar v43 = s1 * v42;
+-      const Scalar v44 = v14 * std::pow(v2, S7 / S2);
+-      const Scalar v45 = S3 * v44;
+-      const Scalar v46 = S3 * v0;
+-      const Scalar v47 = S6 * v26;
+-      const Scalar v48 = v14 * std::pow(v2, S5 / S2);
+-      const Scalar v49 = v41 * (v0 * v47 + v11 * v46 + v34) - v48 * (v1 + v46);
+-      const Scalar v50 = S2 * xp;
+-      const Scalar v51 = v11 * v4;
+-      const Scalar v52 = v50 * v51;
+-      const Scalar v53 = S1 / v12;
+-      const Scalar v54 = v53 / std::pow(v2, S35 / S2);
+-      const Scalar v55 = std::pow(v2, S25 / S2);
+-      const Scalar v56 = v20 * v51;
+-      const Scalar v57 = v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2 * v2;
+-      const Scalar v58 = v23 * v32;
+-      const Scalar v59 = xp * yp;
+-      const Scalar v60 = -v14 * v23 * v59 + v30 * v59;
+-      const Scalar v61 = v53 * S1 / v3;
+-      const Scalar v62 = s3 * v42;
+-      const Scalar v63 = v41 * (v1 * v47 + S3 * v33 + v35) - v48 * (v0 + S3 * v1);
+-      const Scalar v64 = p1 * v21;
+-      const Scalar v65 = s4 * v36 * v37 * v38;
+-      const Scalar v66 = p1 * v4;
+-
+-      const Scalar dxpp_dxp = v54 * (-v0 * v22 * v25 + v0 * v29 + v15 - v16 * v18 + v16 * v24 * v30 * v31 +
+-                                     v17 * v32 * v39 + v19 * v20 * v22 + v40 * v52 * (p1 * (v45 + v49) + v43));
+-      const Scalar dxpp_dyp = v61 * (-v1 * v22 * v32 * v57 + v17 * v22 * v50 + v25 * v39 + v28 * v31 * v33 * v58 +
+-                                     v55 * v56 * (p1 * (v44 + v49) + v43) + v60);
+-      const Scalar dypp_dxp = v61 * (-v0 * v24 * v57 * v64 + v16 * v25 * v28 * v66 + v17 * v20 * v64 +
+-                                     v52 * v55 * (p2 * (v44 + v63) + v62) + v58 * v65 + v60);
+-      const Scalar dypp_dyp = v54 * (v1 * v29 - v1 * v58 * v64 + v15 + v17 * v24 * v65 - v18 * v33 + v19 * v50 * v64 +
+-                                     v30 * v32 * v33 * v66 + v40 * v56 * (p2 * (v45 + v63) + v62));
+-
+-      (*d_dist_d_undist)(0, 0) = dxpp_dxp;
+-      (*d_dist_d_undist)(0, 1) = dxpp_dyp;
+-      (*d_dist_d_undist)(1, 0) = dypp_dxp;
+-      (*d_dist_d_undist)(1, 1) = dypp_dyp;
+-    } else {
+-      UNUSED(d_dist_d_undist);
++      *d_dist_d_undist = tangent_j * radial_j;
+     }
+   }
+ 
+@@ -568,19 +198,39 @@
+     const Scalar x0 = (u - cx) / fx;
+     const Scalar y0 = (v - cy) / fy;
+ 
+-    // Newton solver
+-    Vec2 dist{x0, y0};
+-    Vec2 undist{dist};
+-    const Scalar EPS = Sophus::Constants<Scalar>::epsilonSqrt();
+-    constexpr int N = 5;  // Max iterations
+-    for (int i = 0; i < N; i++) {
+-      Mat22 J{};
+-      Vec2 fundist{};
+-      distort(undist, fundist, &J);
+-      Vec2 residual = fundist - dist;
+-      undist -= J.inverse() * residual;
+-      if (residual.norm() < EPS) { break; }
+-    }
++    if (!valid_parameters() || !proj_eval.allFinite()) return false;
++    const Vec2 target{x0, y0};
++    Vec2 undist = target;
++    if (!target.allFinite()) return false;
++    const Scalar tolerance = Scalar{16} * std::numeric_limits<Scalar>::epsilon() * std::max(S1, target.norm());
++    bool converged = false;
++    for (int i = 0; i < 40; ++i) {
++      Mat22 jacobian;
++      Vec2 value;
++      distort(undist, value, &jacobian);
++      const Vec2 residual = value - target;
++      const Scalar error = residual.norm();
++      if (!value.allFinite() || !jacobian.allFinite() || !std::isfinite(error)) return false;
++      if (error <= tolerance) { converged = true; break; }
++      const Scalar determinant = jacobian.determinant();
++      if (!std::isfinite(determinant) || determinant <= std::numeric_limits<Scalar>::epsilon()) return false;
++      const Vec2 step = jacobian.inverse() * residual;
++      bool advanced = false;
++      Scalar fraction = S1;
++      for (int j = 0; j < 16; ++j) {
++        const Vec2 candidate = undist - fraction * step;
++        Vec2 trial;
++        distort(candidate, trial);
++        if (trial.allFinite() && (trial - target).norm() < error) {
++          undist = candidate;
++          advanced = true;
++          break;
++        }
++        fraction *= Scalar{0.5};
++      }
++      if (!advanced) return false;
++    }
++    if (!converged) return false;
+     const Scalar xp = undist.x();
+     const Scalar yp = undist.y();
+ 
+@@ -637,6 +287,50 @@
+   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+ 
+  private:
++  bool valid_parameters() const {
++    return param_.allFinite() && param_[0] > S0 && param_[1] > S0;
++  }
++
++  bool radial_terms(const Vec2& q, Vec2& radial, Mat22& jacobian,
++                    Scalar& theta, Scalar& theta_by_r) const {
++    if (!q.allFinite()) return false;
++    const Scalar r2 = q.squaredNorm(), r = std::sqrt(r2);
++    if (!std::isfinite(r)) return false;
++    theta = std::atan(r);
++    theta_by_r = r == S0 ? S1 : theta / r;
++    Scalar polynomial = S1, derivative = S0, power = S1;
++    for (int i = 0; i < 6; ++i) {
++      derivative += Scalar(i + 1) * param_[4 + i] * power;
++      power *= theta * theta;
++      polynomial += param_[4 + i] * power;
++    }
++    Scalar angular_slope;
++    if (r2 < std::sqrt(std::numeric_limits<Scalar>::epsilon())) {
++      // (1/(1+r*r) - atan(r)/r)/(r*r) has a finite limit on axis.
++      angular_slope = -S2 / S3 + r2 * (S4 / S5 + r2 * (-S6 / S7 + r2 * Scalar{8} / Scalar{9}));
++    } else {
++      angular_slope = (S1 / (S1 + r2) - theta_by_r) / r2;
++    }
++    const Scalar scale = theta_by_r * polynomial;
++    const Scalar twice_slope = angular_slope * polynomial +
++        S2 * theta_by_r * theta_by_r * derivative / (S1 + r2);
++    radial = scale * q;
++    jacobian = scale * Mat22::Identity() + twice_slope * q * q.transpose();
++    return radial.allFinite() && jacobian.allFinite();
++  }
++
++  void tangent_terms(const Vec2& radial, Vec2& distorted, Mat22& jacobian) const {
++    const Scalar u = radial[0], v = radial[1], r2 = radial.squaredNorm();
++    const Scalar p1 = param_[10], p2 = param_[11];
++    const Scalar s1 = param_[12], s2 = param_[13], s3 = param_[14], s4 = param_[15];
++    distorted[0] = u + p1 * (r2 + S2 * u * u) + S2 * p2 * u * v + s1 * r2 + s2 * r2 * r2;
++    distorted[1] = v + p2 * (r2 + S2 * v * v) + S2 * p1 * u * v + s3 * r2 + s4 * r2 * r2;
++    jacobian(0, 0) = S1 + S6 * p1 * u + S2 * p2 * v + S2 * s1 * u + S4 * s2 * u * r2;
++    jacobian(0, 1) = S2 * p1 * v + S2 * p2 * u + S2 * s1 * v + S4 * s2 * v * r2;
++    jacobian(1, 0) = S2 * p2 * u + S2 * p1 * v + S2 * s3 * u + S4 * s4 * u * r2;
++    jacobian(1, 1) = S1 + S6 * p2 * v + S2 * p1 * u + S2 * s3 * v + S4 * s4 * v * r2;
++  }
++
+   VecN param_;
+ };
+ 
