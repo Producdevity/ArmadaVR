@@ -234,6 +234,34 @@ MCU restart handling and physical tracking remain unverified. Evidence is in
 `output/quest-fifo-pipeline-20261012-v1` and
 `output/quest-fifo-acquisition-20261012-v1`.
 
+### Native copied-FIFO owner
+
+`quest-imu-stream.c` owns a nonblocking `/dev/syncboss_stream0` descriptor,
+installs the exact ARM64 packet-80 filter with per-client queue clearing, and
+feeds complete copied batches through the calibrated processor. Each poll is
+bounded to eight 4 KiB reads and refreshes CLOCK_MONOTONIC around acquisition
+and delivery. It validates a whole batch before publishing any of its samples.
+
+Read errors, malformed or truncated batches, clock regressions, excessive
+capture gaps, stale input and sink refusal invalidate the generation and close
+its descriptor once. Empty reads still run the timeout check. Failure cannot
+implicitly restart the stream; a new owner is required. The consumer must also
+stop it on suspend, MCU restart or loss of exclusive sensor ownership before
+publishing further poses.
+
+The owner does not enable or configure the MCU, claim direct-channel ownership,
+select calibration or open a device automatically. The offset tables must remain
+alive and immutable. Closing this copied FIFO releases the client's queue; it
+is not evidence of MCU shutdown or camera DMA quiescence. A successful existing
+direct-channel subscriber can still suppress FIFO delivery, which this receiver
+handles as silence rather than fabricating samples.
+
+The 1,101 host and ARM64 Linux sanitizer cases compare calibrated output across
+all four formats, both FIFO headers and optional time alignment. They also cover
+batch rejection before delivery, startup rollback, empty-input expiry, bounded
+interruption retries, clock/read/sink failures and single-close invalidation.
+Transport syscalls are modeled; no physical FIFO acquisition is established.
+
 The [public UAPI](https://github.com/facebookincubator/oculus-linux-kernel/blob/dbc2bc83a2b673f5d1c24ee9dadb0cd708ffda3f/drivers/staging/oculus/include/uapi/linux/syncboss.h#L113)
 defines the packed 104-byte record and DMA-buffer registration parameters. Its
 union includes `float fdata[16]`, but the implementation writes raw header and
