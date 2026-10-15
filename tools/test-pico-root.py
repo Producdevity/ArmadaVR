@@ -138,7 +138,7 @@ for name,program in (('ssc','bin/ssccli'),('ssc_inventory','libexec/ssc-inventor
 if (expected.get('monado') or {}).get('ssc_dependency') is not None:
     lib=ctypes.CDLL('/opt/reframed-vr/monado/lib64/libpico_tracking.so',mode=os.RTLD_NOW)
     for name in ('pico_camera_probe_setup_prepare','pico_camera_rig_prepare','pico_slam_live_poll',
-                 'pico_slam_live_tracking','pico_slam_live_stop','pico_slam_live_quiesced','pico_monado_hmd_create'):
+                 'pico_slam_live_poll_clock','pico_slam_live_tracking','pico_slam_live_stop','pico_slam_live_quiesced','pico_monado_hmd_create'):
         assert getattr(lib,name)
     lib.pico_slam_live_prepare.argtypes=[ctypes.c_void_p,ctypes.c_void_p]
     lib.pico_slam_live_prepare.restype=ctypes.c_int

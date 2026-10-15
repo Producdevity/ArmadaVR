@@ -296,8 +296,8 @@ Private audit and current-source receipts:
 ## Prepared artifact set
 
 The current private runtime set is
-`output/pico-camera-tracking-20261014-v1/first-boot-set-v2.json`; its matching
-recovery references are in `recovery-session-set-v2.json` in the same directory.
+`output/pico-camera-tracking-20261014-v1/first-boot-set-v3.json`; its matching
+recovery references are in `recovery-session-set-v3.json` in the same directory.
 The set binds the diagnostic, kernel, runtime container, external root, panel
 overlay, native package receipts and verification reports by size and SHA-256.
 Recheck those identities before use; do not combine a historical root with a
@@ -311,8 +311,9 @@ Camera startup, continuous request refill and IMU-to-pose delivery pass the
 [offline replay](pico-slam.md#continuous-capture). The replay also exercises
 tracked HMD poses and stereo views through the installed driver library, with
 simulated hardware and reference calibration. The packaged-root VM loads that
-same library and checks its refusal of missing configuration. Physical HMD and
-camera activation still require explicit, verified configuration. The opt-in
+same library, requires the live event-clock entry point and checks its refusal
+of missing configuration. Physical HMD and camera activation still require
+explicit, verified configuration. The opt-in
 `pico-controller-config.py --motion-status` getter is prepared for a later stock
 capture. It has only been tested offline. Capture connected controllers'
 configuration before selecting their scale and axis branches; do not copy
