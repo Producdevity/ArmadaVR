@@ -218,15 +218,16 @@ python3 -B tests/sns-low-latency-stock.py \
 Unicorn 2.1.4 must be available in that Python environment. Keep the stock binary
 private. On macOS the emulator needs permission to allocate executable memory.
 
-The current [Qualcomm FastRPC userspace source](https://github.com/qualcomm/fastrpc/tree/a56e9d4de3614a8d8f4b0e15ff561350c4b686e3)
+The pinned [Qualcomm FastRPC userspace source](https://github.com/qualcomm/fastrpc/tree/a56e9d4de3614a8d8f4b0e15ff561350c4b686e3)
 uses the mainline `/dev/fastrpc-sdsp` interface and DMA-heap allocation. Pico's
 published vendor kernel instead exposes `/dev/adsprpc-smd` and the vendor ioctl
 layout: for example, invocation is request 1 with a pointer to `remote_arg`,
-where the current mainline interface uses request 3 with different argument
-records. The current userspace library cannot be installed unchanged against
-that driver. A matching vendor backend, shared-buffer allocation, SUID discovery,
-DSP lifecycle and physical output validation remain necessary. RPC message
-compatibility alone does not resolve those requirements.
+where the mainline interface uses request 3 with different argument records.
+That library cannot be installed unchanged against this driver. The vendor
+backend and shared-buffer lifecycle implemented below address the ioctl and
+allocation differences; the [native inventory](#native-sensor-inventory) supplies
+explicit SUID discovery. Physical DSP attachment, sensor association and output
+validation remain separate acceptance requirements.
 
 The kernel patch `0033-fastrpc-init-channel.patch` rejects `INIT` and
 `INIT_ATTRS` before domain selection. The original file starts with channel
@@ -770,10 +771,11 @@ the retained kernel's acquire resource parser; UAPI layout assertions and host
 and ARM64 sanitizer tests also pass. Stock's unused padded tail remains zero.
 These checks establish command representation, not working lane assignments.
 
-Native capture still needs sensor initialization, verified PHY settings and
-request-manager sessions,
-IFE clock/bandwidth commands, DMA buffers and completion fences. The retained
-public kernel does not contain the Android `cam_virtual_mono` bridge used by
+The [combined stereo owner](#combined-stereo-startup) assembles sensor
+initialization, PHY configuration, request-manager sessions, IFE clock/bandwidth
+commands, DMA buffers and completion fences. Activation still requires verified
+physical settings and calibration. The retained public kernel does not contain
+the Android `cam_virtual_mono` bridge used by
 stock QuickCamera, so that transport cannot simply be opened from the Linux
 runtime. Sensor register sequences are supplied through CamX sensor modules;
 active camera identity and calibration still need verification. This encoder
@@ -1163,6 +1165,19 @@ The retained dispatch, handle lookup and hardware-disable functions pass 184
 host and ARM64 sanitizer cases with modeled hardware callbacks. The original
 code fails 175 assertions in the same corpus. This verifies error propagation
 and cleanup ordering; it does not prove physical lane shutdown or DMA quiescence.
+
+Patch `0046-camera-power-stop-errors.patch` extends this propagation through the
+shared camera power helper. It preserves regulator disable/load/voltage errors
+across the complete rail list and retains IRQ or regulator failures when the
+final pinctrl operation succeeds. All remaining cleanup calls retain their
+original order; startup unwind still preserves its original startup error.
+
+The exact retained functions pass 18,500 host and ARM64 sanitizer cases. Tests
+cover zero through eight rails, optional IRQ/clock/pinctrl cleanup, both regulator
+control modes, simultaneous errors and delay boundaries. The original code fails
+8,461 assertions. These are reported driver errors, not measurements of physical
+rail state; failures swallowed by the shared regulator core remain a separate
+limitation, and no DMA or recovery acceptance follows from these tests.
 
 ### Native sensor initialization
 
