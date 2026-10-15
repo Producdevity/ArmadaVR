@@ -1152,6 +1152,18 @@ Reporting an error reliably does not prove DMA quiescence after a successful
 stop, and it does not authorize releasing retained buffers or enabling capture
 on an unverified physical configuration.
 
+Patch `0045-csiphy-stop-errors.patch` also carries PHY stop failures back to
+userspace. The original stop case shadowed the ioctl return variable, and its
+hardware-disable helper discarded the platform-resource result. The corrected
+path retains the first secure/lane/platform/CPAS error while attempting the
+remaining cleanup. Partial user copies, an inactive or zero-count stop, and a
+handle outside the acquired slots are refused before modifying the device.
+
+The retained dispatch, handle lookup and hardware-disable functions pass 184
+host and ARM64 sanitizer cases with modeled hardware callbacks. The original
+code fails 175 assertions in the same corpus. This verifies error propagation
+and cleanup ordering; it does not prove physical lane shutdown or DMA quiescence.
+
 ### Native sensor initialization
 
 `pico-camera-sensor-setup` copies explicit initialization, mode, optional
