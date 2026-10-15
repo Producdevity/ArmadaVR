@@ -120,7 +120,7 @@ def main():
     for part in ('runtime', 'live'):
         source_paths += ['src/pico-slam-' + part + suffix for suffix in ('.c', '.h')]
     source_paths += ['src/pico-monado-hmd.c', 'src/pico-monado-hmd.h', 'src/ssc-imu-session.h', 'tests/pico-slam-live-replay.cpp', 'tools/monado-artifact.py', 'tools/ssc-artifact.py']
-    source_paths += ['tests/quest-slam-replay.cpp', 'tests/quest-slam-replay-io.c', 'src/quest-slam-runtime.h', 'src/quest-imu-stream.h', 'src/quest-imu.h', 'src/imu-calibration.h', 'src/imu-time-align.h', 'src/syncboss-imu.h']
+    source_paths += ['tests/quest-slam-replay.cpp', 'tests/quest-slam-replay-io.c', 'src/quest-monado-hmd.h', 'src/calibrated-hmd.h', 'src/quest-slam-runtime.h', 'src/quest-imu-stream.h', 'src/quest-imu.h', 'src/imu-calibration.h', 'src/imu-time-align.h', 'src/syncboss-imu.h']
     inputs = {name: digest(ROOT / name) for name in source_paths}
     script = '''set -e
 flags="-O1 -g1 -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -I/repo/src -I/source/thirdparty -I/out/include -isystem /monado/src/xrt/include"
@@ -316,7 +316,8 @@ done
             quest = {}
             for cause in ('camera-silence', 'clock-regression', 'normal'):
                 quest_log = (args.output / f'quest-{cause}.log').read_text()
-                if (not re.search(r'QUEST_SLAM_REPLAY_PASS poses=185 images=370 imu=[0-9]+ head_poses=184 startup_skipped=1 modeled_fifo=1 stopped_invalid=1 installed_library=1', quest_log) or
+                if ('QUEST_INSTALLED_HMD_PASS poses=184 stopped_invalid=1 borrowed_runtime=1' not in quest_log or
+                        not re.search(r'QUEST_SLAM_REPLAY_PASS poses=185 images=370 imu=[0-9]+ head_poses=184 startup_skipped=1 modeled_fifo=1 stopped_invalid=1 installed_library=1', quest_log) or
                         (cause != 'normal' and f'QUEST_SLAM_FAULT_PASS cause={cause} invalid_before_explicit_stop=1 implicit_restart=0' not in quest_log)):
                     raise ValueError('Installed Quest replay did not finish: ' + cause)
                 metrics = trajectory_metrics(args.output / f'poses-quest-{cause}.csv', reference / 'mav0/gt/data.csv')

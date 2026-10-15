@@ -1,6 +1,7 @@
 #define VIT_INTERFACE_IMPLEMENTATION
 #include "vit_interface.h"
 extern "C" {
+#include "quest-monado-hmd.h"
 #include "quest-slam-runtime.h"
 void quest_replay_clock(int64_t value);
 void quest_replay_feed(int64_t stamp, const double accel[3], const double gyro[3]);
@@ -68,11 +69,25 @@ int main(int argc,char **argv)
     c.imu_uncertainty_ns=1000;
     int64_t now=std::min(std::stoll(left.front()[0]),std::stoll(inertial.front()[0]))+2000000;
     quest_replay_clock(now);
-    quest_slam_runtime *runtime=nullptr;CHECK(quest_slam_runtime_prepare(&c,&runtime));CHECK(quest_slam_runtime_start(runtime));
+    quest_slam_runtime *runtime=nullptr;CHECK(quest_slam_runtime_prepare(&c,&runtime));
+    xrt_uv_triplet grid[4]={};
+    quest_hmd_config hmd_config{};
+    hmd_config.serial="reference-replay-optics";hmd_config.screen_width=200;hmd_config.screen_height=100;
+    hmd_config.frame_interval_ns=10000000;hmd_config.tracking=runtime;
+    for(unsigned i=0;i<2;++i) {
+        auto &v=hmd_config.views[i];v.display.viewport={i*100,0,100,100};v.display.display={100,100};
+        v.display.rot.v[0]=v.display.rot.v[3]=1;
+        v.fov.angle_left=v.fov.angle_down=-.8f;v.fov.angle_right=v.fov.angle_up=.8f;
+        v.eye_pose.orientation.w=1;v.eye_pose.position.x=i?.03f:-.03f;
+        v.grid_width=v.grid_height=2;v.distortion=grid;
+    }
+    xrt_device *hmd=nullptr;CHECK(quest_monado_hmd_create(&hmd_config,&hmd));
+    CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active);
+    CHECK(quest_slam_runtime_start(runtime));
     size_t received=999; CHECK(quest_slam_runtime_poll(runtime,&received)==0 && !received);
     std::ofstream output(argv[3]);CHECK(output.good());output.precision(12);
     output<<"timestamp_ns,x,y,z,qx,qy,qz,qw\n";
-    unsigned poses=0,heads=0,skipped=0;int64_t last=0;
+    unsigned poses=0,heads=0,skipped=0,hmd_poses=0,view_pairs=0,active_inputs=0,predictions=0;int64_t last=0;
     auto poll=[&] {
         quest_replay_clock(now);CHECK(quest_slam_runtime_poll(runtime,&received)==1 && received==observed.size());
         for(const auto &p:observed) {
@@ -82,6 +97,22 @@ int main(int argc,char **argv)
             if(quest_slam_runtime_get_relation(runtime,now,p.timestamp,&h,&time)) {
                 CHECK(time>=p.timestamp && (h.relation_flags&XRT_SPACE_RELATION_POSITION_TRACKED_BIT));
                 CHECK(std::abs(h.pose.position.x-p.px)<.00001 && std::abs(h.pose.position.y-p.py)<.00001 && std::abs(h.pose.position.z-p.pz)<.00001);++heads;
+                xrt_space_relation device_pose{};
+                CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,p.timestamp,&device_pose)==XRT_SUCCESS);
+                CHECK(device_pose.relation_flags==h.relation_flags && !memcmp(&device_pose.pose,&h.pose,sizeof(h.pose)));
+                xrt_space_relation current{};int64_t current_time;
+                bool active=quest_slam_runtime_get_relation(runtime,now,now,&current,&current_time);
+                CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && hmd->inputs[0].active==active && hmd->inputs[0].timestamp==current_time);
+                active_inputs+=active;++hmd_poses;
+                xrt_pose eyes[2]{};xrt_fov fovs[2]{};
+                CHECK(hmd->get_view_poses(hmd,nullptr,p.timestamp,XRT_VIEW_TYPE_STEREO,2,&device_pose,fovs,eyes)==XRT_SUCCESS);
+                CHECK(device_pose.relation_flags==h.relation_flags && !memcmp(&device_pose.pose,&h.pose,sizeof(h.pose)));
+                CHECK(eyes[0].position.x==-.03f && eyes[1].position.x==.03f && fovs[0].angle_left==-.8f);++view_pairs;
+                xrt_space_relation predicted{};int64_t predicted_time;
+                bool valid=quest_slam_runtime_get_relation(runtime,now,p.timestamp+5000000,&predicted,&predicted_time);
+                CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,p.timestamp+5000000,&device_pose)==XRT_SUCCESS);
+                CHECK(device_pose.relation_flags==predicted.relation_flags);
+                if(valid){CHECK(!memcmp(&device_pose.pose,&predicted.pose,sizeof(predicted.pose)));++predictions;}
             }
             ++poses;
         }
@@ -128,10 +159,15 @@ int main(int argc,char **argv)
         xrt_space_relation invalid{};int64_t time;
         CHECK(!quest_slam_runtime_get_relation(runtime,now,last,&invalid,&time) && !invalid.relation_flags);
         CHECK(!quest_slam_runtime_start(runtime));
+        CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,last,&invalid)==XRT_SUCCESS && !invalid.relation_flags);
+        CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active && !hmd->inputs[0].timestamp);
         printf("QUEST_SLAM_FAULT_PASS cause=%s invalid_before_explicit_stop=1 implicit_restart=0 continued_imu=%u\n",fault,fault_imus);
     }
     quest_slam_runtime_stop(runtime);xrt_space_relation stopped{};int64_t time;
     CHECK(!quest_slam_runtime_get_relation(runtime,now,last,&stopped,&time) && !stopped.relation_flags);
+    CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,last,&stopped)==XRT_SUCCESS && !stopped.relation_flags);
+    hmd->destroy(hmd);hmd=nullptr;CHECK(hmd_poses==heads && view_pairs==heads && active_inputs>0 && predictions>0);
+    printf("QUEST_INSTALLED_HMD_PASS poses=%u stopped_invalid=1 borrowed_runtime=1 stereo_views=%u active_inputs=%u predictions=%u synthetic_optics=1\n",hmd_poses,view_pairs,active_inputs,predictions);
     quest_slam_runtime_destroy(&runtime);CHECK(!runtime);quest_replay_finish();
     CHECK(skipped==1 && imus==inertial.size()+fault_imus && poses==left.size()-1 && images==poses*2 && heads>=180);
     printf("QUEST_SLAM_REPLAY_PASS poses=%u images=%u imu=%u head_poses=%u startup_skipped=%u modeled_fifo=1 stopped_invalid=1 installed_library=1\n",poses,images,imus,heads,skipped);

@@ -853,3 +853,19 @@ all supported link counts, both master links, scheduling flags, maximum request
 IDs, partial handle returns and interrupted operations. This is transport ABI
 coverage; sensor acquisition, ISP resources, buffer allocation, hardware clock
 mapping and actual capture remain separate integration requirements.
+
+
+`quest_monado_hmd_create` exposes the Quest tracking runtime through Monado's
+headset callbacks. It borrows the runtime and copies explicit stereo display,
+FOV, eye-pose and RGB distortion grids. It never opens or starts sensors and
+rejects Pico's vendor-specific polynomial optics. Pico and Quest share the
+calibrated optics implementation; their tracking ownership remains separate.
+The Quest owner must stop capture and destroy the HMD before freeing tracking.
+There is no automatic Quest prober or inferred display calibration.
+
+Host and native ARM64 ASan/UBSan checks exercise copied optics, invalid input,
+tracking loss and repeated lifetime transitions. The installed-library replay
+also checks head poses, stereo views, bounded prediction and current-input
+activity against the actual Quest provider while Basalt estimates the reference
+trajectory. Reference data and synthetic display optics validate this software
+connection; they do not establish physical Quest tracking or optical accuracy.

@@ -51,7 +51,8 @@ def main():
     flags = ['-O1', '-g1', '-ffunction-sections', '-fdata-sections', '-pthread',
              '-I', str(ROOT / 'src'), '-I', str(output / 'include'),
              '-isystem', str(include), '-isystem', str(auxiliary),
-             '-isystem', str(source / 'src/external/cjson')]
+             '-isystem', str(source / 'src/external/cjson'),
+             '-isystem', str(source / 'src/external/vit_includes')]
     sanitize = [] if args.sanitizer == 'none' else ['-fsanitize=' + args.sanitizer, '-fno-sanitize-recover=all']
     report = {'status': 'started', 'monado_commit': profile['commit'], 'archive_sha256': digest(args.archive),
               'commands': [], 'sanitizer': args.sanitizer, 'hardware_verified': False,
@@ -90,7 +91,7 @@ def main():
         if 'PICO_MONADO_PROBER_PASS checks=123 sessions=100' not in log:
             raise ValueError('Prober tests did not complete')
         print(log.splitlines()[-1])
-        hmd_inputs = [ROOT / name for name in ('tests/pico-monado-hmd.c', 'src/pico-monado-hmd.c', 'src/pico-slam-tracking.c')]
+        hmd_inputs = [ROOT / name for name in ('tests/pico-monado-hmd.c', 'src/pico-monado-hmd.c', 'src/pico-slam-tracking.c', 'src/calibrated-hmd.c')]
         hmd_inputs += [auxiliary / ('math/' + name) for name in ('m_base.cpp', 'm_predict.c', 'm_relation_history.cpp', 'm_quatexpmap.cpp')]
         eigen = ['-isystem', str(args.eigen.resolve())] if args.eigen else subprocess.check_output(['pkg-config', '--cflags', 'eigen3'], text=True).split()
         hmd_objects = []
@@ -98,7 +99,7 @@ def main():
             obj = output / ('hmd-' + str(index) + '.o')
             compiler = args.cxx if path.suffix == '.cpp' else args.cc
             standard = '-std=c++17' if path.suffix == '.cpp' else '-std=gnu11'
-            warnings = ['-Wall', '-Wextra', '-Werror'] if index < 3 else ['-w']
+            warnings = ['-Wall', '-Wextra', '-Werror'] if index < 4 else ['-w']
             run([compiler, standard, *flags, *eigen, *sanitize, *warnings,
                  '-c', str(path), '-o', str(obj)], 'hmd-' + str(index) + '-compile.log', timeout=180)
             hmd_objects.append(str(obj))
@@ -113,6 +114,24 @@ def main():
         report['hmd_inputs_sha256'] = {str(p): digest(p) for p in hmd_inputs}
         report['hmd_binary_sha256'] = digest(hmd)
         print(hmd_log, end='')
+        quest_inputs = [ROOT / name for name in ('tests/quest-monado-hmd.c', 'src/quest-monado-hmd.c')]
+        quest = output / 'quest-monado-hmd'
+        quest_objects = []
+        for index, path in enumerate(quest_inputs):
+            obj = output / ('quest-hmd-' + str(index) + '.o')
+            run([args.cc, '-std=gnu11', *flags, *sanitize, '-Wall', '-Wextra', '-Werror',
+                 '-c', str(path), '-o', str(obj)], 'quest-hmd-' + str(index) + '-compile.log')
+            quest_objects.append(str(obj))
+        run([args.cxx, *sanitize, *quest_objects, *hmd_objects[3:], *objects[3:], '-pthread', '-lm', collect,
+             '-o', str(quest)], 'quest-hmd-link.log')
+        run([str(quest)], 'quest-hmd-test.log', env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1',
+            ASAN_OPTIONS='detect_leaks=' + ('0' if sys.platform == 'darwin' else '1')))
+        quest_log = (output / 'quest-hmd-test.log').read_text()
+        if 'QUEST_MONADO_HMD_PASS cycles=200 optics_samples=32400 borrowed_tracking=1 failed_pose_cleared=1' not in quest_log:
+            raise ValueError('Quest HMD callbacks and ownership checks did not complete')
+        report['quest_hmd_inputs_sha256'] = {str(p.relative_to(ROOT)): digest(p) for p in quest_inputs}
+        report['quest_hmd_binary_sha256'] = digest(quest)
+        print(quest_log, end='')
         config_inputs = [ROOT / ('src/' + name + '.c') for name in ('pico-hmd-config', 'pico-hmd-prober')]
         config_inputs.append(ROOT / 'tests/pico-hmd-config.c')
         config_binary = output / 'pico-hmd-config'

@@ -81,7 +81,7 @@ static bool parse(const cJSON *json, struct pico_hmd_config *c)
     const cJSON *views = field(json, "views");
     if (!cJSON_IsArray(views) || cJSON_GetArraySize(views) != 2) return false;
     for (unsigned i = 0; i < 2; i++) {
-        struct pico_hmd_view *v = &c->views[i];
+        struct calibrated_hmd_view *v = &c->views[i];
         const cJSON *item = cJSON_GetArrayItem(views, (int)i), *viewport = field(item, "viewport"), *size = field(item, "display");
         uint32_t *vp[] = {&v->display.viewport.x_pixels, &v->display.viewport.y_pixels,
                           &v->display.viewport.w_pixels, &v->display.viewport.h_pixels};

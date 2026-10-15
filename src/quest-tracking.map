@@ -7,5 +7,6 @@
         quest_slam_runtime_get_relation;
         quest_slam_runtime_stop;
         quest_slam_runtime_destroy;
+        quest_monado_hmd_create;
     local: *;
 };

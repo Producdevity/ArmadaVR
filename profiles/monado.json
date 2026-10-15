@@ -82,7 +82,9 @@
     "pico-camera-front-end.c",
     "pico-camera-front-end.h",
     "pico-camera-transport.c",
-    "pico-camera-transport.h"
+    "pico-camera-transport.h",
+    "calibrated-hmd.c",
+    "calibrated-hmd.h"
   ],
   "full_source": {
     "url": "https://gitlab.freedesktop.org/api/v4/projects/monado%2Fmonado/repository/archive.tar.gz?sha=01c1f6b23ab73c1459c8f4cfd2eb16d5142214c2",
@@ -151,7 +153,11 @@
     "pico-camera.c",
     "pico-camera.h",
     "pico-camera-capture.h",
-    "quest-tracking.map"
+    "quest-tracking.map",
+    "calibrated-hmd.c",
+    "calibrated-hmd.h",
+    "quest-monado-hmd.c",
+    "quest-monado-hmd.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -160,6 +166,7 @@
     "quest_slam_runtime_camera",
     "quest_slam_runtime_get_relation",
     "quest_slam_runtime_stop",
-    "quest_slam_runtime_destroy"
+    "quest_slam_runtime_destroy",
+    "quest_monado_hmd_create"
   ]
 }

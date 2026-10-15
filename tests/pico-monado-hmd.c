@@ -45,7 +45,7 @@ static struct pico_hmd_config configuration(struct xrt_uv_triplet *grid, unsigne
     struct pico_hmd_config c = {.serial="offline-fixture", .screen_width=1920, .screen_height=3664,
                                .frame_interval_ns=11111111};
     for (unsigned i=0;i<2;i++) {
-        c.views[i] = (struct pico_hmd_view){
+        c.views[i] = (struct calibrated_hmd_view){
             .display={.viewport={0,i*1832,1920,1832},.display={1832,1920},.rot={.v={0,1,-1,0}}},
             .fov={.angle_left=-0.8f,.angle_right=0.9f,.angle_up=0.7f,.angle_down=-0.6f},
             .eye_pose={.orientation={0,0,0,1},.position={i?0.032f:-0.032f,0,0}},
@@ -63,7 +63,7 @@ static void radial_tests(void)
     struct pico_hmd_config base=configuration(NULL,0);
     for(unsigned eye=0;eye<2;eye++) {
         base.views[eye].radial_enabled=true;
-        base.views[eye].radial=(struct pico_hmd_radial){.tangent_scale={2,-2},.tangent_offset={-1,1},
+        base.views[eye].radial=(struct calibrated_hmd_radial){.tangent_scale={2,-2},.tangent_offset={-1,1},
           .radial={1,.1,.02},.chromatic={.02,-.01,-.03,.02,.04,-.02}};
     }
     unsigned samples=0;
@@ -77,7 +77,7 @@ static void radial_tests(void)
         for(unsigned eye=0;eye<2;eye++)for(unsigned row=0;row<=48;row++)for(unsigned col=0;col<=64;col++) {
             float u=(float)col/64,v=(float)row/48;struct xrt_uv_triplet actual;
             assert(device->compute_distortion(device,eye,u,v,&actual)==XRT_SUCCESS);
-            const struct pico_hmd_radial *r=&saved.views[eye].radial;
+            const struct calibrated_hmd_radial *r=&saved.views[eye].radial;
             long double x=(long double)r->tangent_scale[0]*u+r->tangent_offset[0];
             long double y=(long double)r->tangent_scale[1]*v+r->tangent_offset[1], rr=x*x+y*y;
             long double scale=0;
@@ -110,7 +110,7 @@ static int radial_samples(void)
     unsigned count;
     while(scanf("%u",&count)==1) {
         assert(count>0&&count<=10000);struct pico_hmd_config c=configuration(NULL,0);
-        struct pico_hmd_radial r={0};float f[4];
+        struct calibrated_hmd_radial r={0};float f[4];
         for(unsigned i=0;i<2;i++)assert(scanf("%f",&r.tangent_scale[i])==1);
         for(unsigned i=0;i<2;i++)assert(scanf("%f",&r.tangent_offset[i])==1);
         for(unsigned i=0;i<11;i++)assert(scanf("%f",&r.radial[i])==1);

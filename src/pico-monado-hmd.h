@@ -3,28 +3,13 @@
 
 #include "pico-head-session.h"
 #include "pico-slam-tracking.h"
-#include <xrt/xrt_device.h>
-
-struct pico_hmd_radial {
-    float tangent_scale[2], tangent_offset[2];
-    float radial[11], chromatic[6];
-};
-
-struct pico_hmd_view {
-    struct xrt_view display;
-    struct xrt_fov fov;
-    struct xrt_pose eye_pose;
-    unsigned grid_width, grid_height;
-    const struct xrt_uv_triplet *distortion;
-    bool radial_enabled;
-    struct pico_hmd_radial radial;
-};
+#include "calibrated-hmd.h"
 
 struct pico_hmd_config {
     const char *serial;
     unsigned screen_width, screen_height;
     int64_t frame_interval_ns;
-    struct pico_hmd_view views[2];
+    struct calibrated_hmd_view views[2];
     struct ssc_imu_session_config sensors;
     struct pico_head_tracking_config tracking;
     struct pico_slam_tracking *visual_tracking;
