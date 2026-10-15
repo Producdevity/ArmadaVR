@@ -772,3 +772,21 @@ iteration with convergence checks. Host and ARM64 sanitizer regressions cover
 10,334 projection, all-parameter derivative, inverse and invalid-input checks;
 the original code fails 982 assertions. These numerical tests do not establish
 camera capture or headset tracking accuracy.
+
+`tools/quest-slam-calibration.py` exports an explicit unit-calibration candidate
+for Basalt's native `fisheye624` model. The caller selects two to four global-shutter
+camera IDs in VIT order, the original or accelerometer-aligned IMU frame, and a
+separate measured rate/noise specification. It rejects rolling-shutter cameras,
+ambiguous IDs, reflected rectification and unsupported models. It preserves the
+full image geometry; cropped, resized, rotated or reflected streams need a
+separately verified mapping.
+
+Camera extrinsics are `inverse(DeviceFromEffectiveImu) * DeviceFromCamera`.
+Accelerometer alignment uses the same proper QR rotation as the native IMU
+processor. Basalt's residual IMU calibration and camera time offset are zero
+because the input owner already calibrates IMU vectors and maps exposure-center
+timestamps. Applying the unit corrections again inside Basalt would be wrong.
+The output records its source hash, camera order, effective IMU transform and
+calibrated field-of-view boundary in a private manifest. It neither enables a
+sensor nor establishes that these are the active camera IDs, rate, noise or
+calibration on the device. Those confirmations remain required before live use.
