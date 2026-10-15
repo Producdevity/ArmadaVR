@@ -163,3 +163,17 @@ storage installer or updater has been implemented.
 Exact-device stock/recovery artifacts and an accepted custom-kernel boot route
 remain prerequisites for physical testing. These findings do not make the
 unsigned reference containers flash-ready.
+
+
+The packaged first-boot root has a separate acceptance path in
+`tools/test-quest-startup.py`. It does not require the older Steam/FEX lab image.
+The test stages its probe in the QEMU RAM overlay, verifies all packaged kernel
+modules, firmware, systemd files and native tracking/GPU libraries against the
+assembly inventory, checks loader resolution and the Basalt VIT version, and
+requests orderly shutdown. It requires a read-only root block device and zero
+block writes. The original image hash must remain unchanged afterward.
+
+The eight-case suite also checks mapper failure after root handoff. Its result
+records modeled hardware explicitly: library loading does not prove camera
+capture, GPU execution, physical firmware loading or headset boot acceptance.
+The legacy lab-root path retains its rendering and FEX acceptance checks.

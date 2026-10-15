@@ -54,6 +54,7 @@ for binary in binaries+['/output/qmi-probe']:
         dest=root/str(path).lstrip('/');dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,dest)
 PYLIB
 cp /fixture/handoff-install.sh /output/extra/quest-handoff-install
+cp /fixture/root-runtime.py /output/extra/quest-root-runtime.py
 cp /fixture/root-check.sh /output/extra/quest-root-check
 cp /fixture/root-check.service /output/extra/quest-root-check.service
 chmod 755 /output/extra/quest-handoff-install /output/extra/quest-root-check
@@ -83,7 +84,7 @@ def run(args):
     current = {name: builder.digest(ROOT / name) for name in builder.QUEST_INPUTS}
     if initrd.get("quest_inputs_sha256") != current:
         raise ValueError("Initramfs Quest sources differ from the current tree")
-    manifest, packaged, root_hash = {}, False, None
+    manifest, packaged, root_hash, contents = {}, False, None, None
     if rootfs:
         manifest = json.loads((rootfs / "manifest.json").read_text())
         if manifest.get("target") not in ("qemu-arm64", "headset-root-offline") or manifest.get("hardware_flash_image") is not False:
@@ -94,6 +95,12 @@ def run(args):
                          manifest.get("initramfs_sha256") != expected or
                          manifest.get("quest_startup_unit_sha256") != current["system/quest/reframed-quest-boot.service"]):
             raise ValueError("Packaged root does not match the QEMU kernel and startup initramfs")
+        if packaged:
+            if builder.digest(rootfs / 'contents.json') != manifest['sha256']['contents.json']:
+                raise ValueError('Root contents record checksum mismatch')
+            contents = json.loads((rootfs / 'contents.json').read_text())
+            contents.update(root_label=manifest['root_label'], kernel_build_sha256=manifest['kernel_build_sha256'],
+                            systemd_runtime_sha256=manifest['systemd_runtime_sha256'])
         root_hash = builder.digest(rootfs / "rootfs.ext4")
         if root_hash != manifest["sha256"]["rootfs.ext4"]:
             raise ValueError("Root filesystem checksum mismatch")
@@ -128,6 +135,8 @@ def run(args):
 
     try:
         container(SCRIPT, output / "build.log")
+        if contents is not None:
+            (output / 'extra/quest-root-expected.json').write_text(json.dumps(contents))
         for name, required in [("identity", "requires Quest Eureka device tree"), ("ready", "REFRAMED_QUEST_MODEL_QMI_PASS"),
                                ("missing-firmware", "firmware checksum mismatch"), ("repeated-request", "ADSP boot was already requested"),
                                ("missing-mapper", "startup failed: mapper: timed out"), ("missing-host-role", "startup failed: usb-role: timed out"),
@@ -148,7 +157,8 @@ def run(args):
                     if not link.is_symlink():
                         link.symlink_to("/etc/systemd/system/quest-handoff-install.service")
                     (output / "extra/quest-root-check.service").write_text(
-                        (fixtures / "root-check.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name + "\n")
+                        (fixtures / "root-check.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name +
+                        "\nEnvironment=REFRAMED_QUEST_PACKAGED_ROOT=" + str(int(packaged)) + "\n")
                     (output / "extra/etc/systemd/system/quest-handoff-install.service").write_text(
                         (fixtures / "handoff-install.service").read_text() + "\nEnvironment=REFRAMED_QUEST_CASE=" + name +
                         "\nEnvironment=REFRAMED_QUEST_PACKAGED_ROOT=" + str(int(packaged)) + "\n")
@@ -193,7 +203,7 @@ def run(args):
                 markers += ["REFRAMED_QUEST_ROOT_PROBE_LINKS_PASS", "REFRAMED_QUEST_ROOT_HANDOFF_PASS", "All filesystems, swaps, loop devices, MD devices and DM devices detached."]
                 if packaged:
                     markers += ["REFRAMED_QUEST_PACKAGED_ROOT_PASS"]
-                markers += ["REFRAMED_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]
+                markers += ["REFRAMED_QUEST_ROOT_RUNTIME_PASS" if packaged else "REFRAMED_VR_VM_PASS"] if name == "root" else ["startup failed: mapper-runtime: service mapper exited"]
             if (case["returncode"] or not all(m in log for m in markers) or
                     any(m in log for m in ("REFRAMED_QUEST_UNEXPECTED", "REFRAMED_QUEST_MAPPER_FAULT_NOT_HANDLED", "QEMU_HANDOFF_FIXTURE_FAIL", "REFRAMED_QMI_FAIL", "REFRAMED_VR_VM_FAIL"))):
                 raise RuntimeError("Quest startup acceptance failed: " + name)

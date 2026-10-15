@@ -28,3 +28,8 @@ if [[ ${REFRAMED_QUEST_CASE:-root} == root-fault ]]; then
     echo REFRAMED_QUEST_MAPPER_FAULT_NOT_HANDLED
     exit 1
 fi
+
+if [[ ${REFRAMED_QUEST_PACKAGED_ROOT:-0} == 1 ]]; then
+    LD_LIBRARY_PATH=/opt/reframed-vr/monado/lib64:/opt/reframed-vr/ssc/lib64 python3 -B /run/quest-root-runtime.py
+    systemctl --no-block poweroff
+fi
