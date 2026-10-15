@@ -55,6 +55,7 @@ def build(profile):
     report = {'status': 'started', 'hardware_verified': False, 'flash_image': False,
               'identity': {'profile': profile, 'image': image, 'builder_sha256': digest(Path(__file__)),
                            'pico_sources': {name: digest(ROOT / 'src' / name) for name in profile['pico_driver_sources']},
+                           'quest_sources': {name: digest(ROOT / 'src' / name) for name in profile['quest_driver_sources']},
                            'patches': [{'path': str(p.relative_to(ROOT)), 'sha256': digest(p)} for p in patches],
                            'tests': {p.name: digest(p) for p in (ROOT / 'tests/monado-display-tests.py', ROOT / 'tests/monado-display-tests.c', ROOT / 'tests/monado-space-tests.c', ROOT / 'tests/monado-projection-tests.c')}},
               'commands': [], 'limits': {'jobs': 2, 'memory_bytes': 4 * 1024**3, 'scratch_bytes': 1024**3}}
@@ -86,6 +87,10 @@ def build(profile):
         driver.mkdir()
         for name in profile['pico_driver_sources']:
             shutil.copy2(ROOT / 'src' / name, driver / name)
+        quest = source / 'src/xrt/drivers/quest_tracking'
+        quest.mkdir()
+        for name in profile['quest_driver_sources']:
+            shutil.copy2(ROOT / 'src' / name, quest / name)
         options = []
         if os.environ.get('MONADO_SSC_BUNDLE'):
             spec = importlib.util.spec_from_file_location('ssc_artifact', ROOT / 'tools/ssc-artifact.py')
@@ -151,6 +156,28 @@ def build(profile):
             raise ValueError('Installed service does not contain the display selection implementation')
         if b'XRT_COMPOSITOR_FORCE_DISPLAY_MODE' not in (prefix / 'bin/monado-service').read_bytes():
             raise ValueError('Installed service omits exact display mode selection')
+        for name in profile['quest_driver_sources']:
+            if name.endswith('.c') and len([entry for entry in commands if entry['file'].endswith('/quest_tracking/' + name)]) != 1:
+                raise ValueError('Quest tracking source omitted: ' + name)
+        library = prefix / 'lib64/libquest_tracking.so'
+        data = library.read_bytes()
+        if data[:6] != b'\x7fELF\x02\x01' or data[18:20] != b'\xb7\x00':
+            raise ValueError('Installed Quest runtime is not native ARM64')
+        run(['nm', '-D', '--defined-only', str(library)], 'quest-runtime-exports.txt')
+        exported = {line.split()[-1] for line in (output / 'quest-runtime-exports.txt').read_text().splitlines() if line.split()}
+        if set(profile['quest_runtime_exports']) != exported:
+            raise ValueError('Installed Quest runtime exports differ')
+        run(['readelf', '-d', str(library)], 'quest-runtime-dynamic.txt')
+        dependencies = (output / 'quest-runtime-dynamic.txt').read_text()
+        if any(name in dependencies for name in ('libpico_tracking.so', 'libssc.so')):
+            raise ValueError('Quest runtime depends on Pico sensor services')
+        run([sys.executable, '-c',
+             'import ctypes; lib=ctypes.CDLL(' + repr(str(library)) + '); '
+             'lib.quest_slam_runtime_prepare.restype=ctypes.c_bool; '
+             'assert not lib.quest_slam_runtime_prepare(None,None); '
+             'assert lib.quest_slam_runtime_poll(None,None)==-22; '
+             'print("QUEST_RUNTIME_LIBRARY_PASS invalid_input_refused=1 device_actions=0")'],
+            'quest-runtime-load.txt')
         if 'ssc_dependency' in report:
             if 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' not in cache:
                 raise ValueError('Pico driver was disabled')

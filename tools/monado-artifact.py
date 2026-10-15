@@ -37,6 +37,9 @@ def validate(directory):
     if identity.get('pico_sources') != {name: digest(ROOT / 'src' / name)
                                        for name in identity['profile']['pico_driver_sources']}:
         raise ValueError('Pico driver build sources changed')
+    if identity.get('quest_sources') != {name: digest(ROOT / 'src' / name)
+                                        for name in identity['profile']['quest_driver_sources']}:
+        raise ValueError('Quest tracking build sources changed')
     for name in ('monado-display-tests.py', 'monado-display-tests.c', 'monado-space-tests.c', 'monado-projection-tests.c'):
         if identity['tests'][name] != digest(ROOT / 'tests' / name):
             raise ValueError('Monado regression tests changed since compilation')
@@ -73,6 +76,18 @@ def validate(directory):
     cache = (directory / 'CMakeCache.txt').read_text().splitlines()
     if any(name + ':BOOL=ON' not in cache for name in identity['profile']['required_features']):
         raise ValueError('Monado build omitted required runtime features')
+    library = prefix / 'lib64/libquest_tracking.so'
+    data = library.read_bytes()
+    if data[:6] != b'\x7fELF\x02\x01' or data[18:20] != b'\xb7\x00':
+        raise ValueError('Installed Quest runtime is not native ARM64')
+    exported = {line.split()[-1] for line in (directory / 'quest-runtime-exports.txt').read_text().splitlines() if line.split()}
+    if set(identity['profile']['quest_runtime_exports']) != exported:
+        raise ValueError('Installed Quest runtime exports differ')
+    dependencies = (directory / 'quest-runtime-dynamic.txt').read_text()
+    if any(name in dependencies for name in ('libpico_tracking.so', 'libssc.so')):
+        raise ValueError('Quest runtime depends on Pico sensor services')
+    if 'QUEST_RUNTIME_LIBRARY_PASS invalid_input_refused=1 device_actions=0' not in (directory / 'quest-runtime-load.txt').read_text():
+        raise ValueError('Installed Quest runtime loading was not verified')
     pico_enabled = 'XRT_BUILD_DRIVER_PICO_SSC:BOOL=ON' in cache
     if pico_enabled != ('ssc_dependency' in report):
         raise ValueError('Monado SSC dependency record disagrees with build configuration')

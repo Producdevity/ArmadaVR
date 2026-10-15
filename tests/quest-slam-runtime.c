@@ -76,7 +76,7 @@ static bool feed(struct quest_slam_runtime *s,int64_t t,uint64_t sequence)
 static bool tracked(struct quest_slam_runtime *s)
 {
  struct xrt_space_relation relation;int64_t sample;
- bool valid=pico_slam_tracking_get(quest_slam_runtime_tracking(s),clock_ns,clock_ns,&relation,&sample);
+ bool valid=quest_slam_runtime_get_relation(s,clock_ns,clock_ns,&relation,&sample);
  if(!valid)assert(!sample && !relation.relation_flags && relation.pose.orientation.w==1);
  return valid;
 }

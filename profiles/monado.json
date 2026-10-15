@@ -111,7 +111,8 @@
     "XRT_FEATURE_SERVICE",
     "XRT_FEATURE_STEAMVR_PLUGIN",
     "XRT_BUILD_DRIVER_SIMULATED",
-    "BUILD_TESTING"
+    "BUILD_TESTING",
+    "XRT_FEATURE_SLAM"
   ],
   "pico_runtime_exports": [
     "pico_hmd_create_auto_prober",
@@ -127,5 +128,38 @@
     "pico_slam_live_quiesced",
     "pico_slam_live_destroy",
     "pico_slam_tracking_get"
+  ],
+  "quest_driver_sources": [
+    "quest-slam-runtime.c",
+    "quest-slam-runtime.h",
+    "quest-imu-stream.c",
+    "quest-imu-stream.h",
+    "quest-imu.c",
+    "quest-imu.h",
+    "syncboss-imu.c",
+    "syncboss-imu.h",
+    "imu-calibration.c",
+    "imu-calibration.h",
+    "imu-time-align.c",
+    "imu-time-align.h",
+    "pico-slam-session.c",
+    "pico-slam-session.h",
+    "pico-slam-input.c",
+    "pico-slam-input.h",
+    "pico-slam-tracking.c",
+    "pico-slam-tracking.h",
+    "pico-camera.c",
+    "pico-camera.h",
+    "pico-camera-capture.h",
+    "quest-tracking.map"
+  ],
+  "quest_runtime_exports": [
+    "quest_slam_runtime_prepare",
+    "quest_slam_runtime_start",
+    "quest_slam_runtime_poll",
+    "quest_slam_runtime_camera",
+    "quest_slam_runtime_get_relation",
+    "quest_slam_runtime_stop",
+    "quest_slam_runtime_destroy"
   ]
 }

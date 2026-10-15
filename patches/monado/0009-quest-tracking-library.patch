@@ -1,0 +1,25 @@
+--- a/src/xrt/drivers/CMakeLists.txt
++++ b/src/xrt/drivers/CMakeLists.txt
+@@ -68,6 +68,22 @@
+ 		)
+ 	target_include_directories(drv_depthai PRIVATE ${OpenCV_INCLUDE_DIRS})
+ 	list(APPEND ENABLED_DRIVERS depthai)
++endif()
++
++if(XRT_FEATURE_SLAM)
++    add_library(drv_quest_tracking SHARED
++        quest_tracking/quest-slam-runtime.c quest_tracking/quest-imu-stream.c
++        quest_tracking/quest-imu.c quest_tracking/syncboss-imu.c
++        quest_tracking/imu-calibration.c quest_tracking/imu-time-align.c
++        quest_tracking/pico-slam-session.c quest_tracking/pico-slam-input.c
++        quest_tracking/pico-slam-tracking.c quest_tracking/pico-camera.c)
++    target_link_libraries(drv_quest_tracking PRIVATE xrt-interfaces aux_util aux_os aux_math xrt-external-vit)
++    target_compile_options(drv_quest_tracking PRIVATE -ffp-contract=off)
++    target_link_options(drv_quest_tracking PRIVATE
++        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/quest_tracking/quest-tracking.map")
++    set_target_properties(drv_quest_tracking PROPERTIES OUTPUT_NAME quest_tracking
++        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}")
++    install(TARGETS drv_quest_tracking LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+ endif()
+ 
+ if(XRT_BUILD_DRIVER_PICO_SSC)

@@ -35,7 +35,9 @@ int quest_slam_runtime_poll(struct quest_slam_runtime *runtime, size_t *poses);
  * No decoding of Pico snapshots, inferred exposure time or axis rotation. */
 bool quest_slam_runtime_camera(struct quest_slam_runtime *runtime, uint64_t generation,
                                const struct pico_slam_mono8_frame *frame);
-struct pico_slam_tracking *quest_slam_runtime_tracking(struct quest_slam_runtime *runtime);
+bool quest_slam_runtime_get_relation(struct quest_slam_runtime *runtime, int64_t now_ns,
+                                     int64_t at_ns, struct xrt_space_relation *relation,
+                                     int64_t *sample_time_ns);
 void quest_slam_runtime_stop(struct quest_slam_runtime *runtime);
 /* Stop capture callbacks and release HMD references before destroying. */
 void quest_slam_runtime_destroy(struct quest_slam_runtime **runtime);

@@ -1,0 +1,11 @@
+{
+    global:
+        quest_slam_runtime_prepare;
+        quest_slam_runtime_start;
+        quest_slam_runtime_poll;
+        quest_slam_runtime_camera;
+        quest_slam_runtime_get_relation;
+        quest_slam_runtime_stop;
+        quest_slam_runtime_destroy;
+    local: *;
+};

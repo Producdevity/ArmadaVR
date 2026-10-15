@@ -740,6 +740,12 @@ the MCU or cameras, establish DMA quiescence, or enable a Monado auto-prober.
 Temperature tables and the VIT library/configuration must outlive the owner;
 stop capture callbacks and release HMD references before destruction.
 
+The native Monado bundle installs this owner as `libquest_tracking.so`. Its
+seven exported functions provide lifecycle, input and locked pose queries; the
+shared session internals remain private to the library. It links no Pico tracking
+or SSC library and registers no automatic hardware probe. Package verification
+checks ARM64 architecture, exports, dependencies and invalid-input refusal on load.
+
 Host and ARM64 sanitizer tests exercise 212 lifecycle and fault cases with the
 real shared session and Monado pose history, modeled FIFO input and a modeled VIT
 backend. Separately, 12,032 retained stopped-channel records replayed through the

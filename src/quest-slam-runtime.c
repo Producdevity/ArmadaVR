@@ -138,9 +138,12 @@ bool quest_slam_runtime_camera(struct quest_slam_runtime *s, uint64_t generation
     return true;
 }
 
-struct pico_slam_tracking *quest_slam_runtime_tracking(struct quest_slam_runtime *s)
+bool quest_slam_runtime_get_relation(struct quest_slam_runtime *s, int64_t now,
+                                     int64_t at, struct xrt_space_relation *relation,
+                                     int64_t *sample_time)
 {
-    return s ? pico_slam_session_tracking(s->session) : NULL;
+    return pico_slam_tracking_get(s ? pico_slam_session_tracking(s->session) : NULL,
+                                   now, at, relation, sample_time);
 }
 
 void quest_slam_runtime_destroy(struct quest_slam_runtime **runtime)
