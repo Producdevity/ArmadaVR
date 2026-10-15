@@ -296,7 +296,7 @@ Private audit and current-source receipts:
 ## Prepared artifact set
 
 The current private runtime set is
-`output/pico-camera-stop-20261015-v1/first-boot-set.json`; its matching
+`output/pico-csiphy-stop-20261015-v1/first-boot-set.json`; its matching
 recovery references are in `recovery-session-set.json` in the same directory.
 The set binds the diagnostic, kernel, runtime container, external root, panel
 overlay, native package receipts and verification reports by size and SHA-256.
