@@ -1122,3 +1122,21 @@ affect streaming. In particular, the retained Quest stream-off table cannot
 establish shutdown; MCU control remains separate. Tests use the real allocation,
 packet, sensor encoder and configuration transport together, check copied table
 bytes and exercise every preparation, submission and cleanup failure site.
+
+### Titan636 Lite raw-image commands
+
+The pinned Anorak device tree names `qcom,vfe-lite636` and `qcom,csid-lite636`.
+The retained camera-control implementation selects the Titan636 Lite pipeline
+for platform `0x60306`. `quest-camera-ife` encodes its common bus setting and one
+uncropped, unbatched RDI0–3 input. The image height includes the metadata row.
+The common setting requires exclusive ownership of the acquired IFE; the encoder
+rejects other revisions and does not choose hardware or camera operating points.
+
+The register layout differs from Pico Titan480: Titan636 uses a sample-pattern
+word, frame pattern/period, and explicit pixel/line bounds. The common word is
+at `0x1060`; RDI blocks begin at `0x528`, with a `0x100` stride. These bytes are
+submitted as the common direct command, as in the retained Lite pipeline.
+An isolated ARM64 comparison executes the original register-packing and command
+selection routines for 20,256 inputs, capturing their register-range calls.
+The packet-writer callback is modeled; no constructor or device is invoked.
+This establishes command equivalence, not active camera routing or capture.
