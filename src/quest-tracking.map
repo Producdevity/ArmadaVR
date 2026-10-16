@@ -42,6 +42,13 @@
         quest_camera_shutter_decode;
         quest_camera_shutter_select;
         quest_camera_pixels_mono8;
+        quest_camera_capture_create;
+        quest_camera_capture_start;
+        quest_camera_capture_shutter;
+        quest_camera_capture_poll;
+        quest_camera_capture_stop;
+        quest_camera_capture_quiesced;
+        quest_camera_capture_destroy;
         quest_camera_rdi_buffer_configure;
         quest_camera_packet_size;
         quest_camera_packet_encode;

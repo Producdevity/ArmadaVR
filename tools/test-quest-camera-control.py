@@ -10,7 +10,10 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-mcu-control.c', 'src/quest-mcu-control.h',
+INPUTS = ('src/quest-camera-capture.c', 'src/quest-camera-capture.h', 'tests/quest-camera-capture.c',
+          'src/quest-camera-metadata.c', 'src/quest-camera-metadata.h',
+          'src/quest-camera-shutter.c', 'src/quest-camera-shutter.h',
+          'src/quest-camera-pixels.c', 'src/quest-camera-pixels.h', 'src/quest-mcu-control.c', 'src/quest-mcu-control.h',
           'src/quest-camera-mcu.c', 'src/quest-camera-mcu.h', 'tests/quest-mcu-control.c',
           'src/quest-camera-control.c', 'src/quest-camera-control.h',
           'src/quest-camera-isp.c', 'src/quest-camera-isp.h', 'tests/quest-camera-isp.c',
@@ -65,14 +68,17 @@ def run(args):
                              ('memory', 'QUEST_CAMERA_MEMORY_PASS ioctls=6558 hardware=0'),
                              ('isp', 'QUEST_CAMERA_ISP_PASS cases=1049227 ioctls=12 hardware=0'),
                              ('buffer', 'QUEST_CAMERA_BUFFER_PASS ioctls=266 nonblocking=1 failure_output_preserved=1 hardware=0'),
-                             ('mcu-control', 'QUEST_MCU_CONTROL_PASS cases=66652 ')]:
+                             ('mcu-control', 'QUEST_MCU_CONTROL_PASS cases=66652 '),
+                             ('capture', 'QUEST_CAMERA_CAPTURE_PASS ')]:
             binary = out / name
-            source_names = (['quest-mcu-control.c', 'quest-camera-mcu.c'] if name == 'mcu-control' else
+            source_names = (['quest-camera-capture.c', 'quest-camera-metadata.c', 'quest-camera-pixels.c', 'quest-camera-shutter.c'] if name == 'capture' else
+                            ['quest-mcu-control.c', 'quest-camera-mcu.c'] if name == 'mcu-control' else
                             ['quest-camera-isp.c', 'quest-camera-control.c'] if name == 'isp' else
                             ['quest-camera-' + name + '.c' if name in ('buffer', 'memory') else 'quest-camera-control.c'])
             test_name = 'quest-mcu-control.c' if name == 'mcu-control' else 'quest-camera-' + name + '.c'
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
+                         *(['-Wl,--export-dynamic'] if name == 'capture' else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name == 'mcu-control' else []),
                          '-I', str(out / 'include'), '-I', str(ROOT / 'src'),
                          *([str(library), '-Wl,-rpath,' + str(library.parent)] if args.library else

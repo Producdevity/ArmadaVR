@@ -968,7 +968,7 @@ DMA quiescence. Unpatched stock firmware still needs the conservative
 ### Installed camera transport
 
 The Quest tracking DSO includes the camera control, buffer, memory and ISP
-encoders described above, with 36 explicit public exports. Combined Pico/Quest
+encoders described above, with explicit public exports. Combined Pico/Quest
 and Quest-only ARM64 builds pass the same 25 Monado tests and produce identical
 Quest libraries. The Quest-only package has no SSC dependency.
 
@@ -978,3 +978,22 @@ The installed runtime still passes the Basalt reference replay and invalidates
 tracking on camera silence and clock regression. These are offline ABI and
 reference-data checks; the library does not yet own a complete physical Quest
 camera pipeline.
+
+### Camera capture ownership
+
+`quest-camera-capture.c` joins the nonblocking ISP buffer transport, embedded-row
+decoder, shutter matcher and mono8 conversion for one explicitly configured
+stream. It holds one image while waiting for a shutter record, requires unique
+buffer IDs and nonoverlapping mappings, and brackets pixel reads with the owner's
+DMA-BUF CPU synchronization. It delivers a copied image before returning the
+buffer to the ISP. Frame numbers and timestamps must advance; silence, ambiguous
+shutters, failed cache operations and uncertain GET/RETURN completion invalidate
+the tracking generation. Failed operations are never retried implicitly.
+
+Clock-window and exposure-center callbacks remain mandatory: neither the metadata
+row nor kernel SOF establishes the shutter clock relationship. The owner borrows
+an exclusively configured ISP and its allocations; it does not acquire hardware
+or start sensors. After startup, disposal requires independent confirmation that
+capture DMA and any uncertain CPU cache access have ended. The sanitizer tests
+exercise both shutter/image arrival orders and failed operations; they do not
+prove physical capture or recovery.
