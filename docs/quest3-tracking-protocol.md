@@ -1241,8 +1241,8 @@ Keep that sequence owned until response completion; the transaction helper
 allocates its own sequence and must not be given an already-owned sequence.
 Replies use type `0x7d` and the existing signed four-byte status decoder. Neither encoding
 nor an acknowledgement establishes physical timing, camera readiness or DMA
-quiescence. Frame-period configuration and the firmware library's additional
-NICE and local event updates are not inferred from this interface.
+quiescence. The firmware library's additional NICE and local event updates are not
+inferred from this interface.
 
 Offline validation compares 16,128 encoded payloads against isolated functions
 from the retained ARM64 `libsyncboss.so` (SHA-256
@@ -1253,3 +1253,31 @@ is observed on transport failure to avoid invoking unrelated local event
 bookkeeping. Separate host tests check capacity boundaries with guard pages,
 sequence limits, overlapping masks and output preservation on refusal. These
 checks do not validate an active sensor operating point.
+
+
+The frame-period encoder preserves the full 32-bit firmware value in each of
+up to 15 disjoint camera-mask records (subcommand `0xa3`). The stock library's
+NICE helper reads a truncated value in one branch, but that does not split the
+wire field into two 16-bit parameters. No period units or active value are
+selected automatically.
+
+Immediate exposure/gain configuration uses subcommand `0xa1`, sequence zero
+and at most two 105-byte records per packet. It includes camera mask, frame
+type, 16-bit exposure and gain fields, and resolution selector 0..2. Scheduled
+timestamps, peripheral updates and reserved bytes are zero. Overlapping masks
+are allowed only for different frame types. `quest_camera_mcu_frames_send`
+performs one write on an exclusively borrowed descriptor; it neither allocates
+a reply sequence nor retries a failed or partial submission. Its success means
+only that the bytes were submitted. The capture owner must establish applied
+settings from subsequent metadata and invalidate its generation on uncertainty.
+The existing acknowledged-command transport still refuses sequence zero.
+
+A separate original-ARM64 comparison covers 7,680 period/frame cases and 20,224
+wire packets, including 32-bit periods above 65,535 and stock batches containing
+up to 15 frame records. The encoder emits each one- or two-record batch
+explicitly rather than retrying or continuing a partially failed multi-packet
+operation. The original frame-v1 wrapper, frame-v2 serializer and common
+command wrapper execute with transport and local event bookkeeping modeled;
+no scheduled-frame or peripheral-update path is exercised. Guard-page tests
+cover packet capacities, and real nonblocking pipes verify submission bytes,
+full-channel refusal and invalid descriptors without hardware access.

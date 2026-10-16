@@ -73,4 +73,33 @@ struct quest_camera_mcu_setting_record {
 bool quest_camera_mcu_setting_encode(enum quest_camera_mcu_setting setting,
     const struct quest_camera_mcu_setting_record *records, size_t count,
     uint8_t sequence, void *output, size_t capacity, size_t *written);
+struct quest_camera_mcu_period {
+    uint32_t camera_mask, period;
+};
+struct quest_camera_mcu_frame {
+    uint32_t camera_mask, frame_type;
+    uint16_t exposure_us, gain_code;
+    uint8_t resolution;
+};
+#define QUEST_CAMERA_MCU_PERIOD_MAX_SIZE 124
+#define QUEST_CAMERA_MCU_FRAME_MAX_SIZE 214
+
+/* Period is the full 32-bit firmware value, not a pair of 16-bit fields.
+ * Require 1..15 disjoint nonzero masks and nonzero periods. The operating point
+ * and firmware period units remain the caller's responsibility. This is an
+ * acknowledged command-3/subcommand-a3 packet with an allocated sequence. */
+bool quest_camera_mcu_period_encode(const struct quest_camera_mcu_period *records,
+    size_t count, uint8_t sequence, void *output, size_t capacity, size_t *written);
+/* One asynchronous command-3/subcommand-a1 batch, sequence zero, of 1..2
+ * immediate frame configurations. Resolution selectors are 0..2. A camera may
+ * occur in both records only for distinct frame types. Timestamp scheduling and
+ * peripheral updates are absent; all reserved bytes are zero. Failure preserves
+ * output and written. Submission is not firmware acknowledgement or application. */
+bool quest_camera_mcu_frames_encode(const struct quest_camera_mcu_frame *records,
+    size_t count, void *output, size_t capacity, size_t *written);
+/* Borrowed exclusive Syncboss command fd. Exactly one write, no sequence
+ * allocation and no retry. Error may follow partial submission: invalidate the
+ * active generation and establish control quiescence before reusing the channel.
+ * Even success requires subsequent frame metadata to establish applied settings. */
+int quest_camera_mcu_frames_send(int fd, const struct quest_camera_mcu_frame *records, size_t count);
 #endif
