@@ -11,6 +11,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ('src/quest-camera-packet.c', 'src/quest-camera-packet.h', 'src/quest-camera-isp.h',
+          'src/quest-camera-blob.c', 'src/quest-camera-blob.h',
           'tests/quest-camera-packet.c', 'tools/test-quest-camera-packet.py')
 
 
@@ -62,7 +63,9 @@ def run(args):
         shim = header[start:header.index('\n};', start) + 3] + '\n'
         names = ['cam_packet_util_get_cmd_mem_addr', 'cam_packet_util_put_cmd_mem_addr',
                  'cam_packet_util_validate_cmd_desc', 'cam_packet_util_validate_packet',
-                 'cam_packet_util_get_kmd_buffer']
+                 'cam_packet_util_get_kmd_buffer', 'cam_packet_util_process_generic_cmd_buffer']
+        start = header.index('typedef int (*cam_packet_generic_blob_handler)')
+        shim += header[start:header.index(';', start) + 1] + '\n'
         for name in names:
             token = ('void ' if name == names[1] else 'int ') + name + '('
             start = source.index(token)
@@ -76,7 +79,7 @@ def run(args):
             report['installed_library_sha256'] = digest(library)
             implementation = [str(library), '-Wl,-rpath,' + str(library.parent)]
         else:
-            implementation = [str(ROOT / 'src/quest-camera-packet.c')]
+            implementation = [str(ROOT / 'src/quest-camera-packet.c'), str(ROOT / 'src/quest-camera-blob.c')]
         binary = out / 'packet'
         commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                      '-Wno-type-limits', '-fsanitize=address,undefined', '-fno-sanitize-recover=all',

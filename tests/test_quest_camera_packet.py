@@ -12,7 +12,7 @@ class QuestCameraPacketTests(unittest.TestCase):
             subprocess.run([
                 "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-I", str(root / "src"),
-                str(root / "src/quest-camera-packet.c"), str(root / "tests/quest-camera-packet.c"),
+                str(root / "src/quest-camera-packet.c"), str(root / "src/quest-camera-blob.c"), str(root / "tests/quest-camera-packet.c"),
                 "-o", str(binary),
             ], check=True, capture_output=True, text=True, timeout=30)
             result = subprocess.run([str(binary)], check=True, capture_output=True, text=True, timeout=10)

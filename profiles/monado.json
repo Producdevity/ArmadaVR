@@ -173,7 +173,9 @@
     "quest-camera-pixels.c",
     "quest-camera-pixels.h",
     "quest-camera-packet.c",
-    "quest-camera-packet.h"
+    "quest-camera-packet.h",
+    "quest-camera-blob.c",
+    "quest-camera-blob.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -217,6 +219,10 @@
     "quest_camera_pixels_mono8",
     "quest_camera_rdi_buffer_configure",
     "quest_camera_packet_size",
-    "quest_camera_packet_encode"
+    "quest_camera_packet_encode",
+    "quest_camera_clock_blob",
+    "quest_camera_csid_clock_blob",
+    "quest_camera_hfr_blob",
+    "quest_camera_bandwidth_blob"
   ]
 }

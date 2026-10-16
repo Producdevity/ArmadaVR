@@ -169,3 +169,11 @@ and kernel-buffer-selection functions with modeled memory allocations. It tests
 allocation failures, descriptor boundaries and writable-tail placement under
 ASan/UBSan. This verifies serialization and parser contracts, not hardware capture
 or the complete sensor/PHY/ISP startup sequence.
+
+`quest-camera-blob.c` adds single-ISP clock, CSID clock, single-frame HFR and
+bandwidth-v2 payloads for one selected RDI port. It preserves explicit 64-bit
+rates and does not derive hardware votes from nominal sensor resolution. The
+native packet test compares every field against the pinned vendor structures
+and passes concatenated blobs through the original generic-command parser,
+including truncated commands and handler failures. The complete hardware
+initialization still needs mode-specific register commands and validated votes.
