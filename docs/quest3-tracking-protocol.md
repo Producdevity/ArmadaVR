@@ -901,8 +901,8 @@ acquire, split ISP device acquire, packet configure, start/stop and release.
 Probe uses Quest opcode `0x10e`; PHY acquisition represents the Quest CPHY flag
 separately from same-type combo mode and excludes mixed/remote modes. These calls
 can power hardware and are not inventory operations. They preserve positive
-handles even after errors and never retry. ISP hardware-resource acquisition,
-verified sensor mode packets and an exclusive capture owner are still required.
+handles even after errors and never retry. The separate ISP hardware-resource wrapper is described below. Verified sensor
+mode packets and an exclusive capture owner are still required.
 
 `quest-camera-memory.c` uses Quest's CRM allocation/import/release opcodes
 `0x116`–`0x118`. It requests cached nonsecure memory: this kernel uses DMA heaps
@@ -964,3 +964,17 @@ This corrects dequeue-induced frame mixing. It does not establish exposure
 center, capture-to-IMU clock calibration, sensor synchronization or physical
 DMA quiescence. Unpatched stock firmware still needs the conservative
 `observed_monotonic_ns` interpretation described above.
+
+### Installed camera transport
+
+The Quest tracking DSO includes the camera control, buffer, memory and ISP
+encoders described above, with 36 explicit public exports. Combined Pico/Quest
+and Quest-only ARM64 builds pass the same 25 Monado tests and produce identical
+Quest libraries. The Quest-only package has no SSC dependency.
+
+The vendor-header camera tests also pass against that installed library, covering
+queries, request management, acquisition, memory, geometry and buffer transport.
+The installed runtime still passes the Basalt reference replay and invalidates
+tracking on camera silence and clock regression. These are offline ABI and
+reference-data checks; the library does not yet own a complete physical Quest
+camera pipeline.
