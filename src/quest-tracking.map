@@ -73,5 +73,11 @@
         quest_camera_stream_poll;
         quest_camera_stream_stop;
         quest_camera_stream_destroy;
+        quest_camera_pipeline_create;
+        quest_camera_pipeline_start;
+        quest_camera_pipeline_stop;
+        quest_camera_pipeline_quiesced;
+        quest_camera_pipeline_destroy;
+        quest_camera_pipeline_closed;
     local: *;
 };

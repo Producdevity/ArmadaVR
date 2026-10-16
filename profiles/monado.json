@@ -185,7 +185,9 @@
     "quest-mcu-transaction.c",
     "quest-mcu-transaction.h",
     "quest-camera-stream.c",
-    "quest-camera-stream.h"
+    "quest-camera-stream.h",
+    "quest-camera-pipeline.c",
+    "quest-camera-pipeline.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -260,6 +262,12 @@
     "quest_camera_stream_poll",
     "quest_camera_stream_stop",
     "quest_camera_stream_destroy",
-    "quest_camera_shutter_decode_fifo"
+    "quest_camera_shutter_decode_fifo",
+    "quest_camera_pipeline_create",
+    "quest_camera_pipeline_start",
+    "quest_camera_pipeline_stop",
+    "quest_camera_pipeline_quiesced",
+    "quest_camera_pipeline_destroy",
+    "quest_camera_pipeline_closed"
   ]
 }

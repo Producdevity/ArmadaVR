@@ -1054,3 +1054,21 @@ The FIFO, ISP dequeue, CPU synchronization, row contents and exposure-center
 relationship are explicit test models; image/IMU inputs and calibration remain
 the Valve Index reference dataset. This closes the offline component connection
 without claiming native Quest camera startup or hardware timing validation.
+
+### Camera start and stop ownership
+
+`quest-camera-pipeline` owns one start/stop attempt for one through four explicitly
+selected local camera triples. Descriptors, handles, link membership and prepared
+configuration are borrowed. Retained CamX lifecycle tables establish the order:
+activate CRM links, then start IFE, PHY and sensor; stop IFE, sensor and PHY before
+deactivating links. MCU commands and hardware synchronization remain separate.
+
+Every attempted start is recorded before the ioctl, so cleanup includes a device
+whose failed call may already have changed hardware. Stop visits all attempted
+resources even after an error and never retries uncertain operations. Successful
+stop ioctls do not establish quiescence: normal destruction also requires the
+caller to confirm that DMA, workers and control calls have ended. Failed stop
+retains the owner until independent quiescence and closure of every borrowed
+descriptor. This component does not open nodes, configure sensors or prove
+physical capture. Tests cover 600 cycles and every start/stop failure site for
+one through four cameras.

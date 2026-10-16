@@ -10,7 +10,8 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-stream.c', 'src/quest-camera-stream.h', 'tests/quest-camera-stream.c',
+INPUTS = ('src/quest-camera-pipeline.c', 'src/quest-camera-pipeline.h', 'tests/quest-camera-pipeline.c',
+          'src/quest-camera-stream.c', 'src/quest-camera-stream.h', 'tests/quest-camera-stream.c',
           'src/quest-mcu-transaction.c', 'src/quest-mcu-transaction.h', 'tests/quest-mcu-transaction.c',
           'src/quest-camera-capture.c', 'src/quest-camera-capture.h', 'tests/quest-camera-capture.c',
           'src/quest-camera-metadata.c', 'src/quest-camera-metadata.h',
@@ -73,9 +74,11 @@ def run(args):
                              ('mcu-control', 'QUEST_MCU_CONTROL_PASS cases=66652 '),
                              ('capture', 'QUEST_CAMERA_CAPTURE_PASS '),
                              ('mcu-transaction', 'QUEST_MCU_TRANSACTION_PASS '),
-                             ('stream', 'QUEST_CAMERA_STREAM_PASS ')]:
+                             ('stream', 'QUEST_CAMERA_STREAM_PASS '),
+                             ('pipeline', 'QUEST_CAMERA_PIPELINE_PASS cycles=600 faults=80 ')]:
             binary = out / name
-            source_names = (['quest-camera-capture.c', 'quest-camera-metadata.c', 'quest-camera-pixels.c', 'quest-camera-shutter.c'] if name == 'capture' else
+            source_names = (['quest-camera-pipeline.c', 'quest-camera-control.c'] if name == 'pipeline' else
+                            ['quest-camera-capture.c', 'quest-camera-metadata.c', 'quest-camera-pixels.c', 'quest-camera-shutter.c'] if name == 'capture' else
                             ['quest-mcu-control.c', 'quest-camera-mcu.c'] if name == 'mcu-control' else
                             ['quest-mcu-control.c', 'quest-mcu-transaction.c'] if name == 'mcu-transaction' else
                             ['quest-camera-stream.c', 'quest-camera-shutter.c'] if name == 'stream' else
