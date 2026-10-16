@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #ifdef QUEST_CAMERA_SETUP_INSTALLED
+#include <sys/syscall.h>
 #define quest_test_ioctl ioctl
 #define quest_test_fcntl fcntl
 #define quest_test_mmap mmap
@@ -97,6 +98,11 @@ int quest_test_fcntl(int fd, int op, ...)
 }
 void *quest_test_mmap(void *address, size_t size, int prot, int flags, int fd, off_t offset)
 {
+#ifdef QUEST_CAMERA_SETUP_INSTALLED
+    /* ASan also maps anonymous storage through the executable's interposition. */
+    if (fd == -1 && (flags & MAP_ANONYMOUS))
+        return (void *)syscall(SYS_mmap, address, size, prot, flags, fd, offset);
+#endif
     assert(!phase && !address && size == 4096 && prot == (PROT_READ | PROT_WRITE) && flags == MAP_SHARED && !offset);
     assert(fd >= 100 && (unsigned)fd < 100 + next_buffer && buffers[fd - 100].fd);
     if (failure()) { errno = EINTR; return MAP_FAILED; }
@@ -105,6 +111,9 @@ void *quest_test_mmap(void *address, size_t size, int prot, int flags, int fd, o
 }
 int quest_test_munmap(void *address, size_t size)
 {
+#ifdef QUEST_CAMERA_SETUP_INSTALLED
+    if ((uintptr_t)address < (uintptr_t)buffers || (uintptr_t)address >= (uintptr_t)(buffers + 10)) return (int)syscall(SYS_munmap, address, size);
+#endif
     assert(phase == 2 && quiesced && size == 4096);
     unsigned i = 0; while (i < next_buffer && address != buffers[i].data) ++i;
     assert(i < next_buffer && buffers[i].mapped && !buffers[i].handle);

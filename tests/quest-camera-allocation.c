@@ -17,6 +17,7 @@ _Static_assert(sizeof(struct dma_heap_allocation_data) == 24 && offsetof(struct 
 _Static_assert((O_CLOEXEC | O_RDWR) == 0x80002 && DMA_BUF_SYNC_END == 4, "Linux DMA flags");
 #endif
 #ifdef QUEST_CAMERA_ALLOCATION_INSTALLED
+#include <sys/syscall.h>
 #define quest_test_ioctl ioctl
 #define quest_test_fcntl fcntl
 #define quest_test_mmap mmap
@@ -86,6 +87,11 @@ int quest_test_fcntl(int fd, int op, ...)
 { assert(fd == dma_fd && live_fd && op == F_GETFD); return fail_flags ? error(fail_flags) : malformed == 3 ? 0 : FD_CLOEXEC; }
 void *quest_test_mmap(void *address, size_t size, int prot, int flags, int fd, off_t offset)
 {
+#ifdef QUEST_CAMERA_ALLOCATION_INSTALLED
+    /* ASan also maps anonymous storage through the executable's interposition. */
+    if (fd == -1 && (flags & MAP_ANONYMOUS))
+        return (void *)syscall(SYS_mmap, address, size, prot, flags, fd, offset);
+#endif
     assert(!address && size == sizeof(storage) && prot == (PROT_READ | PROT_WRITE));
     assert(flags == MAP_SHARED && fd == dma_fd && live_fd && !mapped && !offset); ++maps;
     if (fail_map) { errno = fail_map; return MAP_FAILED; }
@@ -93,6 +99,9 @@ void *quest_test_mmap(void *address, size_t size, int prot, int flags, int fd, o
 }
 int quest_test_munmap(void *address, size_t size)
 {
+#ifdef QUEST_CAMERA_ALLOCATION_INSTALLED
+    if (address != NULL && address != storage) return (int)syscall(SYS_munmap, address, size);
+#endif
     assert(address == (malformed == 4 ? NULL : storage) && size == sizeof(storage) && mapped && !live_handle); ++unmaps;
     if (fail_unmap) return error(fail_unmap);
     mapped = false; return 0;
