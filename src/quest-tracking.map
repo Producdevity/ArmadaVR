@@ -62,5 +62,11 @@
         quest_mcu_sequence_release;
         quest_mcu_packet_send;
         quest_mcu_reply_receive;
+        quest_mcu_transaction_create;
+        quest_mcu_transaction_start;
+        quest_mcu_transaction_poll;
+        quest_mcu_transaction_cancel;
+        quest_mcu_transaction_destroy;
+        quest_mcu_transaction_closed;
     local: *;
 };

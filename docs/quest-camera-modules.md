@@ -202,8 +202,9 @@ The separate control FIFO returns one copied record per read, unlike the stream
 FIFO's batch interface. Replies must match type, sequence and exact payload size;
 driver messages invalidate the channel, and foreign sequences are ignored only
 after complete record validation. A failed or short write is never retried.
-The owner still supplies deadlines, MCU generation checks, node ownership and
-startup/shutdown ordering. These primitives do not open or enable the MCU.
+These primitives do not open or enable the MCU. The transaction owner below
+adds deadlines and generation checks; node ownership and hardware startup/
+shutdown ordering remain external.
 
 The native camera-control test checks the sequence ioctls against the pinned
 Syncboss header and exercises the metadata query through modeled writes and
@@ -243,3 +244,24 @@ original ARM64 matcher, including all byte tags and both sensor types. Another
 6,188 sanitizer cases cover ambiguity, generation isolation, staleness, replay
 floors, exact interval boundaries and arithmetic extremes. Queue position and
 the wrapping embedded row counter are not used as frame identity.
+
+### MCU transaction ownership
+
+`quest-mcu-transaction.c` owns one allocation/send/reply/release sequence on
+explicitly borrowed command and nonblocking control descriptors. It copies the
+request before starting, checks an explicit deadline and the current MCU
+generation before each read, and delivers the reply only after sequence release
+succeeds. Complete foreign-sequence records are ignored without extending the
+deadline. Receipt of a response does not establish firmware success: the camera
+command owner must still interpret the returned status.
+
+Timeouts, restarts, clock regression, short writes, malformed replies and failed
+sequence operations invalidate this generation once. No command or failed
+release is retried, and uncertain owners cannot be destroyed normally. The
+caller must stop other users, independently quiesce control I/O and close both
+descriptors before discarding uncertain state. This does not imply that the
+camera command failed to execute or that camera DMA has stopped.
+
+Offline tests exercise the real transport with modeled syscalls: all 254 usable
+sequences, both header versions, copied request storage, exact reply boundaries,
+foreign records, silent deadlines and failures at every command stage.
