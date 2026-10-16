@@ -104,3 +104,20 @@ timestamp adjustments. Receiving those packets, handling ambiguity and counter
 wrap, verifying exposure-center time, and mapping the active image geometry to
 calibration are still required. Row-format detection is not authorization to
 interpret an entire image as that pixel format.
+
+`quest_camera_shutter_decode` reads packet-254 payloads for tracking types 6,
+21 and 22. It selects one explicit camera bit and handles the stock per-camera
+exposure/gain overrides in ascending mask-bit order. It requires the exact
+89-byte base plus declared four-byte overrides, rejecting truncated packets,
+unknown types and orphan overrides. Peripheral metadata is left uninterpreted.
+The raw timestamp, SOF timestamp, counter and tags remain separate; neither
+NSYNC nor exposure adjustment is inferred. This parser opens no stream and
+performs no matching.
+
+The isolated stock packet handler at `0x28b60` agrees with every decoded field
+across 2,000 synthetic packets and 6,031 camera records. Only its clock and mutex
+helpers are replaced with inert test stubs; no device service is initialized.
+The stock handler preserves packet timestamps and separately records SOF plus
+NSYNC and host arrival time. Types 6 and 22 use row tags for matching, while type
+21 may match without a row tag. A live receiver must therefore reject stale or
+ambiguous matches, rather than assuming a decoded packet belongs to an image.

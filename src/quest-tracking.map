@@ -37,5 +37,6 @@
         quest_camera_isp_encode;
         quest_camera_phy_encode;
         quest_camera_metadata_decode;
+        quest_camera_shutter_decode;
     local: *;
 };
