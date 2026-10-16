@@ -1,13 +1,14 @@
 # Device installation requirements
 
-Updated October 11, 2026. Reframed VR has offline kernel and virtual-runtime tests,
+Updated October 16, 2026. Reframed VR has offline kernel and virtual-runtime tests,
 plus physical GPU rendering on both stock headsets. Quest installation and
 independent recovery remain unvalidated.
 
 ## Current Quest 3
 
-The October 10 read-only ADB check found an authorized USB-connected Quest 3
-(`eureka`):
+The October 10 read-only ADB check, corroborated by the October 11 inventory,
+last recorded the Quest 3 (`eureka`) as follows. The Quest was absent from ADB
+on October 16, so these values are historical until reconfirmed:
 
 | Property | Reported value |
 |---|---|
@@ -144,6 +145,14 @@ allocator reservations and peripheral ownership before choosing Quest 3 loader
 addresses; do not reuse the Quest Pro constants from the public loader.
 
 ## Research that changes the plan
+
+The October 16 [firmware-access research](quest3-boot-route.md) confirms that
+CVE-2026-64560's affected CPU-timer implementation is present in the authenticated
+524360 stock kernel. The newer 524488 published source retains it, but that
+binary and any newer installed firmware have not been checked. This is static
+applicability, not a successful Quest root method. Fugu is explicitly patched
+from `52433670048800520`; the older Adreno and IonStack routes have earlier
+fixed-build cutoffs. None of these findings closes boot or recovery acceptance.
 
 **Temporary custom boot is now a concrete research route.**
 [Quest-KeXec](https://github.com/YusufOzmen01/quest-kexec/tree/e61edbd7fbdf6dc4976a979c61cc545e04738422)
