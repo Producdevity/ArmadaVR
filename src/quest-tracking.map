@@ -79,5 +79,10 @@
         quest_camera_pipeline_quiesced;
         quest_camera_pipeline_destroy;
         quest_camera_pipeline_closed;
+        quest_camera_group_acquire;
+        quest_camera_group_view;
+        quest_camera_group_quiesced;
+        quest_camera_group_release;
+        quest_camera_group_closed;
     local: *;
 };

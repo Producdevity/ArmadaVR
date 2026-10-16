@@ -1072,3 +1072,21 @@ retains the owner until independent quiescence and closure of every borrowed
 descriptor. This component does not open nodes, configure sensors or prove
 physical capture. Tests cover 600 cycles and every start/stop failure site for
 one through four cameras.
+
+### Camera acquisition ownership
+
+`quest-camera-group` acquires one through four local sensors with distinct PHYs
+and one IFE RDI0–3 resource per camera, then creates V3 links and optionally applies
+CRM V2 synchronization. The caller supplies the probed descriptors, sensor slots,
+PHY versions, CSI lane configuration, image geometry, RDI and link mode. Queries
+validate every selected route before the first mutation. Remote/SFE, shared PHY,
+combo and split hardware inputs are excluded. Sharing an IFE requires disjoint
+returned RDI paths. CRM synchronization does not establish the MCU hardware master.
+
+Partial handles survive acquisition errors. Missing or duplicate handles retain
+an uncertain owner instead of attempting destructive rollback. Release requires
+independent device/DMA quiescence and no remaining children borrowing handles.
+Cleanup attempts each eligible operation once and retains the enclosing session
+when a child release fails. Tests track simulated live resources across all
+acquisition/release failure sites, failed copy-back and malformed hardware routes.
+No hardware is opened, probed, configured or started by these tests.

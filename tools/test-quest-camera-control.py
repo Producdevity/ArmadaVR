@@ -10,7 +10,8 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-pipeline.c', 'src/quest-camera-pipeline.h', 'tests/quest-camera-pipeline.c',
+INPUTS = ('src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-camera-group.c',
+          'src/quest-camera-pipeline.c', 'src/quest-camera-pipeline.h', 'tests/quest-camera-pipeline.c',
           'src/quest-camera-stream.c', 'src/quest-camera-stream.h', 'tests/quest-camera-stream.c',
           'src/quest-mcu-transaction.c', 'src/quest-mcu-transaction.h', 'tests/quest-mcu-transaction.c',
           'src/quest-camera-capture.c', 'src/quest-camera-capture.h', 'tests/quest-camera-capture.c',
@@ -75,9 +76,11 @@ def run(args):
                              ('capture', 'QUEST_CAMERA_CAPTURE_PASS '),
                              ('mcu-transaction', 'QUEST_MCU_TRANSACTION_PASS '),
                              ('stream', 'QUEST_CAMERA_STREAM_PASS '),
-                             ('pipeline', 'QUEST_CAMERA_PIPELINE_PASS cycles=600 faults=80 ')]:
+                             ('pipeline', 'QUEST_CAMERA_PIPELINE_PASS cycles=600 faults=80 '),
+                             ('group', 'QUEST_CAMERA_GROUP_PASS cycles=416 faults=269 ')]:
             binary = out / name
-            source_names = (['quest-camera-pipeline.c', 'quest-camera-control.c'] if name == 'pipeline' else
+            source_names = (['quest-camera-group.c', 'quest-camera-isp.c', 'quest-camera-control.c'] if name == 'group' else
+                            ['quest-camera-pipeline.c', 'quest-camera-control.c'] if name == 'pipeline' else
                             ['quest-camera-capture.c', 'quest-camera-metadata.c', 'quest-camera-pixels.c', 'quest-camera-shutter.c'] if name == 'capture' else
                             ['quest-mcu-control.c', 'quest-camera-mcu.c'] if name == 'mcu-control' else
                             ['quest-mcu-control.c', 'quest-mcu-transaction.c'] if name == 'mcu-transaction' else
@@ -88,6 +91,7 @@ def run(args):
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          *(['-Wl,--export-dynamic'] if name in ('capture', 'stream') else []),
+                         *(['-DQUEST_CAMERA_VENDOR_TEST'] if name == 'group' else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name in ('mcu-control', 'stream') else []),
                          *(['-DQUEST_CAMERA_STREAM_INSTALLED'] if name == 'stream' and args.library else []),
                          *([f'-D{system}=quest_test_{stub}' for system, stub in
