@@ -10,7 +10,9 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-allocation.c', 'src/quest-camera-allocation.h', 'tests/quest-camera-allocation.c',
+INPUTS = ('src/quest-camera-sensor-setup.c', 'src/quest-camera-sensor-setup.h', 'tests/quest-camera-sensor-setup.c',
+          'src/quest-camera-packet.c', 'src/quest-camera-packet.h',
+          'src/quest-camera-allocation.c', 'src/quest-camera-allocation.h', 'tests/quest-camera-allocation.c',
           'src/quest-camera-sensor.c', 'src/quest-camera-sensor.h', 'tests/quest-camera-sensor.c',
           'tests/quest-camera-probe.c', 'tests/quest-camera-power.c', 'tests/quest-camera-power-kernel.c',
           'src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-camera-group.c',
@@ -124,9 +126,11 @@ def run(args):
                              ('probe', 'QUEST_CAMERA_PROBE_PASS invalid=15 '),
                              ('power-kernel', 'QUEST_CAMERA_POWER_KERNEL_PASS cases=106470 hardware=0'),
                              ('mcu', 'QUEST_CAMERA_MCU_PASS '),
-                             ('allocation', 'QUEST_CAMERA_ALLOCATION_PASS cycles=600 faults=51 ')]:
+                             ('allocation', 'QUEST_CAMERA_ALLOCATION_PASS cycles=600 faults=51 '),
+                             ('sensor-setup', 'QUEST_CAMERA_SENSOR_SETUP_PASS cycles=800 faults=432 ')]:
             binary = out / name
-            source_names = (['quest-camera-allocation.c', 'quest-camera-memory.c'] if name == 'allocation' else
+            source_names = (['quest-camera-' + part + '.c' for part in ('sensor-setup', 'control', 'memory', 'allocation', 'sensor', 'packet')] if name == 'sensor-setup' else
+                            ['quest-camera-allocation.c', 'quest-camera-memory.c'] if name == 'allocation' else
                             ['quest-camera-mcu.c'] if name == 'mcu' else
                             ['quest-camera-sensor.c'] if name in ('sensor', 'power', 'probe', 'power-kernel') else
                             ['quest-camera-group.c', 'quest-camera-isp.c', 'quest-camera-control.c'] if name == 'group' else
@@ -141,12 +145,13 @@ def run(args):
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          *(['-Wno-sign-compare'] if name == 'power-kernel' else []),
-                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream', 'allocation') else []),
+                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream', 'allocation', 'sensor-setup') else []),
                          *(['-DQUEST_CAMERA_VENDOR_TEST'] if name in ('group', 'sensor', 'power', 'probe', 'allocation') else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name in ('mcu-control', 'stream') else []),
+                         *(['-DQUEST_CAMERA_SETUP_INSTALLED'] if name == 'sensor-setup' and args.library else []),
                          *(['-DQUEST_CAMERA_ALLOCATION_INSTALLED'] if name == 'allocation' and args.library else []),
                          *([f'-D{system}=quest_test_{system}' for system in ('ioctl', 'fcntl', 'mmap', 'munmap', 'close')]
-                           if name == 'allocation' and not args.library else []),
+                           if name in ('allocation', 'sensor-setup') and not args.library else []),
                          *(['-DQUEST_CAMERA_STREAM_INSTALLED'] if name == 'stream' and args.library else []),
                          *([f'-D{system}=quest_test_{stub}' for system, stub in
                             [('open', 'open'), ('fstat', 'fstat'), ('ioctl', 'ioctl'),

@@ -1107,3 +1107,18 @@ resources remain inspectable for explicit cleanup; an unpublished DMA-heap fd ma
 require exiting an isolated owning process. Closing the heap or CRM alone is not
 proof that such a DMA-BUF was released. Tests cover fd zero, missing copy-back,
 cache failures and partially completed cleanup without opening hardware.
+
+### Owned sensor configuration
+
+`quest-camera-sensor-setup` copies explicit initialization, mode, synchronization
+and stream tables into cache-synchronized CRM command/packet allocations. Mode
+and synchronization may be empty; initialization and both stream tables remain
+explicit. Submission configures each stage once and retains all referenced memory
+until independent quiescence. Partial preparation and uncertain cleanup also
+retain their owners and expose known resources for explicit cleanup.
+
+The component issues no start ioctl, but initialization register writes can
+affect streaming. In particular, the retained Quest stream-off table cannot
+establish shutdown; MCU control remains separate. Tests use the real allocation,
+packet, sensor encoder and configuration transport together, check copied table
+bytes and exercise every preparation, submission and cleanup failure site.

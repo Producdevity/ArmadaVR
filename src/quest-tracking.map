@@ -101,5 +101,11 @@
         quest_camera_allocation_release;
         quest_camera_allocation_resources;
         quest_camera_allocation_closed;
+        quest_camera_sensor_setup_prepare;
+        quest_camera_sensor_setup_submit;
+        quest_camera_sensor_setup_quiesced;
+        quest_camera_sensor_setup_release;
+        quest_camera_sensor_setup_resources;
+        quest_camera_sensor_setup_closed;
     local: *;
 };
