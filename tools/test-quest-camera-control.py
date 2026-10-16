@@ -10,7 +10,8 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-front-end.c', 'src/quest-camera-front-end.h', 'tests/quest-camera-front-end.c',
+INPUTS = ('src/quest-camera-pool.c', 'src/quest-camera-pool.h', 'tests/quest-camera-pool.c',
+          'src/quest-camera-front-end.c', 'src/quest-camera-front-end.h', 'tests/quest-camera-front-end.c',
           'src/quest-camera-ife.c', 'src/quest-camera-ife.h', 'tests/quest-camera-ife.c',
           'src/quest-camera-blob.c', 'src/quest-camera-blob.h',
           'src/quest-camera-sensor-setup.c', 'src/quest-camera-sensor-setup.h', 'tests/quest-camera-sensor-setup.c',
@@ -132,9 +133,11 @@ def run(args):
                              ('allocation', 'QUEST_CAMERA_ALLOCATION_PASS cycles=600 faults=51 '),
                              ('sensor-setup', 'QUEST_CAMERA_SENSOR_SETUP_PASS cycles=800 faults=432 '),
                              ('ife', 'QUEST_CAMERA_IFE_PASS cases=3872 hardware=0'),
+                             ('pool', 'QUEST_CAMERA_POOL_PASS cycles=120 faults=2846 frames=512 '),
                              ('front-end', 'QUEST_CAMERA_FRONT_END_PASS cycles=804 faults=134 ')]:
             binary = out / name
-            source_names = (['quest-camera-ife.c'] if name == 'ife' else
+            source_names = (['quest-camera-' + part + '.c' for part in ('pool', 'buffer', 'memory', 'allocation', 'packet', 'capture', 'metadata', 'pixels', 'shutter')] if name == 'pool' else
+                            ['quest-camera-ife.c'] if name == 'ife' else
                             ['quest-camera-' + part + '.c' for part in ('front-end', 'control', 'memory', 'allocation', 'ife', 'isp', 'blob', 'packet')] if name == 'front-end' else
                             ['quest-camera-' + part + '.c' for part in ('sensor-setup', 'control', 'memory', 'allocation', 'sensor', 'packet')] if name == 'sensor-setup' else
                             ['quest-camera-allocation.c', 'quest-camera-memory.c'] if name == 'allocation' else
@@ -152,14 +155,15 @@ def run(args):
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          *(['-Wno-sign-compare'] if name == 'power-kernel' else []),
-                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream', 'allocation', 'sensor-setup', 'front-end') else []),
+                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream', 'allocation', 'sensor-setup', 'front-end', 'pool') else []),
                          *(['-DQUEST_CAMERA_VENDOR_TEST'] if name in ('group', 'sensor', 'power', 'probe', 'allocation') else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name in ('mcu-control', 'stream') else []),
+                         *(['-DQUEST_CAMERA_POOL_INSTALLED'] if name == 'pool' and args.library else []),
                          *(['-DQUEST_CAMERA_FRONT_END_INSTALLED'] if name == 'front-end' and args.library else []),
                          *(['-DQUEST_CAMERA_SETUP_INSTALLED'] if name == 'sensor-setup' and args.library else []),
                          *(['-DQUEST_CAMERA_ALLOCATION_INSTALLED'] if name == 'allocation' and args.library else []),
                          *([f'-D{system}=quest_test_{system}' for system in ('ioctl', 'fcntl', 'mmap', 'munmap', 'close')]
-                           if name in ('allocation', 'sensor-setup', 'front-end') and not args.library else []),
+                           if name in ('allocation', 'sensor-setup', 'front-end', 'pool') and not args.library else []),
                          *(['-DQUEST_CAMERA_STREAM_INSTALLED'] if name == 'stream' and args.library else []),
                          *([f'-D{system}=quest_test_{stub}' for system, stub in
                             [('open', 'open'), ('fstat', 'fstat'), ('ioctl', 'ioctl'),

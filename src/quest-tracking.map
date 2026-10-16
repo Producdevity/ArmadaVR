@@ -53,6 +53,7 @@
         quest_camera_rdi_buffer_configure;
         quest_camera_packet_size;
         quest_camera_packet_encode;
+        quest_camera_stream_packet_encode;
         quest_camera_clock_blob;
         quest_camera_csid_clock_blob;
         quest_camera_hfr_blob;
@@ -108,6 +109,14 @@
         quest_camera_front_end_release;
         quest_camera_front_end_resources;
         quest_camera_front_end_closed;
+        quest_camera_pool_prepare;
+        quest_camera_pool_configure;
+        quest_camera_pool_capture_buffers;
+        quest_camera_pool_cpu_sync;
+        quest_camera_pool_quiesced;
+        quest_camera_pool_release;
+        quest_camera_pool_resources;
+        quest_camera_pool_closed;
         quest_camera_ife_common_command;
         quest_camera_ife_rdi_commands;
         quest_camera_sensor_setup_prepare;

@@ -1198,3 +1198,28 @@ parser. The packet suite checks 18,757 cases, including all four RDI paths, eigh
 patterns, narrow/full-width images, short output, invalid handles and incompatible
 command fields. Allocation, camera routing and physical stream operation remain
 separate responsibilities; this encoder performs no device I/O.
+
+
+### Streaming image pools
+
+`quest-camera-pool` owns 1 through 30 DMA-heap images, CRM imports, writable KMD
+commands and streaming packets for one explicitly acquired ISP. Preparation
+validates the complete layout before allocating, initializes all memory within
+CPU cache brackets and copies the caller's configuration. SET_STREAM_MODE is
+attempted once, after every allocation has been marked submitted.
+
+The pool supplies borrowed capture descriptors and a CPU synchronization callback.
+The caller must first obtain the corresponding image through GET. The callback
+then completes that image's device ownership, brackets its CPU read and marks it
+submitted again before RETURN. Packet and command references remain retained.
+At most one image is held. Any cache failure disables further pool use; teardown
+requires independently verified device, DMA, CPU and control quiescence. Cleanup
+attempts each eligible allocation once. Duplicate returned resources prevent
+automatic cleanup and remain available for independent resolution.
+
+The pool regression covers 120 normal/cancelled cycles and 2,846 faults across
+allocation, import, mapping, cache operations, stream configuration and teardown.
+It also drives 512 images through the real GET/RETURN, capture, embedded-row
+decoder and mono8-copy path with both shutter-before-image and image-before-shutter
+ordering. Hardware, memory syscalls, exposure windows and exposure centers are
+modeled. No active sensor timing, camera wiring or physical DMA behavior is inferred.
