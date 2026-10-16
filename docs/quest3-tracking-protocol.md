@@ -1019,3 +1019,21 @@ geometry input and hash but keeps active geometry and physical tracking unverifi
 Offline checks compare both rules and centered cropping with the original ARM64
 rescale/crop functions. The Basalt parser test also projects the original rays
 through the requested pixel transform and checks the converted camera model.
+
+### Copied shutter FIFO
+
+`quest-camera-stream.c` opens a separate copied Syncboss FIFO with the packet-254
+filter and per-client queue clearing. It routes supported tracking shutters to
+one through four explicitly selected cameras. Each complete batch is decoded
+and checked before any callback: malformed tails, duplicate/regressing raw
+timestamps and excessive gaps invalidate the generation. Per-camera silence
+deadlines prevent traffic from one sensor from keeping a stalled stereo partner
+alive. Reads and callback delivery are bounded and checked against monotonic time.
+
+The receiver closes its FIFO once on failure, including MCU driver messages,
+read errors, clock regression and consumer refusal. It does not start cameras
+or configure the MCU. Observation time is not exposure time: the capture owner
+still requires a verified shutter-to-image clock window and exposure-center
+conversion. Restart/suspend detection and camera DMA quiescence remain external.
+Sanitizer tests use modeled transport and the pinned filter ABI; they do not
+establish live camera delivery.

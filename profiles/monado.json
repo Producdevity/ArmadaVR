@@ -183,7 +183,9 @@
     "quest-camera-capture.c",
     "quest-camera-capture.h",
     "quest-mcu-transaction.c",
-    "quest-mcu-transaction.h"
+    "quest-mcu-transaction.h",
+    "quest-camera-stream.c",
+    "quest-camera-stream.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -253,6 +255,10 @@
     "quest_mcu_transaction_poll",
     "quest_mcu_transaction_cancel",
     "quest_mcu_transaction_destroy",
-    "quest_mcu_transaction_closed"
+    "quest_mcu_transaction_closed",
+    "quest_camera_stream_open",
+    "quest_camera_stream_poll",
+    "quest_camera_stream_stop",
+    "quest_camera_stream_destroy"
   ]
 }

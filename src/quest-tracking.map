@@ -68,5 +68,9 @@
         quest_mcu_transaction_cancel;
         quest_mcu_transaction_destroy;
         quest_mcu_transaction_closed;
+        quest_camera_stream_open;
+        quest_camera_stream_poll;
+        quest_camera_stream_stop;
+        quest_camera_stream_destroy;
     local: *;
 };
