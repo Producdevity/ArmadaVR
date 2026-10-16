@@ -1157,3 +1157,28 @@ quiescence. Cleanup attempts each eligible allocation once; unresolved resources
 remain inspectable for external cleanup. The test suite covers 804 complete or
 cancelled configurations and 134 injected failures through the actual allocation,
 encoding and control implementations. It does not open or start cameras.
+
+### Stream setup ownership in the kernel
+
+Patch `0008-quest-camera-stream-setup-cleanup.patch` fixes cleanup in the pinned
+Quest kernel's `__cam_isp_ctx_set_stream_mode_in_acquired`. A failure after one
+or more images had been linked freed their array without unlinking those entries.
+It also omitted releases for the packet mappings acquired before the failure.
+The patch removes only entries added by that attempt and releases every acquired
+packet mapping, including the current image when a later validation step fails.
+
+The kernel's KMD packet parser retains a command-buffer reference on success.
+Stream setup now releases those references on failure, and ordinary stream
+teardown releases them alongside the retained packet mappings. The successful
+stream keeps both references for its entire lifetime. Shared command handles
+are released once per acquired reference.
+
+`tools/test-quest-camera-stream-setup.py` extracts the actual setup function,
+teardown block, packet parser and UAPI from the SHA-256-pinned kernel archive.
+It runs 8,430 scenarios with every pool size from 1 through 30, failure at every
+image, shared and distinct command handles, invalid lengths/offsets, hardware
+preparation failures before and after KMD acquisition, and successful teardown.
+The original code fails 32,520 assertions; the patch passes all 990,244 assertions
+on macOS and ARM64 Linux with address/undefined-behavior sanitizers. Memory
+references, allocation, lists and ISP callbacks are modeled. These results do
+not verify hardware shutdown, DMA quiescence, physical capture or flash readiness.

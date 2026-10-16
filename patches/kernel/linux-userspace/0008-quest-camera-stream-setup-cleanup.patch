@@ -1,0 +1,50 @@
+--- a/techpack/camera/drivers/cam_isp/cam_isp_context.c
++++ b/techpack/camera/drivers/cam_isp/cam_isp_context.c
+@@ -8209,8 +8209,13 @@
+ 	ctx_isp->ul_fp_results = NULL;
+ 	ctx_isp->ul_path_en = false;
+ 
+-	for (i = 0; i < ctx_isp->num_stream_images; i++)
+-		cam_mem_put_cpu_buf((int32_t)ctx_isp->stream_images[i].packet_handle);
++	for (i = 0; i < ctx_isp->num_stream_images; i++) {
++		struct cam_isp_stream_image *image = &ctx_isp->stream_images[i];
++
++		if (image->hw_update_data.kmd_cmd_buff_info.handle)
++			cam_mem_put_cpu_buf(image->hw_update_data.kmd_cmd_buff_info.handle);
++		cam_mem_put_cpu_buf(image->packet_handle);
++	}
+ 
+ 	ctx_isp->num_stream_images = 0;
+ 	if (!IS_ERR_OR_NULL(ctx_isp->stream_images)) {
+@@ -9955,6 +9960,7 @@
+ 		(struct cam_isp_context *) ctx->ctx_priv;
+ 	uint32_t i;
+ 	uint32_t j;
++	uint32_t mapped_images = 0;
+ 	size_t len = 0;
+ 	size_t remain_len = 0;
+ 	struct cam_hw_cmd_args hw_cmd_args;
+@@ -10014,6 +10020,7 @@
+ 			goto fail;
+ 		}
+ 
++		mapped_images++;
+ 		remain_len = len;
+ 		if ((len < sizeof(struct cam_packet)) ||
+ 			(offset >= len - sizeof(struct cam_packet))) {
+@@ -10102,6 +10109,15 @@
+ 	return rc;
+ 
+ fail:
++	for (j = 0; j < i; j++)
++		list_del_init(&ctx_isp->stream_images[j].list_entry);
++	for (j = 0; j < mapped_images; j++) {
++		struct cam_isp_stream_image *image = &ctx_isp->stream_images[j];
++
++		if (image->hw_update_data.kmd_cmd_buff_info.handle)
++			cam_mem_put_cpu_buf(image->hw_update_data.kmd_cmd_buff_info.handle);
++		cam_mem_put_cpu_buf(image->packet_handle);
++	}
+ 	kvfree(ctx_isp->stream_images);
+ 	ctx_isp->stream_images = NULL;
+ 
