@@ -10,7 +10,8 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-sensor.c', 'src/quest-camera-sensor.h', 'tests/quest-camera-sensor.c',
+INPUTS = ('src/quest-camera-allocation.c', 'src/quest-camera-allocation.h', 'tests/quest-camera-allocation.c',
+          'src/quest-camera-sensor.c', 'src/quest-camera-sensor.h', 'tests/quest-camera-sensor.c',
           'tests/quest-camera-probe.c', 'tests/quest-camera-power.c', 'tests/quest-camera-power-kernel.c',
           'src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-camera-group.c',
           'src/quest-camera-pipeline.c', 'src/quest-camera-pipeline.h', 'tests/quest-camera-pipeline.c',
@@ -54,9 +55,18 @@ def run(args):
         header.mkdir(parents=True)
         sensor_root = profile['full_source']['archive_root'] + '/techpack/camera/drivers/cam_sensor_module/cam_sensor_utils/'
         sensor_sources = {}
+        dma_headers = {}
         with tarfile.open(args.archive) as archive:
             prefix = profile['full_source']['archive_root'] + '/techpack/camera/include/uapi/media/'
             for member in archive:
+                if member.name in (profile['full_source']['archive_root'] + '/include/uapi/linux/' + name
+                                   for name in ('dma-heap.h', 'dma-buf.h')):
+                    if not member.isfile() or member.size > 1024 * 1024:
+                        raise ValueError('Unexpected DMA header')
+                    path = out / 'include/linux' / Path(member.name).name
+                    path.parent.mkdir(exist_ok=True)
+                    path.write_bytes(archive.extractfile(member).read())
+                    dma_headers[path.name] = digest(path)
                 if member.name in (sensor_root + name for name in ('cam_sensor_util.c', 'cam_sensor_cmn_header.h')):
                     if not member.isfile() or member.size > 1024 * 1024:
                         raise ValueError('Unexpected sensor parser source')
@@ -74,6 +84,9 @@ def run(args):
                     if member.name != prefix + Path(member.name).name or member.size > 1024 * 1024:
                         raise ValueError('Unexpected camera header')
                     (header / Path(member.name).name).write_bytes(archive.extractfile(member).read())
+        if set(dma_headers) != {'dma-heap.h', 'dma-buf.h'}:
+            raise ValueError('Missing DMA headers')
+        report['dma_headers_sha256'] = dma_headers
         if set(sensor_sources) != {'cam_sensor_util.c', 'cam_sensor_cmn_header.h'}:
             raise ValueError('Missing sensor parser source')
         common = (out / 'cam_sensor_cmn_header.h').read_text()
@@ -110,9 +123,11 @@ def run(args):
                              ('power', 'QUEST_CAMERA_POWER_PASS matrix=52'),
                              ('probe', 'QUEST_CAMERA_PROBE_PASS invalid=15 '),
                              ('power-kernel', 'QUEST_CAMERA_POWER_KERNEL_PASS cases=106470 hardware=0'),
-                             ('mcu', 'QUEST_CAMERA_MCU_PASS ')]:
+                             ('mcu', 'QUEST_CAMERA_MCU_PASS '),
+                             ('allocation', 'QUEST_CAMERA_ALLOCATION_PASS cycles=600 faults=51 ')]:
             binary = out / name
-            source_names = (['quest-camera-mcu.c'] if name == 'mcu' else
+            source_names = (['quest-camera-allocation.c', 'quest-camera-memory.c'] if name == 'allocation' else
+                            ['quest-camera-mcu.c'] if name == 'mcu' else
                             ['quest-camera-sensor.c'] if name in ('sensor', 'power', 'probe', 'power-kernel') else
                             ['quest-camera-group.c', 'quest-camera-isp.c', 'quest-camera-control.c'] if name == 'group' else
                             ['quest-camera-pipeline.c', 'quest-camera-control.c'] if name == 'pipeline' else
@@ -126,9 +141,12 @@ def run(args):
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          *(['-Wno-sign-compare'] if name == 'power-kernel' else []),
-                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream') else []),
-                         *(['-DQUEST_CAMERA_VENDOR_TEST'] if name in ('group', 'sensor', 'power', 'probe') else []),
+                         *(['-Wl,--export-dynamic'] if name in ('capture', 'stream', 'allocation') else []),
+                         *(['-DQUEST_CAMERA_VENDOR_TEST'] if name in ('group', 'sensor', 'power', 'probe', 'allocation') else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name in ('mcu-control', 'stream') else []),
+                         *(['-DQUEST_CAMERA_ALLOCATION_INSTALLED'] if name == 'allocation' and args.library else []),
+                         *([f'-D{system}=quest_test_{system}' for system in ('ioctl', 'fcntl', 'mmap', 'munmap', 'close')]
+                           if name == 'allocation' and not args.library else []),
                          *(['-DQUEST_CAMERA_STREAM_INSTALLED'] if name == 'stream' and args.library else []),
                          *([f'-D{system}=quest_test_{stub}' for system, stub in
                             [('open', 'open'), ('fstat', 'fstat'), ('ioctl', 'ioctl'),

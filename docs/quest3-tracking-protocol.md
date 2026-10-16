@@ -1090,3 +1090,20 @@ Cleanup attempts each eligible operation once and retains the enclosing session
 when a child release fails. Tests track simulated live resources across all
 acquisition/release failure sites, failed copy-back and malformed hardware routes.
 No hardware is opened, probed, configured or started by these tests.
+
+### Camera allocation lifetime
+
+`quest-camera-allocation` owns mapped CRM packet/command memory and fresh pixel
+DMA-BUFs imported from a caller-selected cached DMA heap. It does not select or
+open device nodes. Quest's DMA-heap allocation structure differs from Pico ION: its
+fd field must start at zero. A successful allocation can also return fd zero;
+failure with an unchanged zero cannot establish whether a descriptor was created.
+
+CPU access is bracketed with DMA-BUF synchronization and excluded during device
+use. A failed allocation or cache call poisons the owner, preventing reuse. After
+submission, release requires independently established device/CPU quiescence.
+Cleanup never retries a failed CRM release, unmap or close. Partial and unidentified
+resources remain inspectable for explicit cleanup; an unpublished DMA-heap fd may
+require exiting an isolated owning process. Closing the heap or CRM alone is not
+proof that such a DMA-BUF was released. Tests cover fd zero, missing copy-back,
+cache failures and partially completed cleanup without opening hardware.

@@ -91,5 +91,15 @@
         quest_camera_sensor_power;
         quest_camera_mcu_command_encode;
         quest_camera_mcu_status_decode;
+        quest_camera_allocation_create;
+        quest_camera_allocation_view;
+        quest_camera_allocation_cpu_begin;
+        quest_camera_allocation_cpu_end;
+        quest_camera_allocation_submit;
+        quest_camera_allocation_complete;
+        quest_camera_allocation_quiesced;
+        quest_camera_allocation_release;
+        quest_camera_allocation_resources;
+        quest_camera_allocation_closed;
     local: *;
 };
