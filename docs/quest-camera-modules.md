@@ -265,3 +265,28 @@ camera command failed to execute or that camera DMA has stopped.
 Offline tests exercise the real transport with modeled syscalls: all 254 usable
 sequences, both header versions, copied request storage, exact reply boundaries,
 foreign records, silent deadlines and failures at every command stage.
+
+### Sensor command encoding
+
+The Quest sensor encoder reuses the byte encoding established for Pico random
+I2C writes, V1 probe records and power steps, with separate checks against the
+pinned Quest parser. Quest adds VANA1 (power resource 12) and accepts a full
+12-step group; Pico's smaller enum limits an uninterrupted group to 11 steps.
+Write delays below 2000 microseconds use hardware waits; longer delays must be
+whole milliseconds and fit a signed 16-bit field. Probe identity address, value
+and mask must fit 16 bits, matching the kernel's storage; its V1 identity read
+uses word address/data widths irrespective of the encoded bus widths.
+
+The native test passes 106,470 up/down sequence pairs through the extracted Quest
+kernel power parser, including all delay placements for 1–12 steps and every
+resource type. It checks parsed values and delays with allocation/logging modeled.
+This proves command interpretation, not safe board voltages or sensor operation.
+The retained module tables do not provide a standalone shutdown sequence: their
+stream-off table writes 0x0100=1, and MCU control remains required.
+
+`quest_camera_mcu_command_encode` emits direct initialize/start/stop/deinitialize types
+0x2e/0x2c/0x2d/0x2f with the four-byte camera mask, rather than a command-2 subcommand.
+The exact type-0x7d reply contains a four-byte status; zero acknowledges the
+command. Matching sequence/generation, settings preparation, metadata reset and
+independent quiescence remain the owner's responsibility. These pure encoders
+perform no I/O and do not make an unprepared camera safe to start.

@@ -8,6 +8,39 @@
 int main(void)
 {
     unsigned cases=0;
+    for (unsigned op = 0x2c; op <= 0x2f; ++op)
+    for (unsigned seq = 1; seq <= 254; ++seq)
+    for (unsigned bit = 0; bit < 32; ++bit) {
+        uint32_t mask = (UINT32_C(1) << bit) | (bit & 1 ? UINT32_C(0x80000001) : 0);
+        uint8_t command[9]; memset(command, 0xa5, sizeof(command));
+        assert(quest_camera_mcu_command_encode(op, mask, seq, command + 1, 7));
+        assert(command[0] == 0xa5 && command[8] == 0xa5 && command[1] == op && command[2] == seq && command[3] == 4);
+        for (unsigned i = 0; i < 4; ++i) assert(command[4 + i] == (uint8_t)(mask >> (8 * i)));
+        int32_t status; uint32_t actual;
+        assert(quest_camera_mcu_status_decode(command + 4, 4, &status));
+        memcpy(&actual, &status, 4); assert(actual == mask); ++cases;
+    }
+    for (unsigned op = 0; op <= 255; ++op) {
+        uint8_t command[7]; memset(command, 0xa5, sizeof(command));
+        bool valid = op >= 0x2c && op <= 0x2f;
+        assert(quest_camera_mcu_command_encode(op, 1, 1, command, 7) == valid);
+        if (!valid) for (unsigned i = 0; i < 7; ++i) assert(command[i] == 0xa5);
+    }
+    uint8_t command[7]; memset(command, 0xa5, sizeof(command));
+    for (unsigned size = 0; size < 7; ++size) assert(!quest_camera_mcu_command_encode(0x2c, 1, 1, command, size));
+    assert(!quest_camera_mcu_command_encode(0x2c, 0, 1, command, 7));
+    assert(!quest_camera_mcu_command_encode(0x2c, 1, 0, command, 7));
+    assert(!quest_camera_mcu_command_encode(0x2c, 1, 255, command, 7));
+    assert(!quest_camera_mcu_command_encode(0x2c, 1, 1, NULL, 7));
+    for (unsigned i = 0; i < 7; ++i) assert(command[i] == 0xa5);
+    int32_t status = 17;
+    for (unsigned size = 0; size < 7; ++size) if (size != 4) {
+        assert(!quest_camera_mcu_status_decode(command, size, &status) && status == 17);
+    }
+    assert(!quest_camera_mcu_status_decode(NULL, 4, &status) && status == 17);
+    assert(!quest_camera_mcu_status_decode(command, 4, NULL));
+    memset(command, 0, 4); assert(quest_camera_mcu_status_decode(command, 4, &status) && status == 0);
+    memset(command, 255, 4); assert(quest_camera_mcu_status_decode(command, 4, &status) && status == -1);
     uint32_t ids[5];uint8_t wire[27],payload[60];
     struct quest_camera_mcu_parameters values[5];
     for(unsigned count=1;count<=5;count++)for(unsigned start=0;start<32;start++)for(unsigned seq=1;seq<=254;seq++) {

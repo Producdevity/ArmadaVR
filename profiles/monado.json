@@ -189,7 +189,9 @@
     "quest-camera-pipeline.c",
     "quest-camera-pipeline.h",
     "quest-camera-group.c",
-    "quest-camera-group.h"
+    "quest-camera-group.h",
+    "quest-camera-sensor.c",
+    "quest-camera-sensor.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -275,6 +277,13 @@
     "quest_camera_group_view",
     "quest_camera_group_quiesced",
     "quest_camera_group_release",
-    "quest_camera_group_closed"
+    "quest_camera_group_closed",
+    "quest_camera_sensor_writes_size",
+    "quest_camera_sensor_writes",
+    "quest_camera_sensor_probe",
+    "quest_camera_sensor_power_size",
+    "quest_camera_sensor_power",
+    "quest_camera_mcu_command_encode",
+    "quest_camera_mcu_status_decode"
   ]
 }

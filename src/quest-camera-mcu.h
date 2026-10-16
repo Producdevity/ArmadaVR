@@ -27,4 +27,24 @@ bool quest_camera_metadata_reply_decode(const uint32_t *camera_bits, size_t coun
                                         const void *payload, size_t size,
                                         struct quest_camera_mcu_parameters *output,
                                         size_t output_count);
+enum quest_camera_mcu_operation {
+    QUEST_CAMERA_MCU_START = 0x2c,
+    QUEST_CAMERA_MCU_STOP = 0x2d,
+    QUEST_CAMERA_MCU_INITIALIZE = 0x2e,
+    QUEST_CAMERA_MCU_DEINITIALIZE = 0x2f,
+};
+#define QUEST_CAMERA_MCU_COMMAND_SIZE 7
+#define QUEST_CAMERA_MCU_STATUS_TYPE 0x7d
+#define QUEST_CAMERA_MCU_STATUS_SIZE 4
+
+/* Encode the direct command type, allocated sequence and four-byte camera mask.
+ * These are not subcommands of command 2. No hardware operation occurs here.
+ * Initialization/settings, metadata reset, stream generation and exclusive MCU
+ * ownership must be managed separately; encoding a start is not preparation.
+ * The reply must already match type 0x7d, sequence and generation. Status zero
+ * acknowledges the command; it does not prove DMA or device quiescence.
+ * Failure preserves output. Zero camera masks are rejected as no-ops. */
+bool quest_camera_mcu_command_encode(enum quest_camera_mcu_operation operation,
+                                      uint32_t camera_mask, uint8_t sequence, void *output, size_t size);
+bool quest_camera_mcu_status_decode(const void *payload, size_t size, int32_t *status);
 #endif

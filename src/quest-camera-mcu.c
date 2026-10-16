@@ -41,3 +41,24 @@ bool quest_camera_metadata_reply_decode(const uint32_t *camera_bits, size_t coun
     memcpy(output, values, count * sizeof(*output));
     return true;
 }
+
+bool quest_camera_mcu_command_encode(enum quest_camera_mcu_operation operation,
+                                      uint32_t camera_mask, uint8_t sequence, void *output, size_t size)
+{
+    if ((operation != QUEST_CAMERA_MCU_START && operation != QUEST_CAMERA_MCU_STOP &&
+         operation != QUEST_CAMERA_MCU_INITIALIZE && operation != QUEST_CAMERA_MCU_DEINITIALIZE) || !camera_mask || !sequence || sequence == 255 ||
+        !output || size < QUEST_CAMERA_MCU_COMMAND_SIZE) return false;
+    uint8_t bytes[QUEST_CAMERA_MCU_COMMAND_SIZE] = {(uint8_t)operation, sequence, 4};
+    for (unsigned i = 0; i < 4; ++i) bytes[3 + i] = (uint8_t)(camera_mask >> (8 * i));
+    memcpy(output, bytes, sizeof(bytes));
+    return true;
+}
+bool quest_camera_mcu_status_decode(const void *payload, size_t size, int32_t *status)
+{
+    if (!payload || size != QUEST_CAMERA_MCU_STATUS_SIZE || !status) return false;
+    const uint8_t *bytes = payload;
+    uint32_t value = 0;
+    for (unsigned i = 0; i < 4; ++i) value |= (uint32_t)bytes[i] << (8 * i);
+    memcpy(status, &value, sizeof(value));
+    return true;
+}

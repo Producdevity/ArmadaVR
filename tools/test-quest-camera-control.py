@@ -10,7 +10,9 @@ import sys
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUTS = ('src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-camera-group.c',
+INPUTS = ('src/quest-camera-sensor.c', 'src/quest-camera-sensor.h', 'tests/quest-camera-sensor.c',
+          'tests/quest-camera-probe.c', 'tests/quest-camera-power.c', 'tests/quest-camera-power-kernel.c',
+          'src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-camera-group.c',
           'src/quest-camera-pipeline.c', 'src/quest-camera-pipeline.h', 'tests/quest-camera-pipeline.c',
           'src/quest-camera-stream.c', 'src/quest-camera-stream.h', 'tests/quest-camera-stream.c',
           'src/quest-mcu-transaction.c', 'src/quest-mcu-transaction.h', 'tests/quest-mcu-transaction.c',
@@ -18,7 +20,7 @@ INPUTS = ('src/quest-camera-group.c', 'src/quest-camera-group.h', 'tests/quest-c
           'src/quest-camera-metadata.c', 'src/quest-camera-metadata.h',
           'src/quest-camera-shutter.c', 'src/quest-camera-shutter.h',
           'src/quest-camera-pixels.c', 'src/quest-camera-pixels.h', 'src/quest-mcu-control.c', 'src/quest-mcu-control.h',
-          'src/quest-camera-mcu.c', 'src/quest-camera-mcu.h', 'tests/quest-mcu-control.c',
+          'src/quest-camera-mcu.c', 'src/quest-camera-mcu.h', 'tests/quest-camera-mcu.c', 'tests/quest-mcu-control.c',
           'src/quest-camera-control.c', 'src/quest-camera-control.h',
           'src/quest-camera-isp.c', 'src/quest-camera-isp.h', 'tests/quest-camera-isp.c',
           'src/quest-camera-memory.c', 'src/quest-camera-memory.h',
@@ -50,9 +52,18 @@ def run(args):
     try:
         header = out / 'include/media'
         header.mkdir(parents=True)
+        sensor_root = profile['full_source']['archive_root'] + '/techpack/camera/drivers/cam_sensor_module/cam_sensor_utils/'
+        sensor_sources = {}
         with tarfile.open(args.archive) as archive:
             prefix = profile['full_source']['archive_root'] + '/techpack/camera/include/uapi/media/'
             for member in archive:
+                if member.name in (sensor_root + name for name in ('cam_sensor_util.c', 'cam_sensor_cmn_header.h')):
+                    if not member.isfile() or member.size > 1024 * 1024:
+                        raise ValueError('Unexpected sensor parser source')
+                    name = Path(member.name).name
+                    data = archive.extractfile(member).read()
+                    (out / name).write_bytes(data)
+                    sensor_sources[name] = hashlib.sha256(data).hexdigest()
                 if member.name == profile['full_source']['archive_root'] + '/drivers/staging/oculus/include/uapi/linux/syncboss.h':
                     if not member.isfile() or member.size > 1024 * 1024:
                         raise ValueError('Unexpected Syncboss header')
@@ -63,6 +74,23 @@ def run(args):
                     if member.name != prefix + Path(member.name).name or member.size > 1024 * 1024:
                         raise ValueError('Unexpected camera header')
                     (header / Path(member.name).name).write_bytes(archive.extractfile(member).read())
+        if set(sensor_sources) != {'cam_sensor_util.c', 'cam_sensor_cmn_header.h'}:
+            raise ValueError('Missing sensor parser source')
+        common = (out / 'cam_sensor_cmn_header.h').read_text()
+        source = (out / 'cam_sensor_util.c').read_text()
+        shim = ''
+        for token in ('enum msm_camera_power_seq_type {', 'struct common_header {',
+                      'struct msm_pinctrl_info {', 'struct cam_sensor_power_setting {', 'struct cam_sensor_power_ctrl_t {'):
+            start = common.index(token)
+            shim += common[start:common.index('\n};', start) + 3] + '\n'
+        limit = next(line for line in common.splitlines() if line.startswith('#define MAX_POWER_CONFIG '))
+        shim += limit + '\n'
+        for token in ('static int32_t cam_sensor_validate(', 'int32_t cam_sensor_update_power_settings('):
+            start = source.index(token)
+            shim += source[start:source.index('\n}', start) + 2] + '\n'
+        (out / 'include/quest-camera-power-kernel.inc').write_text(shim)
+        report['sensor_kernel_sources_sha256'] = sensor_sources
+        report['sensor_kernel_shim_sha256'] = digest(out / 'include/quest-camera-power-kernel.inc')
         report['headers'] = {p.name: digest(p) for p in sorted(header.iterdir())}
         binaries = {}
         for name, marker in [('control', 'QUEST_CAMERA_QUERY_PASS ioctls=30 hardware=0 isp_entries=8'),
@@ -77,9 +105,16 @@ def run(args):
                              ('mcu-transaction', 'QUEST_MCU_TRANSACTION_PASS '),
                              ('stream', 'QUEST_CAMERA_STREAM_PASS '),
                              ('pipeline', 'QUEST_CAMERA_PIPELINE_PASS cycles=600 faults=80 '),
-                             ('group', 'QUEST_CAMERA_GROUP_PASS cycles=416 faults=269 ')]:
+                             ('group', 'QUEST_CAMERA_GROUP_PASS cycles=416 faults=269 '),
+                             ('sensor', 'QUEST_CAMERA_SENSOR_PASS matrix=64'),
+                             ('power', 'QUEST_CAMERA_POWER_PASS matrix=52'),
+                             ('probe', 'QUEST_CAMERA_PROBE_PASS invalid=15 '),
+                             ('power-kernel', 'QUEST_CAMERA_POWER_KERNEL_PASS cases=106470 hardware=0'),
+                             ('mcu', 'QUEST_CAMERA_MCU_PASS ')]:
             binary = out / name
-            source_names = (['quest-camera-group.c', 'quest-camera-isp.c', 'quest-camera-control.c'] if name == 'group' else
+            source_names = (['quest-camera-mcu.c'] if name == 'mcu' else
+                            ['quest-camera-sensor.c'] if name in ('sensor', 'power', 'probe', 'power-kernel') else
+                            ['quest-camera-group.c', 'quest-camera-isp.c', 'quest-camera-control.c'] if name == 'group' else
                             ['quest-camera-pipeline.c', 'quest-camera-control.c'] if name == 'pipeline' else
                             ['quest-camera-capture.c', 'quest-camera-metadata.c', 'quest-camera-pixels.c', 'quest-camera-shutter.c'] if name == 'capture' else
                             ['quest-mcu-control.c', 'quest-camera-mcu.c'] if name == 'mcu-control' else
@@ -90,8 +125,9 @@ def run(args):
             test_name = 'quest-' + name + '.c' if name.startswith('mcu-') else 'quest-camera-' + name + '.c'
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
+                         *(['-Wno-sign-compare'] if name == 'power-kernel' else []),
                          *(['-Wl,--export-dynamic'] if name in ('capture', 'stream') else []),
-                         *(['-DQUEST_CAMERA_VENDOR_TEST'] if name == 'group' else []),
+                         *(['-DQUEST_CAMERA_VENDOR_TEST'] if name in ('group', 'sensor', 'power', 'probe') else []),
                          *(['-DQUEST_MCU_VENDOR_TEST'] if name in ('mcu-control', 'stream') else []),
                          *(['-DQUEST_CAMERA_STREAM_INSTALLED'] if name == 'stream' and args.library else []),
                          *([f'-D{system}=quest_test_{stub}' for system, stub in

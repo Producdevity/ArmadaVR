@@ -84,5 +84,12 @@
         quest_camera_group_quiesced;
         quest_camera_group_release;
         quest_camera_group_closed;
+        quest_camera_sensor_writes_size;
+        quest_camera_sensor_writes;
+        quest_camera_sensor_probe;
+        quest_camera_sensor_power_size;
+        quest_camera_sensor_power;
+        quest_camera_mcu_command_encode;
+        quest_camera_mcu_status_decode;
     local: *;
 };
