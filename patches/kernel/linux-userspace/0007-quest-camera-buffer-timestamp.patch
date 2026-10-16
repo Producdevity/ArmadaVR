@@ -1,0 +1,37 @@
+--- a/techpack/camera/drivers/cam_isp/cam_isp_context.c
++++ b/techpack/camera/drivers/cam_isp/cam_isp_context.c
+@@ -2321,6 +2321,7 @@
+ 	ctx_isp->active_req_cnt--;
+ 
+ 	stream_image->capture_timestamp = ctx_isp->sof_timestamp_val;
++	stream_image->capture_monotonic_timestamp = ctx_isp->monotonic_timestamp;
+ 
+ 	/*
+ 	 * only signal completion when first image is added because,
+@@ -10246,7 +10247,7 @@
+ 
+ 	cmd_get->images[0].image_id = stream_image->image_id;
+ 	cmd_get->images[0].timestamp = stream_image->capture_timestamp;
+-	cmd_get->images[0].sof_timestamp = ctx_isp->monotonic_timestamp;
++	cmd_get->images[0].sof_timestamp = stream_image->capture_monotonic_timestamp;
+ 	cmd_get->images[0].frame_num = stream_image->frame_num;
+ 	cmd_get->num_images = 1;
+ 
+--- a/techpack/camera/drivers/cam_isp/cam_isp_context.h
++++ b/techpack/camera/drivers/cam_isp/cam_isp_context.h
+@@ -326,6 +326,7 @@
+  * @hw_update_data:              Hardware update to be applied before the req
+  * @pf_data:                     Pagefault data
+  * @capture_timestamp:           Capture time of the frame
++ * @capture_monotonic_timestamp: Monotonic time sampled with capture_timestamp
+  * @frame_num:                   The frame number
+  * @packet_handle:               Packet handle for the frame
+  *
+@@ -341,6 +342,7 @@
+ 	struct cam_isp_prepare_hw_update_data hw_update_data;
+ 	struct cam_hw_mgr_dump_pf_data      pf_data;
+ 	uint64_t                            capture_timestamp;
++	uint64_t                            capture_monotonic_timestamp;
+ 	int64_t                             frame_num;
+ 	int32_t                             packet_handle;
+ };

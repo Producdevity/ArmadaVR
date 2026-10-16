@@ -945,3 +945,22 @@ hardware acquire/release calls with injected errors. Payloads compare byte for
 byte with the pinned vendor structures, including reserved fields and unaligned
 output. The exact IFE parser version and bounds were inspected separately.
 This proves encoding and transport compatibility, not capture or hardware timing.
+
+### Camera buffer timestamp ownership
+
+The Quest kernel patch `0007-quest-camera-buffer-timestamp.patch` stores the
+monotonic timestamp in the same private stream-image record as its capture
+QTimer. Dequeue returns that saved pair, including after several completed
+frames queue before userspace reads them. The userspace ABI is unchanged.
+
+The regression harness extracts and executes the pinned vendor completion, GET
+and RETURN functions with modeled lists, completion waits and clocks. Across
+1,000 two-buffer/recycle sequences, 35,000 checks detect 3,000 mismatched pairs
+in the original code and none with the patch. Host and native ARM64 runs pass
+with ASan/UBSan. The physical-target kernel rebuild also passes verification
+of all 272 modules and 15,289 versioned symbol imports.
+
+This corrects dequeue-induced frame mixing. It does not establish exposure
+center, capture-to-IMU clock calibration, sensor synchronization or physical
+DMA quiescence. Unpatched stock firmware still needs the conservative
+`observed_monotonic_ns` interpretation described above.
