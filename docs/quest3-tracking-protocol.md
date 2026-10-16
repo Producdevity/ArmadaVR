@@ -1140,3 +1140,20 @@ An isolated ARM64 comparison executes the original register-packing and command
 selection routines for 20,256 inputs, capturing their register-range calls.
 The packet-writer callback is modeled; no constructor or device is invoked.
 This establishes command equivalence, not active camera routing or capture.
+
+### Owned ISP and PHY configuration
+
+`quest-camera-front-end` prepares the Titan636 Lite common/RDI commands and
+explicit HFR, clock, bandwidth and CSID votes in owned CRM memory. The acquired
+hardware must identify one Lite IFE and one matching local RDI path. Direct
+memory is mapped through the supplied command MMU; packet and generic memory
+remain CPU-mapped. The zeroed direct allocation reserves a separate tail for
+kernel commands. CSI-PHY configuration uses its own direct packet and explicit
+lane, settle and rate parameters.
+
+Configuration is attempted once, after all allocations and CPU writes finish.
+Partial preparation and configuration failures retain ownership until independent
+quiescence. Cleanup attempts each eligible allocation once; unresolved resources
+remain inspectable for external cleanup. The test suite covers 804 complete or
+cancelled configurations and 134 injected failures through the actual allocation,
+encoding and control implementations. It does not open or start cameras.

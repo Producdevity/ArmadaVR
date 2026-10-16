@@ -1,6 +1,6 @@
 --- a/src/xrt/drivers/CMakeLists.txt
 +++ b/src/xrt/drivers/CMakeLists.txt
-@@ -79,6 +79,25 @@
+@@ -79,6 +79,26 @@
          quest_tracking/pico-slam-tracking.c quest_tracking/pico-camera.c)
      target_sources(drv_quest_tracking PRIVATE
          quest_tracking/calibrated-hmd.c quest_tracking/quest-monado-hmd.c)
@@ -9,6 +9,7 @@
 +        quest_tracking/quest-camera-memory.c quest_tracking/quest-camera-isp.c
 +        quest_tracking/quest-camera-metadata.c
 +        quest_tracking/quest-camera-shutter.c
++        quest_tracking/quest-camera-front-end.c
 +        quest_tracking/quest-camera-ife.c
 +        quest_tracking/quest-camera-sensor-setup.c
 +        quest_tracking/quest-camera-allocation.c

@@ -101,6 +101,13 @@
         quest_camera_allocation_release;
         quest_camera_allocation_resources;
         quest_camera_allocation_closed;
+        quest_camera_front_end_prepare_ife;
+        quest_camera_front_end_prepare_phy;
+        quest_camera_front_end_submit;
+        quest_camera_front_end_quiesced;
+        quest_camera_front_end_release;
+        quest_camera_front_end_resources;
+        quest_camera_front_end_closed;
         quest_camera_ife_common_command;
         quest_camera_ife_rdi_commands;
         quest_camera_sensor_setup_prepare;

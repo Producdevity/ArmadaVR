@@ -197,7 +197,9 @@
     "quest-camera-sensor-setup.c",
     "quest-camera-sensor-setup.h",
     "quest-camera-ife.c",
-    "quest-camera-ife.h"
+    "quest-camera-ife.h",
+    "quest-camera-front-end.c",
+    "quest-camera-front-end.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -308,6 +310,13 @@
     "quest_camera_sensor_setup_resources",
     "quest_camera_sensor_setup_closed",
     "quest_camera_ife_common_command",
-    "quest_camera_ife_rdi_commands"
+    "quest_camera_ife_rdi_commands",
+    "quest_camera_front_end_prepare_ife",
+    "quest_camera_front_end_prepare_phy",
+    "quest_camera_front_end_submit",
+    "quest_camera_front_end_quiesced",
+    "quest_camera_front_end_release",
+    "quest_camera_front_end_resources",
+    "quest_camera_front_end_closed"
   ]
 }
