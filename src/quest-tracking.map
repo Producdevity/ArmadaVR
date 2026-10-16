@@ -38,5 +38,6 @@
         quest_camera_phy_encode;
         quest_camera_metadata_decode;
         quest_camera_shutter_decode;
+        quest_camera_pixels_mono8;
     local: *;
 };

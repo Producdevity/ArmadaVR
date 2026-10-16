@@ -121,3 +121,29 @@ The stock handler preserves packet timestamps and separately records SOF plus
 NSYNC and host arrival time. Types 6 and 22 use row tags for matching, while type
 21 may match without a row tag. A live receiver must therefore reject stale or
 ambiguous matches, rather than assuming a decoded packet belongs to an image.
+
+## CPU pixel conversion
+
+`quest_camera_pixels_mono8` produces contiguous mono8 pixels from explicitly
+configured mono8 or MIPI RAW10 rows. The caller selects the active dimensions,
+source stride, whether to skip one leading metadata row, and the conversion
+curve. Input/output overlap, truncation, invalid dimensions and incompatible
+formats are refused before writing. It neither maps DMA buffers nor chooses
+camera geometry or calibration. Already-compressed mono8 accepts copying only.
+
+For RAW10, copying discards the two low bits; the two supported point-5 curves
+reproduce the stock CPU approximations, including their low-intensity behavior.
+They are not interchangeable with applying a mathematical square root. The
+active curve must be established before capture; a stored gamma value alone
+does not select it. Source padding and a leading metadata row are excluded
+from the resulting image only as explicitly specified by the caller.
+
+The original ARM64 SIMD and scalar reference functions from
+`libgammacorrection.so`, SHA-256
+`fd07d092e8d408de585a5cdb6cb58f92968aee582d3f541da4a9a8fd582dda6f`,
+agree byte-for-byte with the converter across 612 synthetic images and 492,544
+pixels. This includes every 10-bit value in all four MIPI group positions,
+multiple image rows, source padding and explicit metadata-row exclusion.
+Guard-page and sanitizer tests check memory bounds and failure preservation.
+No firmware initialization, capture, physical calibration or target performance
+claim follows from these tests.
