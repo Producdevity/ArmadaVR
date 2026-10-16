@@ -177,3 +177,21 @@ native packet test compares every field against the pinned vendor structures
 and passes concatenated blobs through the original generic-command parser,
 including truncated commands and handler failures. The complete hardware
 initialization still needs mode-specific register commands and validated votes.
+
+### Active metadata parameters
+
+`quest-camera-mcu.c` builds the metadata-matching query for one representative
+camera per hardware type and decodes the fixed 60-byte response. The request is
+Syncboss command 2, subcommand `0x4e`, with a count and five mask slots. Response
+words are stored in three columns of five entries, not consecutive triples.
+The implementation requires distinct one-hot camera IDs and an already allocated
+sequence in the kernel's 1..254 range. The control owner must validate the response
+type, sequence and MCU generation before decoding its payload.
+
+The decoder retains raw words, including zero values. The sensor-specific row
+parser separately validates timing parameters. Mode changes and MCU restarts
+invalidate the relationship; there is no fallback to nominal module values.
+The maintained encoder/decoder matches 1,000 isolated calls through the original
+metadata-fetch routine with synthetic responses. Another 40,734 sanitizer cases
+cover sequences, camera masks, count limits, guarded payload truncations and
+unchanged output on failure. No query was sent to a physical MCU.

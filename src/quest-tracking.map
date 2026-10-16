@@ -46,5 +46,7 @@
         quest_camera_csid_clock_blob;
         quest_camera_hfr_blob;
         quest_camera_bandwidth_blob;
+        quest_camera_metadata_query_encode;
+        quest_camera_metadata_reply_decode;
     local: *;
 };
