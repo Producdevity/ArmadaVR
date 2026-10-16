@@ -6,11 +6,11 @@ static void put32(uint8_t *bytes, uint32_t value)
     for (unsigned i = 0; i < 4; ++i) bytes[i] = (uint8_t)(value >> (8 * i));
 }
 
-bool quest_camera_rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
-                                     void *output, size_t size)
+static bool rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
+                                 bool streaming, uint32_t pattern, void *output, size_t size)
 {
     if (!b || !output || size < QUEST_CAMERA_RDI_IO_SIZE || b->memory_handle <= 0 ||
-        b->completion_fence <= 0 || b->rdi > 3 || !b->width || b->width > 4096 ||
+        (streaming ? b->completion_fence != 0 : b->completion_fence <= 0) || pattern > 7 || b->rdi > 3 || !b->width || b->width > 4096 ||
         !b->height || b->height > 4096 || b->slice_height < b->height || b->slice_height > 65536 || b->stride > 65536 ||
         (b->bits != 8 && b->bits != 10)) return false;
     uint32_t format, row_size;
@@ -21,7 +21,7 @@ bool quest_camera_rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
         row_size = (b->width * b->bits + 7) / 8;
         break;
     case QUEST_CAMERA_RAW_PLAIN16:
-        if (b->bits != 10) return false;
+        if (streaming || b->bits != 10) return false;
         format = 14;
         row_size = b->width * 2;
         break;
@@ -31,12 +31,12 @@ bool quest_camera_rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
     if (b->stride < row_size || b->stride % 16 || required > UINT32_MAX || required > b->allocation_size || b->allocation_size > UINT32_MAX) return false;
     uint8_t bytes[QUEST_CAMERA_RDI_IO_SIZE] = {0};
     put32(bytes, (uint32_t)b->memory_handle);
-    put32(bytes + 24, b->width);
+    put32(bytes + 24, streaming ? row_size : b->width);
     put32(bytes + 28, b->height);
     put32(bytes + 32, b->stride);
     put32(bytes + 36, b->slice_height);
     put32(bytes + 168, format);
-    put32(bytes + 176, 5);
+    put32(bytes + 176, pattern);
     put32(bytes + 180, b->bits);
     put32(bytes + 188, 0x3006 + b->rdi);
     put32(bytes + 192, (uint32_t)b->completion_fence);
@@ -45,6 +45,34 @@ bool quest_camera_rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
     put32(bytes + 240, 1);
     memcpy(output, bytes, sizeof(bytes));
     return true;
+}
+
+bool quest_camera_rdi_buffer_configure(const struct quest_camera_rdi_buffer *b,
+                                     void *output, size_t size)
+{
+    return rdi_buffer_configure(b, false, 5, output, size);
+}
+
+size_t quest_camera_stream_packet_encode(const struct quest_camera_command_buffer *command,
+    const struct quest_camera_rdi_buffer *image, uint32_t pattern, void *output, size_t size)
+{
+    if (!command || !image || !output || size < QUEST_CAMERA_STREAM_PACKET_SIZE ||
+        command->memory_handle <= 0 || command->memory_handle == image->memory_handle ||
+        command->offset || command->length || command->type || command->metadata ||
+        command->capacity < 4 || command->capacity % 4 ||
+        command->capacity > command->allocation_size || command->allocation_size > UINT32_MAX) return 0;
+    uint8_t bytes[QUEST_CAMERA_STREAM_PACKET_SIZE] = {0};
+    if (!rdi_buffer_configure(image, true, pattern, bytes + 80, QUEST_CAMERA_RDI_IO_SIZE)) return 0;
+    put32(bytes, QUEST_CAMERA_PACKET_IFE_UPDATE);
+    put32(bytes + 4, sizeof(bytes));
+    put32(bytes + 28, 1);
+    put32(bytes + 32, 24);
+    put32(bytes + 36, 1);
+    put32(bytes + 40, 280);
+    put32(bytes + 56, (uint32_t)command->memory_handle);
+    put32(bytes + 64, command->capacity);
+    memcpy(output, bytes, sizeof(bytes));
+    return sizeof(bytes);
 }
 
 size_t quest_camera_packet_size(const struct quest_camera_packet_config *c)

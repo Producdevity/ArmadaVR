@@ -207,9 +207,88 @@ static void packet_check(const struct quest_camera_packet_config *c)
     for(unsigned i=0;i<sizeof(bytes);i++)assert(bytes[i]==0xa5);
     cases++;
 }
+static void stream_packet_bad(const struct quest_camera_command_buffer *command,
+    const struct quest_camera_rdi_buffer *image, uint32_t pattern, size_t size)
+{
+    uint8_t bytes[QUEST_CAMERA_STREAM_PACKET_SIZE+2];memset(bytes,0xa5,sizeof(bytes));
+    assert(!quest_camera_stream_packet_encode(command,image,pattern,bytes+1,size));
+    for(unsigned i=0;i<sizeof(bytes);i++)assert(bytes[i]==0xa5);
+    cases++;
+}
+static void stream_packet_check(void)
+{
+    struct quest_camera_command_buffer command={.memory_handle=1,.capacity=1024,.allocation_size=4096};
+    struct quest_camera_rdi_buffer image={.memory_handle=20,.width=640,.height=513,
+        .stride=800,.slice_height=513,.bits=10,.format=QUEST_CAMERA_RAW_MIPI,.allocation_size=800*513};
+    const unsigned widths[]={1,4,639,640,4092,4096},capacities[]={4,1024,8192};
+    for(unsigned rdi=0;rdi<4;rdi++)for(unsigned pattern=0;pattern<8;pattern++)
+    for(unsigned bits=8;bits<=10;bits+=2)for(unsigned w=0;w<6;w++)for(unsigned k=0;k<3;k++) {
+        if(bits==10 && widths[w]%4)continue;
+        image.rdi=rdi;image.bits=bits;image.width=widths[w];
+        unsigned packed=(image.width*bits+7)/8;
+        image.stride=(packed+15)/16*16;image.allocation_size=image.stride*image.slice_height;
+        command.capacity=capacities[k];command.allocation_size=capacities[k];
+        uint8_t bytes[QUEST_CAMERA_STREAM_PACKET_SIZE+2];memset(bytes,0xa5,sizeof(bytes));
+        assert(quest_camera_stream_packet_encode(&command,&image,pattern,bytes+1,sizeof(bytes)-2)==QUEST_CAMERA_STREAM_PACKET_SIZE);
+        assert(bytes[0]==0xa5 && bytes[sizeof(bytes)-1]==0xa5);
+        assert(word(bytes+1)==QUEST_CAMERA_PACKET_IFE_UPDATE && word(bytes+5)==QUEST_CAMERA_STREAM_PACKET_SIZE);
+        assert(word(bytes+81+24)==packed && word(bytes+81+176)==pattern && !word(bytes+81+192));
+#ifdef QUEST_CAMERA_VENDOR_TEST
+        union { uint64_t align; uint8_t data[QUEST_CAMERA_STREAM_PACKET_SIZE]; } aligned={0};
+        memcpy(aligned.data,bytes+1,sizeof(aligned.data));
+        struct cam_packet *p=(void *)aligned.data;
+        assert(!p->header.request_id && !p->header.flags && !p->header.padding);
+        assert(!p->cmd_buf_offset && p->num_cmd_buf==1 && p->io_configs_offset==24 && p->num_io_configs==1);
+        assert(p->patch_offset==280 && !p->num_patches && !p->kmd_cmd_buf_index && !p->kmd_cmd_buf_offset);
+        struct cam_cmd_buf_desc desc={.mem_handle=1,.size=command.capacity};
+        assert(!memcmp(p->payload,&desc,sizeof(desc)));
+        struct cam_buf_io_cfg io={.mem_handle={20},.planes={{.width=packed,.height=image.height,
+            .plane_stride=image.stride,.slice_height=image.slice_height}},
+            .format=bits==8?CAM_FORMAT_MIPI_RAW_8:CAM_FORMAT_MIPI_RAW_10,
+            .color_pattern=pattern,.bpp=bits,.resource_type=CAM_ISP_IFE_OUT_RES_RDI_0+rdi,
+            .direction=2,.subsample_pattern=1,.framedrop_pattern=1};
+        assert(!memcmp((uint8_t *)p->payload+24,&io,sizeof(io)));
+#ifdef QUEST_CAMERA_KERNEL_TEST
+        assert(!cam_packet_util_validate_packet(p,sizeof(aligned.data)));
+        assert(cam_packet_util_validate_packet(p,sizeof(aligned.data)-1)==-EINVAL);
+        allocation[0]=command.allocation_size;
+        struct cam_kmd_buf_info info={0};unsigned before=gets,prior=releases;
+        assert(!cam_packet_util_get_kmd_buffer(p,&info));
+        assert(gets==before+1 && releases==prior);
+        assert(info.cpu_addr==storage[0] && info.handle==1 && !info.offset && info.size==command.capacity && !info.used_bytes);
+        for(unsigned i=0;i<info.size/4;i++)info.cpu_addr[i]=0xaabbccdd;
+        cam_packet_util_put_cmd_mem_addr(info.handle);assert(releases==prior+1);
+#endif
+#endif
+        cases++;
+    }
+    command=(struct quest_camera_command_buffer){.memory_handle=1,.capacity=1024,.allocation_size=4096};
+    image=(struct quest_camera_rdi_buffer){.memory_handle=20,.width=640,.height=513,
+        .stride=800,.slice_height=513,.bits=10,.format=QUEST_CAMERA_RAW_MIPI,.allocation_size=800*513};
+    for(size_t size=0;size<QUEST_CAMERA_STREAM_PACKET_SIZE;size++)stream_packet_bad(&command,&image,5,size);
+    stream_packet_bad(NULL,&image,5,QUEST_CAMERA_STREAM_PACKET_SIZE);
+    stream_packet_bad(&command,NULL,5,QUEST_CAMERA_STREAM_PACKET_SIZE);
+    stream_packet_bad(&command,&image,8,QUEST_CAMERA_STREAM_PACKET_SIZE);
+    assert(!quest_camera_stream_packet_encode(&command,&image,5,NULL,QUEST_CAMERA_STREAM_PACKET_SIZE));
+#define BAD_STREAM_COMMAND(field,value) do {struct quest_camera_command_buffer bad=command;bad.field=value;stream_packet_bad(&bad,&image,5,QUEST_CAMERA_STREAM_PACKET_SIZE);} while(0)
+    BAD_STREAM_COMMAND(memory_handle,0);BAD_STREAM_COMMAND(memory_handle,20);BAD_STREAM_COMMAND(offset,4);
+    BAD_STREAM_COMMAND(length,4);BAD_STREAM_COMMAND(type,5);BAD_STREAM_COMMAND(metadata,3);
+    BAD_STREAM_COMMAND(capacity,0);BAD_STREAM_COMMAND(capacity,3);BAD_STREAM_COMMAND(capacity,1023);
+    BAD_STREAM_COMMAND(allocation_size,1023);BAD_STREAM_COMMAND(allocation_size,UINT64_MAX);
+#define BAD_STREAM_IMAGE(field,value) do {struct quest_camera_rdi_buffer bad=image;bad.field=value;stream_packet_bad(&command,&bad,5,QUEST_CAMERA_STREAM_PACKET_SIZE);} while(0)
+    BAD_STREAM_IMAGE(memory_handle,0);BAD_STREAM_IMAGE(completion_fence,1);BAD_STREAM_IMAGE(completion_fence,-1);
+    BAD_STREAM_IMAGE(width,0);BAD_STREAM_IMAGE(width,639);BAD_STREAM_IMAGE(width,4097);
+    BAD_STREAM_IMAGE(height,0);BAD_STREAM_IMAGE(height,4097);BAD_STREAM_IMAGE(stride,799);
+    BAD_STREAM_IMAGE(slice_height,512);BAD_STREAM_IMAGE(allocation_size,800*513-1);
+    BAD_STREAM_IMAGE(bits,12);BAD_STREAM_IMAGE(format,QUEST_CAMERA_RAW_PLAIN16);BAD_STREAM_IMAGE(rdi,4);
+    image_bad(image);
+#undef BAD_STREAM_COMMAND
+#undef BAD_STREAM_IMAGE
+}
 int main(void)
 {
     blob_check();
+    stream_packet_check();
     struct quest_camera_rdi_buffer b={.memory_handle=20,.completion_fence=21,.width=640,
         .height=513,.stride=800,.slice_height=513,.bits=10,.format=QUEST_CAMERA_RAW_MIPI,.allocation_size=800*513};
     for(b.rdi=0;b.rdi<4;b.rdi++)for(unsigned format=0;format<3;format++) {

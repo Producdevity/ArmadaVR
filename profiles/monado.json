@@ -244,6 +244,7 @@
     "quest_camera_rdi_buffer_configure",
     "quest_camera_packet_size",
     "quest_camera_packet_encode",
+    "quest_camera_stream_packet_encode",
     "quest_camera_clock_blob",
     "quest_camera_csid_clock_blob",
     "quest_camera_hfr_blob",

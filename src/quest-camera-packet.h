@@ -40,6 +40,17 @@ struct quest_camera_command_buffer {
     uint64_t allocation_size;
 };
 
+#define QUEST_CAMERA_STREAM_PACKET_SIZE 336
+/* Reusable streaming template: request ID and completion fence are zero; GET
+ * transfers image ownership. MIPI RAW8/RAW10 only, with packed byte width in
+ * the IO plane, matching the stock streaming path. Image width is supplied in
+ * pixels; height includes the embedded metadata row. Pattern is explicit (0..7).
+ * The command is an empty type0/meta0 buffer at offset zero, wholly available
+ * for kernel writes. Allocations must remain alive until independent quiescence.
+ * This does not configure or start streaming. Failure preserves output. */
+size_t quest_camera_stream_packet_encode(const struct quest_camera_command_buffer *command,
+    const struct quest_camera_rdi_buffer *image, uint32_t pattern, void *output, size_t size);
+
 struct quest_camera_packet_config {
     enum quest_camera_packet_opcode opcode;
     uint64_t request_id;

@@ -1182,3 +1182,19 @@ The original code fails 32,520 assertions; the patch passes all 990,244 assertio
 on macOS and ARM64 Linux with address/undefined-behavior sanitizers. Memory
 references, allocation, lists and ISP callbacks are modeled. These results do
 not verify hardware shutdown, DMA quiescence, physical capture or flash readiness.
+
+
+### Reusable streaming packets
+
+`quest_camera_stream_packet_encode` emits the stock streaming template separately
+from ordinary per-request IFE packets. It has request ID zero, one empty command
+(type0/meta0, KMD offset zero) and one output without a completion fence. Image
+ownership transfers through GET/RETURN. The MIPI RAW8/RAW10 plane width is the
+packed byte count; the public input remains a pixel width. Height includes the
+embedded row. Color pattern is explicit, and PLAIN16 is rejected for this path.
+
+The 336-byte template and KMD writable extent pass the pinned ARM64 kernel packet
+parser. The packet suite checks 18,757 cases, including all four RDI paths, eight
+patterns, narrow/full-width images, short output, invalid handles and incompatible
+command fields. Allocation, camera routing and physical stream operation remain
+separate responsibilities; this encoder performs no device I/O.
