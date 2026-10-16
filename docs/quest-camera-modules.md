@@ -147,3 +147,25 @@ multiple image rows, source padding and explicit metadata-row exclusion.
 Guard-page and sanitizer tests check memory bounds and failure preservation.
 No firmware initialization, capture, physical calibration or target performance
 claim follows from these tests.
+
+### Command packets and RDI buffers
+
+`quest-camera-packet.c` encodes the vendor packet ABI with explicit command
+allocations, one optional image, and a separate kernel-writable command tail.
+Commands sharing an allocation must have identical allocation sizes and disjoint
+capacity ranges. Image and command handles cannot alias. Sensor NOP packets are
+72 bytes: the sensor parser rejects allocations no larger than its 64-byte
+`cam_packet` structure even when no payload is used.
+
+The RDI encoder supports MIPI RAW8/RAW10 and PLAIN16_10 on ports 0 through 3.
+It requires 16-byte row alignment and enough memory for all padded rows. PLAIN8
+and PLAIN16_8 are excluded because the retained VFE RDI parser treats them
+differently or does not support them. No command registers, clock rates, resource
+ownership, or physical mode are inferred by these encoders.
+
+`tools/test-quest-camera-packet.py` authenticates the pinned kernel archive,
+compares packets against its UAPI, and executes its unchanged packet-validation
+and kernel-buffer-selection functions with modeled memory allocations. It tests
+allocation failures, descriptor boundaries and writable-tail placement under
+ASan/UBSan. This verifies serialization and parser contracts, not hardware capture
+or the complete sensor/PHY/ISP startup sequence.

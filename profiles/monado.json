@@ -171,7 +171,9 @@
     "quest-camera-shutter.c",
     "quest-camera-shutter.h",
     "quest-camera-pixels.c",
-    "quest-camera-pixels.h"
+    "quest-camera-pixels.h",
+    "quest-camera-packet.c",
+    "quest-camera-packet.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -212,6 +214,9 @@
     "quest_camera_phy_encode",
     "quest_camera_metadata_decode",
     "quest_camera_shutter_decode",
-    "quest_camera_pixels_mono8"
+    "quest_camera_pixels_mono8",
+    "quest_camera_rdi_buffer_configure",
+    "quest_camera_packet_size",
+    "quest_camera_packet_encode"
   ]
 }

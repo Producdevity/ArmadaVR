@@ -39,5 +39,8 @@
         quest_camera_metadata_decode;
         quest_camera_shutter_decode;
         quest_camera_pixels_mono8;
+        quest_camera_rdi_buffer_configure;
+        quest_camera_packet_size;
+        quest_camera_packet_encode;
     local: *;
 };
