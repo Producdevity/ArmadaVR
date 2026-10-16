@@ -11,6 +11,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 INPUTS = ('src/quest-camera-control.c', 'src/quest-camera-control.h',
+          'src/quest-camera-isp.c', 'src/quest-camera-isp.h', 'tests/quest-camera-isp.c',
           'src/quest-camera-memory.c', 'src/quest-camera-memory.h',
           'tests/quest-camera-memory.c', 'tests/quest-camera-acquire.c', 'src/quest-camera-buffer.c', 'src/quest-camera-buffer.h', 'tests/quest-camera-buffer.c',
           'tests/quest-camera-control.c', 'tests/quest-camera-request.c', 'tools/test-quest-camera-control.py')
@@ -33,6 +34,10 @@ def run(args):
     inputs = {name: digest(ROOT / name) for name in INPUTS}
     report = {'status': 'started', 'archive_sha256': archive_sha, 'kernel_commit': profile['commit'],
               'inputs': inputs, 'device_actions': [], 'physical_capture_verified': False, 'commands': []}
+    if args.library:
+        library = args.library.resolve(strict=True)
+        report['installed_library_sha256'] = digest(library)
+        report['installed_library_path'] = str(library)
     try:
         header = out / 'include/media'
         header.mkdir(parents=True)
@@ -49,12 +54,16 @@ def run(args):
                              ('request', 'QUEST_CAMERA_REQUEST_PASS ioctls=282 cases=311 hardware=0 preserved_failure_handles=1'),
                              ('acquire', 'QUEST_CAMERA_ACQUIRE_PASS ioctls=318 hardware=0'),
                              ('memory', 'QUEST_CAMERA_MEMORY_PASS ioctls=6558 hardware=0'),
+                             ('isp', 'QUEST_CAMERA_ISP_PASS cases=1049227 ioctls=12 hardware=0'),
                              ('buffer', 'QUEST_CAMERA_BUFFER_PASS ioctls=266 nonblocking=1 failure_output_preserved=1 hardware=0')]:
             binary = out / name
             commands = [(['cc', '-std=gnu11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
                          '-fsanitize=address,undefined', '-fno-sanitize-recover=all', '-D__user=',
                          '-I', str(out / 'include'), '-I', str(ROOT / 'src'),
-                         str(ROOT / ('src/quest-camera-' + name + '.c' if name in ('buffer', 'memory') else 'src/quest-camera-control.c')),
+                         *([str(library), '-Wl,-rpath,' + str(library.parent)] if args.library else
+                           [str(ROOT / ('src/' + source)) for source in
+                            (['quest-camera-isp.c', 'quest-camera-control.c'] if name == 'isp' else
+                             ['quest-camera-' + name + '.c' if name in ('buffer', 'memory') else 'quest-camera-control.c'])]),
                          str(ROOT / ('tests/quest-camera-' + name + '.c')),
                          '-o', str(binary)], name + '-compile.log'), ([str(binary)], name + '-run.log')]
             for command, log in commands:
@@ -68,6 +77,8 @@ def run(args):
             binaries[name] = digest(binary)
         if inputs != {name: digest(ROOT / name) for name in INPUTS}:
             raise ValueError('Source changed during test')
+        if args.library and digest(library) != report['installed_library_sha256']:
+            raise ValueError('Installed library changed during test')
         report.update(status='passed', binaries_sha256=binaries)
     except Exception as error:
         report.update(status='failed', error=str(error))
@@ -81,4 +92,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('archive', type=Path)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--library', type=Path, help='Test a built Quest DSO instead of compiling transport sources')
     run(parser.parse_args())

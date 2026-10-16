@@ -921,3 +921,27 @@ partial copy-back, malformed handles and mapped extents, interrupted calls and
 positive ioctl returns. The preceding query, CRM and buffer tests also pass.
 These tests perform no device I/O and do not establish physical acquisition or
 memory coherency.
+
+
+`quest-camera-isp.c` encodes the Quest parser's 216-byte v2 acquire resource for
+one uncropped RAW8/RAW10 input and one RDI0–3 output. The pinned IFE parser still
+supports this version; no SFE, virtual, dual-ISP or cropped path is implied.
+It represents PHY 6 with its noncontiguous resource identifier. The separate
+24-byte PHY configuration differs from Pico's 32-byte payload: CPHY/combo mode
+is selected during acquisition, and the driver derives lane-enable bits from
+lane assignment. The encoder checks distinct lanes, mode-specific lane counts,
+unused lane nibbles and supported MIPI calibration flags. The settle field
+preserves the driver's division by 200,000,000 without assuming a time unit.
+
+The hardware-acquire wrapper uses the split v2 ioctl and retains the full
+five-resource/three-path response. Failure leaves that response unchanged but
+may already have acquired hardware. Hardware release is explicit; neither call
+establishes DMA quiescence. Actual sensor mode, lane wiring, bandwidth/clock
+votes and exposure timing must be supplied from verified device configuration.
+
+Native vendor-header sanitizer tests pass 1,049,227 geometry/PHY cases, including
+all 65,536 lane maps in each supported mode/count combination, plus twelve
+hardware acquire/release calls with injected errors. Payloads compare byte for
+byte with the pinned vendor structures, including reserved fields and unaligned
+output. The exact IFE parser version and bounds were inspected separately.
+This proves encoding and transport compatibility, not capture or hardware timing.

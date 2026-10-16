@@ -1,5 +1,6 @@
 #include "quest-camera-control.h"
 #include <errno.h>
+#include <string.h>
 #include <sys/ioctl.h>
 
 static int submit(int fd, uint32_t opcode, void *data, uint32_t size)
@@ -187,4 +188,31 @@ int quest_camera_phy_acquire(int fd, int32_t session, bool combo, bool cphy, int
 int quest_camera_isp_device_acquire(int fd, int32_t session, int32_t *device)
 {
     return acquire_device(fd, session, 0xfefefefe, NULL, device);
+}
+
+int quest_camera_isp_hardware_acquire(int fd, int32_t session, int32_t device,
+                                    const void *resource, size_t size,
+                                    struct quest_camera_isp_hardware *hardware)
+{
+    if (session <= 0 || device <= 0 || !resource || size != 216 || !hardware) return -EINVAL;
+    struct {
+        uint32_t version, reserved;
+        int32_t session, device;
+        uint32_t type, size;
+        uint64_t pointer;
+        struct quest_camera_isp_hardware hardware;
+    } data;
+    _Static_assert(sizeof(data) == 120, "ISP acquire hardware v2 ABI");
+    memset(&data, 0, sizeof(data));
+    data.version = 2; data.session = session; data.device = device;
+    data.type = 1; data.size = (uint32_t)size; data.pointer = (uintptr_t)resource;
+    int result = submit(fd, 0x151, &data, sizeof(data));
+    if (!result) *hardware = data.hardware;
+    return result;
+}
+int quest_camera_isp_hardware_release(int fd, int32_t session, int32_t device)
+{
+    if (session <= 0 || device <= 0) return -EINVAL;
+    int32_t data[4] = {1, 0, session, device};
+    return submit(fd, 0x152, data, sizeof(data));
 }

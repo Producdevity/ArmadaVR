@@ -55,4 +55,15 @@ int quest_camera_device_configure(int fd, int32_t session, int32_t device,
 int quest_camera_device_stream(int fd, int32_t session, int32_t device, bool start);
 int quest_camera_device_release(int fd, int32_t session, int32_t *device);
 
+struct quest_camera_isp_hardware {
+    uint32_t id[5], paths[5][3], valid;
+};
+/* The encoded 216-byte v2 resource must remain alive for this call. A failure
+ * may leave hardware acquired even when the output remains unchanged. A flush,
+ * successful release or closed descriptor alone does not prove DMA quiescence. */
+int quest_camera_isp_hardware_acquire(int fd, int32_t session, int32_t device,
+                                     const void *resource, size_t size,
+                                     struct quest_camera_isp_hardware *hardware);
+int quest_camera_isp_hardware_release(int fd, int32_t session, int32_t device);
+
 #endif
