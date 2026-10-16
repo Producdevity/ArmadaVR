@@ -1,5 +1,6 @@
 #include "quest-camera-shutter.h"
 #include <string.h>
+#include <errno.h>
 
 static uint64_t read_le(const uint8_t *p, unsigned count)
 {
@@ -36,4 +37,37 @@ bool quest_camera_shutter_decode(const void *payload, size_t length, uint32_t ca
     };
     memcpy(shutter, &result, sizeof(result));
     return true;
+}
+
+int quest_camera_shutter_select(const struct quest_camera_metadata *metadata,
+                                const struct quest_camera_match_window *window,
+                                const struct quest_camera_shutter_candidate *candidates, size_t count,
+                                struct quest_camera_shutter *shutter)
+{
+    if (!metadata || !window || !shutter || (count && !candidates) || count > 16 ||
+        (metadata->bits_per_pixel != 8 && metadata->bits_per_pixel != 10) ||
+        !window->generation || !window->camera_bit || (window->camera_bit & (window->camera_bit - 1u)) ||
+        window->now_ns <= 0 || window->max_age_ns <= 0 || window->max_age_ns > INT64_C(1000000000) ||
+        !window->minimum_timestamp_us || window->maximum_timestamp_us < window->minimum_timestamp_us ||
+        window->maximum_timestamp_us <= window->after_timestamp_us) return -EINVAL;
+    const struct quest_camera_shutter *match = NULL;
+    for (size_t i = 0; i < count; ++i) {
+        const struct quest_camera_shutter_candidate *candidate = &candidates[i];
+        if (candidate->generation != window->generation) continue;
+        const struct quest_camera_shutter *s = &candidate->shutter;
+        if (!s->camera_mask || !s->timestamp_us || candidate->received_ns <= 0 ||
+            candidate->received_ns > window->now_ns ||
+            (s->type != 6 && s->type != 21 && s->type != 22)) return -EPROTO;
+        if (!(s->camera_mask & window->camera_bit) ||
+            window->now_ns - candidate->received_ns > window->max_age_ns ||
+            s->timestamp_us <= window->after_timestamp_us ||
+            s->timestamp_us < window->minimum_timestamp_us || s->timestamp_us > window->maximum_timestamp_us) continue;
+        if ((window->require_auxiliary_tag || s->type == 22) && s->auxiliary_tag != metadata->auxiliary_tag) continue;
+        if (s->type != 21 && s->tag != metadata->tag) continue;
+        if (match) return -EEXIST;
+        match = s;
+    }
+    if (!match) return 0;
+    memmove(shutter, match, sizeof(*shutter));
+    return 1;
 }

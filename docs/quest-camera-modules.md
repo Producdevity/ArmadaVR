@@ -228,3 +228,18 @@ four supported trigger/independent combinations, all link counts, every master
 position, interrupted and failed ioctls, and preserved acquisition handles. The
 remaining camera startup owner must select the actual topology and coordinate
 MCU streaming with the ISP and PHY lifecycle before physical capture is usable.
+
+`quest_camera_shutter_select` now applies the stock OG01A1B/OV7251 matching rules
+within an explicit raw-timestamp interval for the current generation. Type 6
+checks the row tag, type 22 also checks the auxiliary tag, and type 21 requires
+only the camera mask unless the device's global auxiliary policy adds a check.
+The selector requires exactly one fresh match, excludes already consumed
+packet timestamps and leaves output untouched on ambiguity or malformed input.
+The owner must supply the verified interval and advance its consumption floor;
+this helper does not establish the image clock or exposure-center relationship.
+
+The tag predicates match 12,288 isolated calls through the current firmware's
+original ARM64 matcher, including all byte tags and both sensor types. Another
+6,188 sanitizer cases cover ambiguity, generation isolation, staleness, replay
+floors, exact interval boundaries and arithmetic extremes. Queue position and
+the wrapping embedded row counter are not used as frame identity.

@@ -235,6 +235,7 @@
     "quest_mcu_packet_send",
     "quest_mcu_reply_receive",
     "quest_camera_link_create_v3",
-    "quest_camera_links_synchronize_v2"
+    "quest_camera_links_synchronize_v2",
+    "quest_camera_shutter_select"
   ]
 }
