@@ -1235,9 +1235,11 @@ overlapping masks are rejected. Gamma is restricted to 0 or 1 instead of silentl
 masking arbitrary input, and unused second bytes must be zero.
 
 The caller must supply verified selectors, an allocated sequence and exclusive
-control ownership. The returned packet can be passed to the transaction owner as
-command type 3 and payload bytes after the three-byte transport header. Replies
-use type `0x7d` and the existing signed four-byte status decoder. Neither encoding
+control ownership. `quest_mcu_packet_send` takes the returned command type,
+allocated sequence and payload bytes after the three-byte transport header.
+Keep that sequence owned until response completion; the transaction helper
+allocates its own sequence and must not be given an already-owned sequence.
+Replies use type `0x7d` and the existing signed four-byte status decoder. Neither encoding
 nor an acknowledgement establishes physical timing, camera readiness or DMA
 quiescence. Frame-period configuration and the firmware library's additional
 NICE and local event updates are not inferred from this interface.
