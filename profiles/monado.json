@@ -259,6 +259,7 @@
     "quest_camera_stream_open",
     "quest_camera_stream_poll",
     "quest_camera_stream_stop",
-    "quest_camera_stream_destroy"
+    "quest_camera_stream_destroy",
+    "quest_camera_shutter_decode_fifo"
   ]
 }

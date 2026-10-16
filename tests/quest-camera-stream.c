@@ -78,9 +78,12 @@ int quest_test_clock(clockid_t clock, struct timespec *t)
     t->tv_sec=mock.now/1000000000;t->tv_nsec=mock.now%1000000000;return 0;
 }
 static bool shutter(void *p, uint64_t generation, uint32_t bit,
-                     const struct quest_camera_shutter *value, int64_t received)
+                     const struct quest_camera_shutter_record *record, int64_t received)
 {
     CHECK(p==&mock && generation==42 && mock.shutters<160 && received>0 && received<=mock.now);
+    const struct quest_camera_shutter *value=&record->shutter;
+    CHECK(record->nsync_offset_us==998500 && record->timestamp_ns==(int64_t)(value->timestamp_us+998500)*1000);
+    CHECK(record->sof_ns==(int64_t)(value->sof_us+998500)*1000);
     mock.bits[mock.shutters]=bit;mock.values[mock.shutters++]=*value;
     mock.now+=mock.callback_delay;return !mock.reject;
 }
@@ -92,14 +95,14 @@ static void invalidated(void *p, uint64_t generation, int error)
 static void reset(void) {memset(&mock,0,sizeof(mock));mock.now=1000000000;}
 static struct quest_camera_stream_config configuration(void)
 {
-    return (struct quest_camera_stream_config){42,{1,2,4,8},4,1000000,1000,&mock,shutter,invalidated};
+    return (struct quest_camera_stream_config){42,{1,2,4,8},4,1000000,5000000,1000,&mock,shutter,invalidated};
 }
 static void put(uint8_t *p, uint64_t n, unsigned size)
 { for(unsigned i=0;i<size;i++) p[i]=(uint8_t)(n>>(8*i)); }
 static size_t packet(uint8_t *p, unsigned version, unsigned type, uint32_t mask, uint64_t timestamp)
 {
     unsigned header=version==2?12:21;memset(p,0,header+92);
-    p[0]=(uint8_t)version;p[1]=(uint8_t)header;p[header]=254;p[header+2]=89;
+    p[0]=(uint8_t)version;p[1]=(uint8_t)header;p[3]=1;put(p+4,998500,8);p[header]=254;p[header+2]=89;
     uint8_t *body=p+header+3;body[0]=(uint8_t)type;put(body+1,mask,4);body[5]=29;
     put(body+6,timestamp,8);put(body+14,31,4);put(body+18,4000,2);put(body+20,32,2);
     put(body+24,timestamp+4,8);return header+92;
@@ -123,6 +126,7 @@ int main(void)
 #define BAD(expr) do {c=good;expr;CHECK(!quest_camera_stream_open(&c,&s) && !s && !mock.opens);} while(0)
     BAD(c.generation=0);BAD(c.camera_count=0);BAD(c.camera_count=5);BAD(c.camera_bits[0]=0);
     BAD(c.camera_bits[0]=3);BAD(c.camera_bits[1]=1);BAD(c.silence_ns=0);BAD(c.silence_ns=1000000001);
+    BAD(c.max_age_ns=0);BAD(c.max_age_ns=1000000001);
     BAD(c.max_gap_us=0);BAD(c.max_gap_us=1000001);BAD(c.shutter=NULL);BAD(c.invalidated=NULL);
     for(unsigned fault=0;fault<5;fault++) {
         reset();c=good;
@@ -151,7 +155,7 @@ int main(void)
     for(unsigned i=0;i<32;i++)n+=packet(mock.bytes+n,i%2+2,types[i%3],15,1000+i*10);
     mock.size=n;CHECK(quest_camera_stream_poll(s)==128 && mock.shutters==128);
     quest_camera_stream_stop(s);finish(&s,-ECANCELED);
-    for(unsigned fault=0;fault<17;fault++) {
+    for(unsigned fault=0;fault<22;fault++) {
         reset();s=start();mock.size=packet(mock.bytes,3,22,15,1000);int expected=-EPROTO;
         switch(fault) {
         case 0: mock.bytes[0]=4;break;
@@ -166,11 +170,16 @@ int main(void)
         case 9: put(mock.bytes+30,0,8);break;
         case 10: mock.bytes[mock.size++]=0;break;
         case 11: mock.size+=packet(mock.bytes+mock.size,3,22,15,1000);expected=-ERANGE;break;
-        case 12: mock.size+=packet(mock.bytes+mock.size,3,22,15,2001);expected=-ERANGE;break;
+        case 12: mock.size+=packet(mock.bytes+mock.size,3,22,15,2001);expected=-ETIMEDOUT;break;
         case 13: mock.read_error=EIO;expected=-EIO;break;
         case 14: mock.read_delay=1000000;expected=-ETIMEDOUT;break;
         case 15: mock.now--;expected=-ERANGE;break;
         case 16: mock.clock_error=EIO;expected=-ERANGE;break;
+        case 17: mock.bytes[3]=0;break;
+        case 18: mock.bytes[3]=2;break;
+        case 19: put(mock.bytes+4,1000000,8);expected=-ETIMEDOUT;break;
+        case 20: put(mock.bytes+4,1,8);expected=-ETIMEDOUT;break;
+        case 21: put(mock.bytes+48,2000,8);expected=-ETIMEDOUT;break;
         }
         CHECK(quest_camera_stream_poll(s)==expected && !mock.shutters);finish(&s,expected);
     }
@@ -188,5 +197,8 @@ int main(void)
     CHECK(quest_camera_stream_poll(s)==-ETIMEDOUT && mock.shutters==3);finish(&s,-ETIMEDOUT);
     reset();s=start();mock.size=packet(mock.bytes,3,22,15,1000);CHECK(quest_camera_stream_poll(s)==4);
     mock.size=packet(mock.bytes,3,22,15,999);CHECK(quest_camera_stream_poll(s)==-ERANGE && mock.shutters==4);finish(&s,-ERANGE);
+    reset();s=start();mock.size=packet(mock.bytes,3,22,15,1000);CHECK(quest_camera_stream_poll(s)==4);
+    mock.size=packet(mock.bytes,3,22,15,1010);put(mock.bytes+4,998480,8);
+    CHECK(quest_camera_stream_poll(s)==-ERANGE && mock.shutters==4);finish(&s,-ERANGE);
     printf("QUEST_CAMERA_STREAM_PASS checks=%u hardware=0\n",checks);
 }

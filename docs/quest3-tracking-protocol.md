@@ -1030,6 +1030,13 @@ timestamps and excessive gaps invalidate the generation. Per-camera silence
 deadlines prevent traffic from one sensor from keeping a stalled stereo partner
 alive. Reads and callback delivery are bounded and checked against monotonic time.
 
+`quest_camera_shutter_decode_fifo` retains the raw payload and signed NSYNC
+value while mapping both timestamp and SOF to CLOCK_MONOTONIC. This requires a
+valid local NSYNC status, checks signed addition/multiplication, and ignores the
+version-3 remote offset for this local HMD. The receiver rejects future or stale
+mapped times and per-camera regressions after an offset change. Raw and mapped
+times remain separate; this does not identify exposure center.
+
 The receiver closes its FIFO once on failure, including MCU driver messages,
 read errors, clock regression and consumer refusal. It does not start cameras
 or configure the MCU. Observation time is not exposure time: the capture owner

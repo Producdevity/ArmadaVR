@@ -40,6 +40,7 @@
         quest_camera_phy_encode;
         quest_camera_metadata_decode;
         quest_camera_shutter_decode;
+        quest_camera_shutter_decode_fifo;
         quest_camera_shutter_select;
         quest_camera_pixels_mono8;
         quest_camera_capture_create;

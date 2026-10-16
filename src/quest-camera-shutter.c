@@ -39,6 +39,40 @@ bool quest_camera_shutter_decode(const void *payload, size_t length, uint32_t ca
     return true;
 }
 
+static bool host_time(uint64_t time, uint64_t offset, int64_t *out)
+{
+    if (!time) return false;
+    if (offset & (UINT64_C(1) << 63)) {
+        uint64_t magnitude = ~offset + 1;
+        if (time <= magnitude) return false;
+        time -= magnitude;
+    } else {
+        if (time > UINT64_MAX - offset) return false;
+        time += offset;
+    }
+    if (time > INT64_MAX / UINT64_C(1000)) return false;
+    *out = (int64_t)time * INT64_C(1000);
+    return true;
+}
+bool quest_camera_shutter_decode_fifo(const void *record, size_t length, uint32_t camera_bit,
+                                       struct quest_camera_shutter_record *output)
+{
+    if (!record || !output || length < 3) return false;
+    const uint8_t *p = record;
+    if (!((p[0] == 2 && p[1] == 12) || (p[0] == 3 && p[1] == 21))) return false;
+    size_t header = p[1];
+    if (length < header + 3 || p[2] || p[3] != 1 || p[header] != 254 ||
+        p[header + 1] || p[header + 2] > 252 || length != header + 3 + p[header + 2]) return false;
+    struct quest_camera_shutter_record value = {0};
+    uint64_t offset = read_le(p + 4, 8);
+    memcpy(&value.nsync_offset_us, &offset, sizeof(offset));
+    if (!quest_camera_shutter_decode(p + header + 3, p[header + 2], camera_bit, &value.shutter) ||
+        !host_time(value.shutter.timestamp_us, offset, &value.timestamp_ns) ||
+        !host_time(value.shutter.sof_us, offset, &value.sof_ns)) return false;
+    *output = value;
+    return true;
+}
+
 int quest_camera_shutter_select(const struct quest_camera_metadata *metadata,
                                 const struct quest_camera_match_window *window,
                                 const struct quest_camera_shutter_candidate *candidates, size_t count,

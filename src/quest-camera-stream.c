@@ -17,6 +17,7 @@ struct quest_camera_stream {
     int fd, error;
     int64_t clock, received[4];
     uint64_t timestamp[4];
+    int64_t timestamp_ns[4], sof_ns[4];
 };
 static bool now_ns(int64_t *value)
 {
@@ -49,6 +50,7 @@ bool quest_camera_stream_open(const struct quest_camera_stream_config *c,
 {
     if (!c || !stream || *stream || !c->generation || !c->camera_count || c->camera_count > 4 ||
         c->silence_ns <= 0 || c->silence_ns > INT64_C(1000000000) ||
+        c->max_age_ns <= 0 || c->max_age_ns > INT64_C(1000000000) ||
         !c->max_gap_us || c->max_gap_us > UINT64_C(1000000) || !c->shutter || !c->invalidated) return false;
     uint32_t mask = 0;
     for (size_t i = 0; i < c->camera_count; ++i) {
@@ -73,8 +75,10 @@ bool quest_camera_stream_open(const struct quest_camera_stream_config *c,
 }
 static int batch(struct quest_camera_stream *s, const uint8_t *data, size_t size, int64_t received)
 {
-    struct { struct quest_camera_shutter shutter; unsigned index; } values[160];
+    struct { struct quest_camera_shutter_record record; unsigned index; } values[160];
     uint64_t timestamps[4]; memcpy(timestamps, s->timestamp, sizeof(timestamps));
+    int64_t times[4], sofs[4];
+    memcpy(times, s->timestamp_ns, sizeof(times)); memcpy(sofs, s->sof_ns, sizeof(sofs));
     size_t pos = 0, count = 0;
     while (pos < size) {
         const uint8_t *p = data + pos;
@@ -89,27 +93,35 @@ static int batch(struct quest_camera_stream *s, const uint8_t *data, size_t size
         const uint8_t *payload = p + header + 3;
         uint32_t mask = 0;
         for (unsigned i = 0; i < 4; ++i) mask |= (uint32_t)payload[1 + i] << (8 * i);
-        struct quest_camera_shutter checked;
-        if (!mask || !quest_camera_shutter_decode(payload, payload_size, mask & (0u - mask), &checked) ||
-            !checked.timestamp_us) return fail(s, -EPROTO);
+        struct quest_camera_shutter_record checked;
+        if (!mask || !quest_camera_shutter_decode_fifo(p, length, mask & (0u - mask), &checked)) return fail(s, -EPROTO);
         for (unsigned i = 0; i < s->config.camera_count; ++i) {
             if (!(mask & s->config.camera_bits[i])) continue;
-            if (count == 160 || !quest_camera_shutter_decode(payload, payload_size, s->config.camera_bits[i], &values[count].shutter))
+            if (count == 160 || !quest_camera_shutter_decode_fifo(p, length, s->config.camera_bits[i], &values[count].record))
                 return fail(s, -EPROTO);
-            uint64_t t = values[count].shutter.timestamp_us;
+            const struct quest_camera_shutter_record *record = &values[count].record;
+            uint64_t t = record->shutter.timestamp_us;
+            if (record->timestamp_ns <= times[i] || record->sof_ns <= sofs[i]) return fail(s, -ERANGE);
+            if (record->timestamp_ns > received || record->sof_ns > received ||
+                received - record->timestamp_ns > s->config.max_age_ns ||
+                received - record->sof_ns > s->config.max_age_ns) return fail(s, -ETIMEDOUT);
+            times[i] = record->timestamp_ns; sofs[i] = record->sof_ns;
             if (timestamps[i] && (t <= timestamps[i] || t - timestamps[i] > s->config.max_gap_us)) return fail(s, -ERANGE);
             timestamps[i] = t; values[count++].index = i;
         }
         pos += length;
     }
     memcpy(s->timestamp, timestamps, sizeof(timestamps));
+    memcpy(s->timestamp_ns, times, sizeof(times)); memcpy(s->sof_ns, sofs, sizeof(sofs));
     for (size_t i = 0; i < count; ++i) s->received[values[i].index] = received;
     for (size_t i = 0; i < count; ++i) {
         int64_t now;
         if (check_clock(s, &now)) return s->error;
-        if (now - received >= s->config.silence_ns) return fail(s, -ETIMEDOUT);
+        if (now - received >= s->config.silence_ns ||
+            now - values[i].record.timestamp_ns > s->config.max_age_ns ||
+            now - values[i].record.sof_ns > s->config.max_age_ns) return fail(s, -ETIMEDOUT);
         if (!s->config.shutter(s->config.userdata, s->config.generation,
-            s->config.camera_bits[values[i].index], &values[i].shutter, received)) return fail(s, -EPIPE);
+            s->config.camera_bits[values[i].index], &values[i].record, received)) return fail(s, -EPIPE);
     }
     return (int)count;
 }

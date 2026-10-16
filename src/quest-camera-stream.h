@@ -7,11 +7,11 @@ struct quest_camera_stream_config {
     uint64_t generation;
     uint32_t camera_bits[4];
     size_t camera_count;
-    int64_t silence_ns;
+    int64_t silence_ns, max_age_ns;
     uint64_t max_gap_us;
     void *userdata;
     bool (*shutter)(void *userdata, uint64_t generation, uint32_t camera_bit,
-                    const struct quest_camera_shutter *shutter, int64_t received_ns);
+                    const struct quest_camera_shutter_record *record, int64_t received_ns);
     void (*invalidated)(void *userdata, uint64_t generation, int error);
 };
 
@@ -23,10 +23,10 @@ bool quest_camera_stream_open(const struct quest_camera_stream_config *config,
                               struct quest_camera_stream **stream);
 /* At most eight 4 KiB reads. Validate each complete batch before publishing any
  * shutter. Selected cameras have independent silence and raw timestamp checks.
- * Return delivered records or negative errno. Raw MCU times remain unconverted;
- * received_ns measures FIFO observation, not exposure or capture freshness.
+ * Return delivered records or negative errno. Raw MCU fields are preserved;
+ * record includes explicit NSYNC mapping; received_ns measures FIFO observation.
  * The consumer must establish the camera/IMU clock relationship independently
- * and reject stale shutters when matching them to captured images. */
+ * and establish exposure center when matching shutters to captured images. */
 int quest_camera_stream_poll(struct quest_camera_stream *stream);
 void quest_camera_stream_stop(struct quest_camera_stream *stream);
 /* Closing this copied FIFO only releases this client's queue. It does not prove

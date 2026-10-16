@@ -22,6 +22,17 @@ struct quest_camera_shutter {
  * In particular, type 21 does not require a matching row tag in the stock code. */
 bool quest_camera_shutter_decode(const void *payload, size_t length, uint32_t camera_bit,
                                   struct quest_camera_shutter *shutter);
+struct quest_camera_shutter_record {
+    struct quest_camera_shutter shutter;
+    int64_t timestamp_ns, sof_ns, nsync_offset_us;
+};
+/* One local-HMD copied FIFO record with a valid NSYNC offset. Map both MCU
+ * timestamps to CLOCK_MONOTONIC, retaining their distinct raw fields. Reject
+ * zero times, negative/overflowing mappings, nonzero sequence and malformed
+ * framing. The v3 remote offset is not used for this local HMD. This conversion
+ * establishes neither exposure center nor camera-to-IMU timing accuracy. */
+bool quest_camera_shutter_decode_fifo(const void *record, size_t length, uint32_t camera_bit,
+                                       struct quest_camera_shutter_record *output);
 struct quest_camera_shutter_candidate {
     struct quest_camera_shutter shutter;
     uint64_t generation;
