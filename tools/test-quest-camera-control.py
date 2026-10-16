@@ -16,7 +16,7 @@ INPUTS = ('src/quest-mcu-control.c', 'src/quest-mcu-control.h',
           'src/quest-camera-isp.c', 'src/quest-camera-isp.h', 'tests/quest-camera-isp.c',
           'src/quest-camera-memory.c', 'src/quest-camera-memory.h',
           'tests/quest-camera-memory.c', 'tests/quest-camera-acquire.c', 'src/quest-camera-buffer.c', 'src/quest-camera-buffer.h', 'tests/quest-camera-buffer.c',
-          'tests/quest-camera-control.c', 'tests/quest-camera-request.c', 'tools/test-quest-camera-control.py')
+          'tests/quest-camera-control.c', 'tests/quest-camera-request.c', 'tests/quest-camera-link.c', 'tools/test-quest-camera-control.py')
 
 
 def digest(path):
@@ -60,6 +60,7 @@ def run(args):
         binaries = {}
         for name, marker in [('control', 'QUEST_CAMERA_QUERY_PASS ioctls=30 hardware=0 isp_entries=8'),
                              ('request', 'QUEST_CAMERA_REQUEST_PASS ioctls=282 cases=311 hardware=0 preserved_failure_handles=1'),
+                             ('link', 'QUEST_CAMERA_LINK_PASS '),
                              ('acquire', 'QUEST_CAMERA_ACQUIRE_PASS ioctls=318 hardware=0'),
                              ('memory', 'QUEST_CAMERA_MEMORY_PASS ioctls=6558 hardware=0'),
                              ('isp', 'QUEST_CAMERA_ISP_PASS cases=1049227 ioctls=12 hardware=0'),

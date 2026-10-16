@@ -25,8 +25,10 @@ int quest_camera_buffers_configure(int fd, int32_t session, int32_t device,
 /* GET uses zero wait timeout and accepts exactly one returned frame. Match its
  * ID to an owned buffer before accessing pixels; output is unchanged on error.
  * qtimer_ns is the buffer's captured SOF, not exposure center. The vendor fills
- * observed_monotonic_ns from the current context at dequeue, so it must NOT be
- * treated as a same-frame clock-alignment sample. */
+ * observed_monotonic_ns from the current context at dequeue in the stock kernel.
+ * Patch 0007 saves that observation with each queued image. Require that exact
+ * kernel fix before using the pair for alignment; neither value is exposure
+ * center, and the timestamp sampling uncertainty must still be established. */
 int quest_camera_buffer_get(int fd, int32_t session, int32_t device, struct quest_camera_frame *frame);
 /* Return one held buffer only after the consumer and CPU cache access finish.
  * GET and RETURN are separate calls so partial compound completion is avoided. */

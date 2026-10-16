@@ -209,3 +209,22 @@ The native camera-control test checks the sequence ioctls against the pinned
 Syncboss header and exercises the metadata query through modeled writes and
 v2/v3 replies. Failure tests preserve sequence ownership where release failed
 and prevent malformed replies from overwriting caller output.
+
+The camera request transport also provides the Quest V3 link operation with an
+explicit streaming/triggered mode and independent-CRM flag. The current stock
+CSL library uses this 1,040-byte layout. The maintained API bounds each link to
+eight owned devices, clears unused entries and retains a positive returned
+handle even on failure. A failed ioctl can still have created kernel state.
+
+The V2 synchronization operation supports one to sixteen explicit link
+descriptors (link handle, sensor ID and local/remote flag). The pinned kernel
+accepts those fields but does not use the master, sensor ID or remote flag in
+its synchronization implementation. This operation therefore does not establish
+MCU frame synchronization or select the physical master. No remote sensor is
+acquired by these additions.
+
+ARM64 tests against the pinned vendor headers pass 1,912 cases, including all
+four supported trigger/independent combinations, all link counts, every master
+position, interrupted and failed ioctls, and preserved acquisition handles. The
+remaining camera startup owner must select the actual topology and coordinate
+MCU streaming with the ISP and PHY lifecycle before physical capture is usable.

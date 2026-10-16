@@ -94,6 +94,50 @@ int quest_camera_link_create(int fd, int32_t session, const int32_t *devices, si
     return result ? result : data.link > 0 ? 0 : -EPROTO;
 }
 
+int quest_camera_link_create_v3(int fd, int32_t session, const int32_t *devices, size_t count,
+                                enum quest_camera_link_mode mode, bool independent, int32_t *link)
+{
+    if (session <= 0 || !devices || !count || count > 8 || !link || *link ||
+        (mode != QUEST_CAMERA_LINK_STREAMING && mode != QUEST_CAMERA_LINK_TRIGGERED)) return -EINVAL;
+    struct { int32_t session; uint32_t count; int32_t devices[256], link; uint32_t trigger; } data = {0};
+    _Static_assert(sizeof(data) == 1040, "Quest CRM v3 link ABI");
+    for (size_t i = 0; i < count; ++i) {
+        if (devices[i] <= 0) return -EINVAL;
+        for (size_t j = 0; j < i; ++j) if (devices[i] == devices[j]) return -EINVAL;
+        data.devices[i] = devices[i];
+    }
+    data.session = session; data.count = (uint32_t)count;
+    data.trigger = (uint32_t)mode | (independent ? 4u : 0u);
+    int result = submit(fd, 0x11d, &data, sizeof(data));
+    if (data.link > 0) *link = data.link;
+    return result ? result : data.link > 0 ? 0 : -EPROTO;
+}
+
+int quest_camera_links_synchronize_v2(int fd, int32_t session,
+                                      const struct quest_camera_sync_link *links, size_t count,
+                                      bool enabled, int32_t master)
+{
+    if (session <= 0 || !links || !count || count > 16 || (!enabled && master)) return -EINVAL;
+    struct {
+        uint32_t version;
+        int32_t count, session, mode, master;
+        uint32_t reserved;
+        struct { int32_t link, sensor; uint32_t remote, reserved; } links[16];
+    } data = {.version = 2, .count = (int32_t)count, .session = session, .mode = enabled, .master = master};
+    _Static_assert(sizeof(data) == 280, "Quest CRM v2 sync ABI");
+    bool found = false;
+    for (size_t i = 0; i < count; ++i) {
+        if (links[i].link <= 0 || links[i].sensor_id < 0) return -EINVAL;
+        for (size_t j = 0; j < i; ++j) if (links[i].link == links[j].link) return -EINVAL;
+        data.links[i].link = links[i].link;
+        data.links[i].sensor = links[i].sensor_id;
+        data.links[i].remote = links[i].remote;
+        found |= links[i].link == master;
+    }
+    if (enabled && !found) return -EINVAL;
+    return submit(fd, 0x11f, &data, 24u + 16u * (uint32_t)count);
+}
+
 int quest_camera_link_destroy(int fd, int32_t session, int32_t *link)
 {
     if (session <= 0 || !link || *link <= 0) return -EINVAL;

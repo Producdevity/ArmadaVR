@@ -233,6 +233,8 @@
     "quest_mcu_sequence_allocate",
     "quest_mcu_sequence_release",
     "quest_mcu_packet_send",
-    "quest_mcu_reply_receive"
+    "quest_mcu_reply_receive",
+    "quest_camera_link_create_v3",
+    "quest_camera_links_synchronize_v2"
   ]
 }

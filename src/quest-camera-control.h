@@ -29,10 +29,28 @@ int quest_camera_isp_query(int fd, struct quest_camera_isp_capabilities *caps);
  * Even a failure without a returned handle can have changed kernel state.
  * The owner must stop and establish quiescence before reuse. Flush is not proof
  * of DMA quiescence. V1 links support 2-8 already acquired devices, excluding PHY.
- * Remote sensors and trigger-mode V3 links are not supported here. */
+ * Remote sensor acquisition is not implemented here. */
 int quest_camera_session_create(int fd, int32_t *session);
 int quest_camera_session_destroy(int fd, int32_t *session);
 int quest_camera_link_create(int fd, int32_t session, const int32_t *devices, size_t count, int32_t *link);
+enum quest_camera_link_mode {
+    QUEST_CAMERA_LINK_STREAMING = 1,
+    QUEST_CAMERA_LINK_TRIGGERED = 2,
+};
+/* V3 supports 1-8 owned devices and an explicit trigger mode. Independent CRM
+ * bypasses normal request-manager scheduling and must match the device setup.
+ * Positive output handles survive failure as with the legacy link interface. */
+int quest_camera_link_create_v3(int fd, int32_t session, const int32_t *devices, size_t count,
+                                enum quest_camera_link_mode mode, bool independent, int32_t *link);
+struct quest_camera_sync_link { int32_t link, sensor_id; bool remote; };
+/* V2 handles up to 16 links. Sensor IDs and remote flags describe the supplied
+ * topology; this does not acquire remote sensors or configure MCU frame sync.
+ * The pinned kernel accepts but does not use master/sensor/remote fields in this
+ * operation. Disabling synchronization requires master=0; enabling requires a
+ * member handle. Hardware master selection must be established separately. */
+int quest_camera_links_synchronize_v2(int fd, int32_t session,
+                                      const struct quest_camera_sync_link *links, size_t count,
+                                      bool enabled, int32_t master);
 int quest_camera_link_destroy(int fd, int32_t session, int32_t *link);
 int quest_camera_link_activate(int fd, int32_t session, int32_t link, bool active);
 int quest_camera_links_synchronize(int fd, int32_t session, const int32_t links[2], int32_t master);

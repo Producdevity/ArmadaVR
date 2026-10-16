@@ -14,6 +14,8 @@
         quest_camera_session_create;
         quest_camera_session_destroy;
         quest_camera_link_create;
+        quest_camera_link_create_v3;
+        quest_camera_links_synchronize_v2;
         quest_camera_link_destroy;
         quest_camera_link_activate;
         quest_camera_links_synchronize;
