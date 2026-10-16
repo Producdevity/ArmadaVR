@@ -48,5 +48,9 @@
         quest_camera_bandwidth_blob;
         quest_camera_metadata_query_encode;
         quest_camera_metadata_reply_decode;
+        quest_mcu_sequence_allocate;
+        quest_mcu_sequence_release;
+        quest_mcu_packet_send;
+        quest_mcu_reply_receive;
     local: *;
 };

@@ -195,3 +195,17 @@ The maintained encoder/decoder matches 1,000 isolated calls through the original
 metadata-fetch routine with synthetic responses. Another 40,734 sanitizer cases
 cover sequences, camera masks, count limits, guarded payload truncations and
 unchanged output on failure. No query was sent to a physical MCU.
+
+`quest-mcu-control.c` supplies sequence allocation/release, one-attempt packet
+writes and bounded control-reply reads using explicit, already owned descriptors.
+The separate control FIFO returns one copied record per read, unlike the stream
+FIFO's batch interface. Replies must match type, sequence and exact payload size;
+driver messages invalidate the channel, and foreign sequences are ignored only
+after complete record validation. A failed or short write is never retried.
+The owner still supplies deadlines, MCU generation checks, node ownership and
+startup/shutdown ordering. These primitives do not open or enable the MCU.
+
+The native camera-control test checks the sequence ioctls against the pinned
+Syncboss header and exercises the metadata query through modeled writes and
+v2/v3 replies. Failure tests preserve sequence ownership where release failed
+and prevent malformed replies from overwriting caller output.

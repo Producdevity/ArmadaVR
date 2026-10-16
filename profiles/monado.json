@@ -177,7 +177,9 @@
     "quest-camera-blob.c",
     "quest-camera-blob.h",
     "quest-camera-mcu.c",
-    "quest-camera-mcu.h"
+    "quest-camera-mcu.h",
+    "quest-mcu-control.c",
+    "quest-mcu-control.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -227,6 +229,10 @@
     "quest_camera_hfr_blob",
     "quest_camera_bandwidth_blob",
     "quest_camera_metadata_query_encode",
-    "quest_camera_metadata_reply_decode"
+    "quest_camera_metadata_reply_decode",
+    "quest_mcu_sequence_allocate",
+    "quest_mcu_sequence_release",
+    "quest_mcu_packet_send",
+    "quest_mcu_reply_receive"
   ]
 }
