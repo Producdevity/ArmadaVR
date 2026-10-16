@@ -114,7 +114,7 @@ def main():
     source_paths = ['tools/build-basalt.py', 'profiles/basalt.json', 'profiles/monado.json', 'src/pico-camera.c', 'src/pico-camera.h', 'src/pico-camera-capture.c', 'src/pico-camera-capture.h', 'src/pico-camera-stream.c', 'src/pico-camera-stream.h', 'src/pico-camera-events.c', 'src/pico-camera-events.h', 'src/pico-camera-control.h', 'src/pico-slam-imu.c', 'src/pico-slam-imu.h', 'src/ssc-calibration.h', 'src/ssc-imu.h', 'src/ssc-clock.h', 'src/pico-slam-input.c', 'src/pico-slam-input.h', 'src/pico-slam-tracking.c', 'src/pico-slam-tracking.h', 'src/pico-slam-session.c', 'src/pico-slam-session.h',
                     'src/pico-camera-transport.c', 'src/pico-camera-transport.h', 'src/pico-camera-request.c', 'src/pico-camera-request.h',
                     'src/pico-camera-control.c', 'src/pico-camera-isp.c', 'src/pico-camera-isp.h', 'src/pico-camera-buffer.h', 'src/ion-buffer.h',
-                    'tests/pico-camera-replay.c', 'tests/pico-camera-replay.h', 'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
+                    'tests/quest-camera-replay.cpp', 'tests/pico-camera-replay.c', 'tests/pico-camera-replay.h', 'tests/pico-slam-replay.cpp', 'tests/basalt-lifecycle.cpp', 'tests/basalt-input.cpp', 'tools/test-pico-slam-replay.py', 'profiles/slam-replay.json']
     for part in ('sensor', 'sensor-setup', 'session', 'rig', 'ife', 'front-end', 'pipeline'):
         source_paths += ['src/pico-camera-' + part + suffix for suffix in ('.c', '.h')]
     for part in ('runtime', 'live'):
@@ -175,7 +175,7 @@ for fault in camera-silence clock-regression; do
 done
 /out/installed-live-replay /dataset /out/bounded.toml /out/poses-installed-live.csv /pico-runtime/lib64/libpico_tracking.so > /out/installed-live-replay.log 2>&1
 cc -std=gnu11 $flags -c /repo/tests/quest-slam-replay-io.c -o /out/quest-replay-io.o
-c++ -std=c++17 $flags -pthread -I/source/thirdparty/vit /repo/tests/quest-slam-replay.cpp /out/quest-replay-io.o $(pkg-config --cflags --libs opencv4) -L/pico-runtime/lib64 -lquest_tracking -L/opt/reframed-vr/basalt/lib64 -lbasalt -Wl,--export-dynamic -ldl -o /out/quest-replay
+c++ -std=c++17 $flags -pthread -I/source/thirdparty/vit /repo/tests/quest-slam-replay.cpp /repo/tests/quest-camera-replay.cpp /out/quest-replay-io.o $(pkg-config --cflags --libs opencv4) -L/pico-runtime/lib64 -lquest_tracking -L/opt/reframed-vr/basalt/lib64 -lbasalt -Wl,--export-dynamic -ldl -o /out/quest-replay
 for fault in camera-silence clock-regression; do
     /out/quest-replay /dataset /out/bounded.toml /out/poses-quest-$fault.csv /pico-runtime/lib64/libquest_tracking.so $fault > /out/quest-$fault.log 2>&1
 done
@@ -316,7 +316,8 @@ done
             quest = {}
             for cause in ('camera-silence', 'clock-regression', 'normal'):
                 quest_log = (args.output / f'quest-{cause}.log').read_text()
-                if ('QUEST_INSTALLED_HMD_PASS poses=184 stopped_invalid=1 borrowed_runtime=1' not in quest_log or
+                if ('QUEST_INSTALLED_CAPTURE_PASS images=370 shutter_fifo=1 row_decode=1 mono8_copy=1 buffer_returns=370 modeled_clock=1 modeled_dma=1 hardware=0' not in quest_log or
+                        'QUEST_INSTALLED_HMD_PASS poses=184 stopped_invalid=1 borrowed_runtime=1' not in quest_log or
                         not re.search(r'QUEST_SLAM_REPLAY_PASS poses=185 images=370 imu=[0-9]+ head_poses=184 startup_skipped=1 modeled_fifo=1 stopped_invalid=1 installed_library=1', quest_log) or
                         (cause != 'normal' and f'QUEST_SLAM_FAULT_PASS cause={cause} invalid_before_explicit_stop=1 implicit_restart=0' not in quest_log)):
                     raise ValueError('Installed Quest replay did not finish: ' + cause)
@@ -325,6 +326,9 @@ done
                     raise ValueError('Installed Quest trajectory acceptance failed: ' + cause)
                 quest[cause] = {'trajectory': metrics, 'log_sha256': digest(args.output / f'quest-{cause}.log')}
             report['installed_quest_replay'] = quest
+            report['installed_quest_capture'] = {'images': 370, 'shutter_fifo': True, 'embedded_metadata': True,
+                                                 'buffer_returns': 370, 'clock_and_dma_modeled': True,
+                                                 'physical_capture_verified': False}
             report['installed_quest_binary_sha256'] = digest(args.output / 'quest-replay')
         if inputs != {name: digest(ROOT / name) for name in source_paths}:
             raise ValueError('Replay sources changed during testing')

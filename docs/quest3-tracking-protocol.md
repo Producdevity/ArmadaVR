@@ -1044,3 +1044,13 @@ still requires a verified shutter-to-image clock window and exposure-center
 conversion. Restart/suspend detection and camera DMA quiescence remain external.
 Sanitizer tests use modeled transport and the pinned filter ABI; they do not
 establish live camera delivery.
+
+The installed reference replay also routes 370 images through this FIFO receiver
+and the capture owner before Basalt. It decodes a synthetic embedded metadata
+row, alternates shutter/image arrival order, checks copied mono8 pixels, returns
+each buffer once and poisons it immediately after return. Both camera-silence
+and clock-regression scenarios still invalidate the HMD pose provider.
+The FIFO, ISP dequeue, CPU synchronization, row contents and exposure-center
+relationship are explicit test models; image/IMU inputs and calibration remain
+the Valve Index reference dataset. This closes the offline component connection
+without claiming native Quest camera startup or hardware timing validation.

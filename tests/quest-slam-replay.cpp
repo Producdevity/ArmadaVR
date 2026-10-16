@@ -6,6 +6,11 @@ extern "C" {
 void quest_replay_clock(int64_t value);
 void quest_replay_feed(int64_t stamp, const double accel[3], const double gyro[3]);
 void quest_replay_finish(void);
+void quest_camera_replay_start(struct quest_slam_runtime *, uint32_t, uint32_t, int64_t);
+void quest_camera_replay_feed(unsigned, const uint8_t *, size_t, int64_t, uint64_t, int64_t);
+void quest_camera_replay_poll(int64_t);
+void quest_camera_replay_frame(int64_t, uint64_t, int64_t);
+void quest_camera_replay_finish(unsigned);
 }
 #include <chrono>
 #include <cmath>
@@ -84,12 +89,13 @@ int main(int argc,char **argv)
     xrt_device *hmd=nullptr;CHECK(quest_monado_hmd_create(&hmd_config,&hmd));
     CHECK(hmd->update_inputs(hmd)==XRT_SUCCESS && !hmd->inputs[0].active);
     CHECK(quest_slam_runtime_start(runtime));
+    quest_camera_replay_start(runtime,first.cols,first.rows,now);
     size_t received=999; CHECK(quest_slam_runtime_poll(runtime,&received)==0 && !received);
     std::ofstream output(argv[3]);CHECK(output.good());output.precision(12);
     output<<"timestamp_ns,x,y,z,qx,qy,qz,qw\n";
     unsigned poses=0,heads=0,skipped=0,hmd_poses=0,view_pairs=0,active_inputs=0,predictions=0;int64_t last=0;
     auto poll=[&] {
-        quest_replay_clock(now);CHECK(quest_slam_runtime_poll(runtime,&received)==1 && received==observed.size());
+        quest_replay_clock(now);quest_camera_replay_poll(now);CHECK(quest_slam_runtime_poll(runtime,&received)==1 && received==observed.size());
         for(const auto &p:observed) {
             CHECK(p.timestamp>last);last=p.timestamp;
             output<<p.timestamp<<','<<p.px<<','<<p.py<<','<<p.pz<<','<<p.ox<<','<<p.oy<<','<<p.oz<<','<<p.ow<<'\n';
@@ -134,9 +140,9 @@ int main(int argc,char **argv)
                 const auto &row=i?right[ci]:left[ci];CHECK(std::filesystem::path(row[1]).filename()==row[1]);
                 auto img=cv::imread((root/(i?"mav0/cam1/data":"mav0/cam0/data")/row[1]).string(),cv::IMREAD_GRAYSCALE);
                 CHECK(img.cols==first.cols && img.rows==first.rows && img.isContinuous());
-                pico_slam_mono8_frame f{(uint8_t)i,(uint32_t)img.cols,(uint32_t)img.rows,img.step,img.total(),img.data,time,ci};
-                CHECK(quest_slam_runtime_camera(runtime,42,&f));img.setTo(0xa5);
+                quest_camera_replay_feed(i,img.data,img.total(),time,ci,now);img.setTo(0xa5);
             }
+            quest_camera_replay_frame(time,ci,now);
             ++ci;
         }
         poll();auto limit=std::chrono::steady_clock::now()+std::chrono::seconds(15);
@@ -168,6 +174,7 @@ int main(int argc,char **argv)
     CHECK(hmd->get_tracked_pose(hmd,XRT_INPUT_GENERIC_HEAD_POSE,last,&stopped)==XRT_SUCCESS && !stopped.relation_flags);
     hmd->destroy(hmd);hmd=nullptr;CHECK(hmd_poses==heads && view_pairs==heads && active_inputs>0 && predictions>0);
     printf("QUEST_INSTALLED_HMD_PASS poses=%u stopped_invalid=1 borrowed_runtime=1 stereo_views=%u active_inputs=%u predictions=%u synthetic_optics=1\n",hmd_poses,view_pairs,active_inputs,predictions);
+    quest_camera_replay_finish(images);
     quest_slam_runtime_destroy(&runtime);CHECK(!runtime);quest_replay_finish();
     CHECK(skipped==1 && imus==inertial.size()+fault_imus && poses==left.size()-1 && images==poses*2 && heads>=180);
     printf("QUEST_SLAM_REPLAY_PASS poses=%u images=%u imu=%u head_poses=%u startup_skipped=%u modeled_fifo=1 stopped_invalid=1 installed_library=1\n",poses,images,imus,heads,skipped);
