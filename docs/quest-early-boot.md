@@ -177,3 +177,25 @@ The eight-case suite also checks mapper failure after root handoff. Its result
 records modeled hardware explicitly: library loading does not prove camera
 capture, GPU execution, physical firmware loading or headset boot acceptance.
 The legacy lab-root path retains its rendering and FEX acceptance checks.
+
+## Camera-runtime integration verification
+
+The October 16 rebuild includes the camera sensor, PHY, power and streaming
+cleanup fixes. The physical build verifies 272 modules and 15,289 versioned
+imports; its QEMU counterpart verifies 272 modules and 15,682 imports. Both
+retain their own configuration and artifact identities.
+
+The matching Quest root contains the native camera/IMU capture and Basalt
+runtime. All eight startup cases pass with this kernel and root, including
+handoff, refusal of a second ADSP request and shutdown after mapper failure.
+The backing root remains unchanged. A separate diskless graphics test passes
+352 format/modifier checks and 192 image-lifecycle cases using virtio DRM.
+It does not execute KGSL or a headset panel.
+
+The private `output/quest-offline-parity-20261015-v1/quest-first-boot-set.json`
+binds the physical kernel, initramfs, unsigned containers and external root to
+their checksums and corresponding offline tests. It is an artifact inventory,
+not an installation authorization. The runtime still requires measured camera
+routing, operating settings, timing and optical calibration. Accepted custom
+boot, RAM/peripheral handoff and independent restoration remain device gates.
+The previously observed unbootable B slot is not a recovery fallback.

@@ -296,8 +296,12 @@ Private audit and current-source receipts:
 ## Prepared artifact set
 
 The current private runtime set is
-`output/pico-camera-sensor-stop-20261015-v1/first-boot-set.json`; its matching
-recovery references are in `recovery-session-set.json` in the same directory.
+`output/quest-offline-parity-20261015-v1/pico-first-boot-set.json`; its matching
+recovery references are in `pico-recovery-session-set.json` in the same directory.
+This refresh includes the current native runtime, a new read-only USB-root VM
+check and matching boot/display assembly. The earlier
+`output/pico-camera-sensor-stop-20261015-v1/first-boot-set.json` remains preserved.
+Its bounded diagnostic and kernel with signed modules are unchanged.
 The set binds the diagnostic, kernel, runtime container, external root, panel
 overlay, native package receipts and verification reports by size and SHA-256.
 Recheck those identities before use; do not combine a historical root with a

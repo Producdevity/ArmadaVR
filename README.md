@@ -17,6 +17,8 @@ virtual target for functional tests.
 | Area | Verified | Remaining |
 |---|---|---|
 | Quest kernel | ARM64 kernel, 272 modules and 14 device-tree artifacts compile; QEMU checks userspace interfaces and simulated thermal behavior | Exact-device boot and peripheral operation |
+| Quest cameras | Sensor/PHY/IFE setup, stream packets, DMA ownership, MCU commands and timestamped capture tested against retained stock code and the vendor kernel, including failure cleanup | Active camera routing/settings, exposure timing, physical capture and shutdown |
+| Quest tracking | Installed ARM64 runtime connects FIFO/IMU input, stereo capture, calibrated geometry and Basalt; reference replay and tracking-loss tests pass | Exact-device camera/IMU alignment, active calibration, controller poses and physical 6DoF |
 | Pico kernel | Vendor/Linux builds with 38 modules; Binder, namespace networking and SELinux denial checks pass in QEMU | Physical driver operation, recovery and exact-device boot |
 | Pico userspace | Matched native root and unsigned boot containers assembled; QEMU root boots, starts user sessions, enforces service isolation and powers off without disk writes | Physical root transport, complete application stack and hardware startup |
 | Pico HMD | Monado HMD with explicit calibration input; orientation, stereo geometry, both controllers and tracking-loss handling pass with synthetic SSC streams | Device calibration, panel output, controller poses and positional tracking |
