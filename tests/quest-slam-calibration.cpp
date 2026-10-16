@@ -42,13 +42,20 @@ int main(int argc, char **argv)
         Eigen::Matrix4d device_from_camera;
         for (int row=0; row<4; ++row) for (int col=0; col<4; ++col) reference >> device_from_camera(row,col);
         int width,height; reference >> width >> height; CHECK(reference.good());
-        CHECK(calibration.resolution[i][0]==width && calibration.resolution[i][1]==height);
+        int scaled_width,scaled_height,crop_width,crop_height; double origin;
+        reference >> scaled_width >> scaled_height >> crop_width >> crop_height >> origin;
+        CHECK(reference.good() && width>0 && height>0 && (origin==.5 || origin==1));
+        const double scale=double(scaled_width)/width;
+        CHECK(scaled_width*height==scaled_height*width);
+        CHECK(calibration.resolution[i][0]==crop_width && calibration.resolution[i][1]==crop_height);
         CHECK((calibration.T_i_c[i].matrix()-device_from_imu.inverse()*device_from_camera).norm()<1e-12);
         const auto &camera=calibration.intrinsics[i]; CHECK(camera.getName()=="fisheye624");
         for (unsigned n=0; n<=2000; ++n) {
             double radius=n==0?0:1.3*double(n%127)/127, angle=double(n)*.172;
             double point[3]={radius*std::cos(angle),radius*std::sin(angle),1}, pixel[2];
             CHECK(fisheye62_project(p,point,pixel));
+            pixel[0]=(pixel[0]+origin)*scale-origin-(scaled_width-crop_width)*.5;
+            pixel[1]=(pixel[1]+origin)*scale-origin-(scaled_height-crop_height)*.5;
             Eigen::Vector4d ray(point[0],point[1],1,0),back;
             Eigen::Vector2d projected; CHECK(camera.project(ray,projected));
             CHECK((projected-Eigen::Vector2d(pixel[0],pixel[1])).norm()<1e-9);

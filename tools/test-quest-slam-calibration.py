@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--serial', required=True)
     parser.add_argument('--camera', action='append', required=True)
     parser.add_argument('--noise', type=Path, required=True)
+    parser.add_argument('--geometry', type=Path, help='Explicit active-image geometry candidate')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cc', default='cc')
     parser.add_argument('--cxx', default='c++')
@@ -38,8 +39,10 @@ def main():
     text = convert.read_private(args.calibration)
     noise_text = convert.read_private(args.noise)
     noise = convert.CAL.DECODER.decode(noise_text)
+    geometry_text = convert.read_private(args.geometry) if args.geometry else None
+    geometry = convert.CAL.DECODER.decode(geometry_text) if geometry_text else None
     for frame in ('original', 'accelerometer'):
-        convert.convert(text, args.serial, args.camera, frame, noise)
+        convert.convert(text, args.serial, args.camera, frame, noise, geometry)
     output = args.output.resolve()
     output.mkdir(mode=0o700, exist_ok=False)
     report = {'status': 'started', 'device_actions': [], 'physical_tracking_verified': False,
@@ -56,7 +59,7 @@ def main():
                            env=dict(os.environ, UBSAN_OPTIONS='halt_on_error=1', ASAN_OPTIONS='detect_leaks=' + str(int(sys.platform.startswith('linux')))))
     try:
         for frame in ('original', 'accelerometer'):
-            convert.export(args.calibration, args.serial, args.camera, frame, args.noise, output / frame)
+            convert.export(args.calibration, args.serial, args.camera, frame, args.noise, output / frame, args.geometry)
         unit = convert.CAL.DECODER.decode(text)
         imu = unit['ImuCalibration']
         values = [*imu['Accelerometer']['RectificationMatrix'], *imu['Gyroscope']['RectificationMatrix'],
@@ -65,6 +68,9 @@ def main():
             camera = next(c for c in unit['CameraCalibration'] if c['Id'] == ident)
             values += [*camera['Projection']['Coefficients'], *camera['Distortion']['Coefficients'],
                        *camera['DeviceFromCamera'], *camera['ImageSize']]
+            item = next(g for g in geometry['cameras'] if g['id'] == ident) if geometry else None
+            values += ([*item['scaled_size'], *item['crop_size'], item['pixel_center_origin']] if item else
+                       [*camera['ImageSize'], *camera['ImageSize'], 0.5])
         with os.fdopen(os.open(output / 'reference.txt', os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as stream:
             stream.write('\n'.join(format(v, '.17g') for v in values) + '\n')
         header = Path('thirdparty/basalt-headers/include/basalt/camera/fisheye624_camera.hpp')

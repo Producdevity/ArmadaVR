@@ -55,6 +55,49 @@ class QuestSlamCalibrationTests(unittest.TestCase):
         for key in ('active_calibration_verified', 'physical_tracking_verified', 'camera_identity_verified', 'rate_and_noise_verified', 'automatic_startup'):
             self.assertIs(record[key], False)
 
+    def test_explicit_image_geometry_and_projection(self):
+        for origin in (0.5, 1.0):
+            for scaled, cropped in [([1280, 1024], [1280, 1024]), ([640, 512], [640, 512]),
+                                    ([320, 256], [311, 241])]:
+                geometry = {'schema_version': 1, 'cameras': [
+                    {'id': ident, 'scaled_size': scaled, 'crop_size': cropped, 'pixel_center_origin': origin}
+                    for ident in ('0', '3')]}
+                result, record = CAL.convert(json.dumps(unit()), 'TEST-UNIT', ['3', '0'], 'original', noise(), geometry)
+                raw, _ = self.convert()
+                self.assertEqual(result['value0']['T_imu_cam'], raw['value0']['T_imu_cam'])
+                self.assertEqual(result['value0']['resolution'], [cropped, cropped])
+                intr = result['value0']['intrinsics'][0]['intrinsics']
+                scale = scaled[0] / 1280
+                self.assertEqual(intr['fx'], 500 * scale)
+                self.assertEqual(intr['fy'], 500 * scale)
+                self.assertEqual(intr['cx'], (640 + origin) * scale - origin - (scaled[0] - cropped[0]) / 2)
+                self.assertEqual(intr['cy'], (512 + origin) * scale - origin - (scaled[1] - cropped[1]) / 2)
+                for key, value in raw['value0']['intrinsics'][0]['intrinsics'].items():
+                    if key not in ('fx', 'fy', 'cx', 'cy'):
+                        self.assertEqual(intr[key], value)
+                self.assertFalse(record['active_image_geometry_verified'])
+                self.assertEqual(record['camera_geometry'], geometry)
+
+    def test_geometry_rejects_metadata_rows_and_implicit_origin(self):
+        item = {'id': '0', 'scaled_size': [640, 512], 'crop_size': [640, 512], 'pixel_center_origin': .5}
+        for field, value in [('scaled_size', [640, 513]), ('scaled_size', [1281, 1024]),
+                             ('scaled_size', [2560, 2048]), ('scaled_size', [640.0, 512]),
+                             ('crop_size', [641, 512]), ('crop_size', [0, 512]),
+                             ('pixel_center_origin', True), ('pixel_center_origin', 0),
+                             ('pixel_center_origin', float('nan')), ('id', '03')]:
+            bad = copy.deepcopy(item); bad[field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                CAL.image_geometry(unit()['CameraCalibration'][0], bad)
+        for bad in ({}, {'schema_version': True, 'cameras': []},
+                    {'schema_version': 1, 'cameras': [item, item]},
+                    {'schema_version': 1, 'cameras': [item]}):
+            with self.assertRaises(ValueError):
+                CAL.convert(json.dumps(unit()), 'TEST-UNIT', ['0', '3'], 'original', noise(), bad)
+        for key in item:
+            bad = dict(item); del bad[key]
+            with self.assertRaises(ValueError):
+                CAL.image_geometry(unit()['CameraCalibration'][0], bad)
+
     def test_rotated_translated_imu_extrinsics_and_accelerometer_frame(self):
         data = unit()
         data['ImuCalibration']['DeviceFromImu'] = [0,-1,0,1, 1,0,0,2, 0,0,1,3, 0,0,0,1]

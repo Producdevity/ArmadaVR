@@ -997,3 +997,25 @@ or start sensors. After startup, disposal requires independent confirmation that
 capture DMA and any uncertain CPU cache access have ended. The sanitizer tests
 exercise both shutter/image arrival orders and failed operations; they do not
 prove physical capture or recovery.
+
+### Explicit capture geometry
+
+The calibration converter accepts `--geometry` for a caller-supplied uniform
+downscale followed by a centered crop. The document has `schema_version: 1` and
+a `cameras` array containing exactly the selected IDs. Each entry specifies
+`id`, `scaled_size`, `crop_size`, and `pixel_center_origin` (0.5 or 1.0). Sizes
+refer to visible pixels after removing the embedded metadata row. Nonuniform
+scaling, upscaling, missing origin rules and out-of-bounds crops are rejected.
+
+The retained Quest camera-model implementation scales the focal length and uses
+`(principal + origin) * scale - origin` before subtracting the centered crop
+offset. Its two rescale modes use different origins; the active mode must be
+established independently. Factory camera dimensions alone cannot select it.
+A 640×513 transport buffer with a leading metadata row therefore describes a
+640×512 visible image, not a 640×513 calibration. Distortion coefficients and
+camera/IMU extrinsics are unchanged by this conversion. The output records the
+geometry input and hash but keeps active geometry and physical tracking unverified.
+
+Offline checks compare both rules and centered cropping with the original ARM64
+rescale/crop functions. The Basalt parser test also projects the original rays
+through the requested pixel transform and checks the converted camera model.

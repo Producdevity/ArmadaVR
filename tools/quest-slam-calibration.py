@@ -76,7 +76,34 @@ def quaternion(r):
     return [x / norm for x in q]
 
 
-def convert(text, serial, camera_ids, frame, noise):
+def image_geometry(camera, geometry):
+    source = camera['ImageSize']
+    projection = camera['Projection']['Coefficients']
+    if geometry is None:
+        return list(source), list(projection)
+    require(isinstance(geometry, dict) and set(geometry) ==
+            {'id', 'scaled_size', 'crop_size', 'pixel_center_origin'}, 'Invalid camera geometry fields')
+    require(geometry['id'] == camera['Id'], 'Geometry camera identity mismatch')
+    sizes = [geometry['scaled_size'], geometry['crop_size']]
+    for size in sizes:
+        require(isinstance(size, list) and len(size) == 2 and
+                all(type(x) is int and 0 < x <= 16384 for x in size), 'Invalid camera image dimensions')
+    scaled, cropped = sizes
+    require(all(c <= s <= original for c, s, original in zip(cropped, scaled, source)),
+            'Only downscaling and centered cropping are supported')
+    require(scaled[0] * source[1] == scaled[1] * source[0], 'Camera rescaling must preserve aspect ratio')
+    origin = CAL.number(geometry['pixel_center_origin'])
+    require(origin in (0.5, 1.0), 'Explicit supported pixel-center origin required')
+    scale = scaled[0] / source[0]
+    f, cx, cy = projection
+    principal = [(p + origin) * scale - origin - (s - c) / 2
+                 for p, s, c in zip((cx, cy), scaled, cropped)]
+    values = [f * scale, *principal]
+    require(all(math.isfinite(x) for x in values) and values[0] > 0, 'Invalid transformed projection')
+    return list(cropped), values
+
+
+def convert(text, serial, camera_ids, frame, noise, geometry=None):
     CAL.calibration(text, serial, True)
     unit = CAL.DECODER.decode(text)
     require(frame in ('original', 'accelerometer'), 'Explicit supported IMU frame required')
@@ -88,6 +115,17 @@ def convert(text, serial, camera_ids, frame, noise):
     require(0 < rate <= 10000, 'Invalid IMU rate')
     for key in NOISE_FIELDS:
         require(all(0 < x < 1e6 for x in CAL.vector(noise[key], 3)), 'Invalid noise standard deviation')
+    geometry_by_id = {}
+    if geometry is not None:
+        require(isinstance(geometry, dict) and set(geometry) == {'schema_version', 'cameras'} and
+                type(geometry['schema_version']) is int and geometry['schema_version'] == 1 and
+                isinstance(geometry['cameras'], list) and len(geometry['cameras']) == len(camera_ids),
+                'Invalid camera geometry document')
+        for item in geometry['cameras']:
+            require(isinstance(item, dict) and isinstance(item.get('id'), str) and
+                    item['id'] in camera_ids and item['id'] not in geometry_by_id,
+                    'Geometry must name each selected camera exactly once')
+            geometry_by_id[item['id']] = item
     imu = unit['ImuCalibration']
     device = imu['DeviceFromImu']
     rotation = [device[4 * i + j] for i in range(3) for j in range(3)]
@@ -111,11 +149,11 @@ def convert(text, serial, camera_ids, frame, noise):
         delta = [transform[4 * i + 3] - device[4 * i + 3] for i in range(3)]
         translation = [dot(inverse[3 * i:3 * i + 3], delta) for i in range(3)]
         poses.append(dict(zip(('px', 'py', 'pz', 'qx', 'qy', 'qz', 'qw'), translation + q)))
-        f, cx, cy = camera['Projection']['Coefficients']
+        resolution, (f, cx, cy) = image_geometry(camera, geometry_by_id.get(ident))
         values = [f, f, cx, cy, *camera['Distortion']['Coefficients'], 0, 0, 0, 0]
         keys = ('fx', 'fy', 'cx', 'cy', 'k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'p1', 'p2', 's1', 's2', 's3', 's4')
         intrinsics.append({'camera_type': 'fisheye624', 'intrinsics': dict(zip(keys, values))})
-        resolutions.append(camera['ImageSize'])
+        resolutions.append(resolution)
         selected.append({'id': ident, 'sensor_type': camera['SensorType'], 'image_size': camera['ImageSize'],
                          'unprojected_fov_unit_plane': camera.get('UnprojectedFovUnitPlane')})
     # Native input already applies sensor calibration and maps exposure time.
@@ -125,7 +163,9 @@ def convert(text, serial, camera_ids, frame, noise):
     effective = [rotation[3 * i + j] if j < 3 else device[4 * i + 3] for i in range(3) for j in range(4)] + [0, 0, 0, 1]
     manifest = {'schema_version': 1, 'imu_frame': frame, 'device_from_effective_imu': effective,
                 'camera_order': selected, 'input_requirement': 'pre-calibrated SI IMU and exposure-center camera timestamps in one verified clock domain',
-                'camera_geometry': 'full calibrated image, no crop, resize, rotation or reflection',
+                'camera_geometry': geometry if geometry is not None else
+                    'full calibrated image, no crop, resize, rotation or reflection',
+                'active_image_geometry_verified': False,
                 'source_sha256': hashlib.sha256(text.encode()).hexdigest(),
                 'rate_and_noise_verified': False, 'active_calibration_verified': False,
                 'camera_identity_verified': False, 'physical_tracking_verified': False,
@@ -141,9 +181,13 @@ def read_private(path):
     return raw.decode('utf-8')
 
 
-def export(source, serial, camera_ids, frame, noise_path, output):
+def export(source, serial, camera_ids, frame, noise_path, output, geometry_path=None):
     text, noise_text = read_private(source), read_private(noise_path)
-    calibration, manifest = convert(text, serial, camera_ids, frame, CAL.DECODER.decode(noise_text))
+    geometry_text = read_private(geometry_path) if geometry_path is not None else None
+    geometry = CAL.DECODER.decode(geometry_text) if geometry_text is not None else None
+    calibration, manifest = convert(text, serial, camera_ids, frame, CAL.DECODER.decode(noise_text), geometry)
+    if geometry_text is not None:
+        manifest['geometry_input_sha256'] = hashlib.sha256(geometry_text.encode()).hexdigest()
     payload = (json.dumps(calibration, indent=2, allow_nan=False) + '\n').encode()
     manifest.update(calibration_sha256=hashlib.sha256(payload).hexdigest(), noise_input_sha256=hashlib.sha256(noise_text.encode()).hexdigest())
     output.mkdir(mode=0o700, exist_ok=False)
@@ -162,10 +206,11 @@ def main():
     parser.add_argument('--camera', action='append', required=True)
     parser.add_argument('--imu-frame', choices=('original', 'accelerometer'), required=True)
     parser.add_argument('--noise', type=Path, required=True)
+    parser.add_argument('--geometry', type=Path, help='Explicit per-camera uniform scale, centered crop and pixel-center origin')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     try:
-        export(args.calibration, args.serial, args.camera, args.imu_frame, args.noise, args.output)
+        export(args.calibration, args.serial, args.camera, args.imu_frame, args.noise, args.output, args.geometry)
     except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as error:
         parser.exit(1, str(error) + '\n')
     print('Quest calibration candidate exported; hardware identity, rate, noise and clock remain unverified.')
