@@ -165,7 +165,9 @@
     "quest-camera-memory.c",
     "quest-camera-memory.h",
     "quest-camera-isp.c",
-    "quest-camera-isp.h"
+    "quest-camera-isp.h",
+    "quest-camera-metadata.c",
+    "quest-camera-metadata.h"
   ],
   "quest_runtime_exports": [
     "quest_slam_runtime_prepare",
@@ -203,6 +205,7 @@
     "quest_camera_pixels_import",
     "quest_camera_memory_release",
     "quest_camera_isp_encode",
-    "quest_camera_phy_encode"
+    "quest_camera_phy_encode",
+    "quest_camera_metadata_decode"
   ]
 }

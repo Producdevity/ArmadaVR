@@ -75,3 +75,32 @@ varints, duplicate identities, invalid references, nonfinite numbers, unexpected
 wire types and checksum failures are covered by host tests. Only the inspector
 and synthetic tests belong in Git; the configuration, descriptors and analysis
 remain private evidence.
+
+## Embedded tracking-camera metadata
+
+`quest_camera_metadata_decode` decodes the OG01A1B and OV7251 embedded row
+formats from authenticated build `52433670036000520`. It supports the stock
+8-bit and packed-10 representations, with bounded lengths, unaligned input and
+unchanged output on failure. It returns exposure duration, encoded gain, frame
+counter, matching words and tags. It refuses values that would wrap the stock
+16-bit fields. Parameters are explicit: the three OG01A1B words come from the
+MCU metadata-matching response; OV7251 uses its first MCU word and the device
+descriptor's gain multiplier. Nominal camera-module timings cannot substitute
+for that active response. Matching words and the derived span retain their
+stock representation; their relation to physical readout remains unverified.
+
+All returned fields match the original isolated ARM64 routines across 24,000
+synthetic cases (two sensors, two row formats). Guard-page truncation tests and
+address/undefined-behavior sanitizers cover bounds and arithmetic rejection.
+The original library is `libsyncboss.so`, SHA-256
+`a3164d43adb9de5eddb9fa38fd221701a6c4bbf3faa12a216a462b4831555c57`,
+with decoder entries `0x139d0` and `0x1478c`. No constructors, service startup or
+device access are used by the comparison. Firmware and private analysis remain
+under `output/quest-offline-parity-20261015-v1/`.
+
+These rows do not contain an independently usable capture timestamp. Stock
+code matches their tags to recent MCU shutter packets, then separately applies
+timestamp adjustments. Receiving those packets, handling ambiguity and counter
+wrap, verifying exposure-center time, and mapping the active image geometry to
+calibration are still required. Row-format detection is not authorization to
+interpret an entire image as that pixel format.
