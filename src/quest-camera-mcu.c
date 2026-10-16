@@ -62,3 +62,42 @@ bool quest_camera_mcu_status_decode(const void *payload, size_t size, int32_t *s
     memcpy(status, &value, sizeof(value));
     return true;
 }
+
+bool quest_camera_mcu_setting_encode(enum quest_camera_mcu_setting setting,
+    const struct quest_camera_mcu_setting_record *records, size_t count,
+    uint8_t sequence, void *output, size_t capacity, size_t *written)
+{
+    size_t width = 5;
+    bool single = false;
+    switch (setting) {
+    case QUEST_CAMERA_MCU_BINNING:
+    case QUEST_CAMERA_MCU_BPP:
+    case QUEST_CAMERA_MCU_SYNC_MODE: break;
+    case QUEST_CAMERA_MCU_IMAGE: width = 6; break;
+    case QUEST_CAMERA_MCU_MIPI_CLOCK:
+    case QUEST_CAMERA_MCU_METADATA_MODE:
+    case QUEST_CAMERA_MCU_GAMMA: single = true; break;
+    default: return false;
+    }
+    if (!records || !count || count > QUEST_CAMERA_MCU_SETTING_MAX_RECORDS ||
+        (single && count != 1) || !sequence || sequence == 255 || !output || !written)
+        return false;
+    size_t length = 4 + count * width;
+    if (capacity < length) return false;
+    uint32_t seen = 0;
+    uint8_t bytes[QUEST_CAMERA_MCU_SETTING_MAX_SIZE] = {3, sequence, (uint8_t)(length - 3), (uint8_t)setting};
+    for (size_t i = 0; i < count; ++i) {
+        const struct quest_camera_mcu_setting_record *record = &records[i];
+        if (!record->camera_mask || (seen & record->camera_mask) ||
+            (width == 5 && record->second) || (setting == QUEST_CAMERA_MCU_GAMMA && record->value > 1))
+            return false;
+        seen |= record->camera_mask;
+        for (unsigned j = 0; j < 4; ++j)
+            bytes[4 + i * width + j] = (uint8_t)(record->camera_mask >> (8 * j));
+        bytes[8 + i * width] = record->value;
+        if (width == 6) bytes[9 + i * width] = record->second;
+    }
+    memcpy(output, bytes, length);
+    *written = length;
+    return true;
+}

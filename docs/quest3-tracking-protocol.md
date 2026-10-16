@@ -1223,3 +1223,31 @@ It also drives 512 images through the real GET/RETURN, capture, embedded-row
 decoder and mono8-copy path with both shutter-before-image and image-before-shutter
 ordering. Hardware, memory syscalls, exposure windows and exposure centers are
 modeled. No active sensor timing, camera wiring or physical DMA behavior is inferred.
+
+Camera settings use Syncboss command 3, followed by a one-byte subcommand and
+packed records. This differs from the direct initialization/start/stop command
+types. The encoder supports binning (`0xa7`), bit-depth selection (`0xa0`), sync
+mode (`0xa4`), image configuration (`0xa5`), MIPI clock selection (`0x66`), metadata
+mode (`0xdd`) and gamma (`0x31`). Each record contains a little-endian camera mask
+and one selector byte; image configuration has a second byte. The first four
+settings accept up to 15 records; the remaining settings accept one. Empty or
+overlapping masks are rejected. Gamma is restricted to 0 or 1 instead of silently
+masking arbitrary input, and unused second bytes must be zero.
+
+The caller must supply verified selectors, an allocated sequence and exclusive
+control ownership. The returned packet can be passed to the transaction owner as
+command type 3 and payload bytes after the three-byte transport header. Replies
+use type `0x7d` and the existing signed four-byte status decoder. Neither encoding
+nor an acknowledgement establishes physical timing, camera readiness or DMA
+quiescence. Frame-period configuration and the firmware library's additional
+NICE and local event updates are not inferred from this interface.
+
+Offline validation compares 16,128 encoded payloads against isolated functions
+from the retained ARM64 `libsyncboss.so` (SHA-256
+`a3164d43adb9de5eddb9fa38fd221701a6c4bbf3faa12a216a462b4831555c57`).
+The original setting functions and common command-3 wrapper execute; mutex,
+logging, memory-copy and command-wait hooks are modeled. Sync-mode serialization
+is observed on transport failure to avoid invoking unrelated local event
+bookkeeping. Separate host tests check capacity boundaries with guard pages,
+sequence limits, overlapping masks and output preservation on refusal. These
+checks do not validate an active sensor operating point.

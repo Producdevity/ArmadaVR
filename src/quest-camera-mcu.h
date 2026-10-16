@@ -47,4 +47,30 @@ enum quest_camera_mcu_operation {
 bool quest_camera_mcu_command_encode(enum quest_camera_mcu_operation operation,
                                       uint32_t camera_mask, uint8_t sequence, void *output, size_t size);
 bool quest_camera_mcu_status_decode(const void *payload, size_t size, int32_t *status);
+enum quest_camera_mcu_setting {
+    QUEST_CAMERA_MCU_BINNING = 0xa7,
+    QUEST_CAMERA_MCU_BPP = 0xa0,
+    QUEST_CAMERA_MCU_SYNC_MODE = 0xa4,
+    QUEST_CAMERA_MCU_IMAGE = 0xa5,
+    QUEST_CAMERA_MCU_MIPI_CLOCK = 0x66,
+    QUEST_CAMERA_MCU_METADATA_MODE = 0xdd,
+    QUEST_CAMERA_MCU_GAMMA = 0x31,
+};
+struct quest_camera_mcu_setting_record {
+    uint32_t camera_mask;
+    uint8_t value, second;
+};
+#define QUEST_CAMERA_MCU_SETTING_MAX_RECORDS 15
+#define QUEST_CAMERA_MCU_SETTING_MAX_SIZE 94
+
+/* Command 3 carries the setting subcommand and packed records. Masks must be
+ * nonzero and disjoint. MIPI clock, metadata mode and gamma accept one record;
+ * gamma accepts only 0 or 1. Only image configuration uses the second byte.
+ * Other values are firmware selectors, not inferred physical rates or modes.
+ * The caller supplies a verified operating point and owns the allocated sequence.
+ * No I/O or local firmware-library event bookkeeping occurs. Reply type/status
+ * follow the direct command contract above. Failure preserves output and written. */
+bool quest_camera_mcu_setting_encode(enum quest_camera_mcu_setting setting,
+    const struct quest_camera_mcu_setting_record *records, size_t count,
+    uint8_t sequence, void *output, size_t capacity, size_t *written);
 #endif

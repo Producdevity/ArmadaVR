@@ -91,6 +91,7 @@
         quest_camera_sensor_power_size;
         quest_camera_sensor_power;
         quest_camera_mcu_command_encode;
+        quest_camera_mcu_setting_encode;
         quest_camera_mcu_status_decode;
         quest_camera_allocation_create;
         quest_camera_allocation_view;

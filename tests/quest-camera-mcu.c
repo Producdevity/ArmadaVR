@@ -5,9 +5,86 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
+static unsigned settings(void)
+{
+    const unsigned settings[] = {0xa7, 0xa0, 0xa4, 0xa5, 0x66, 0xdd, 0x31};
+    unsigned cases = 0;
+    struct quest_camera_mcu_setting_record records[15];
+    uint8_t output[96];
+    for (unsigned s = 0; s < sizeof(settings) / sizeof(settings[0]); ++s) {
+        unsigned setting = settings[s];
+        bool single = setting == 0x66 || setting == 0xdd || setting == 0x31;
+        size_t width = setting == 0xa5 ? 6 : 5;
+        for (unsigned count = 1; count <= (single ? 1u : 15u); ++count)
+        for (unsigned seq = 1; seq <= 254; ++seq) {
+            for (unsigned i = 0; i < count; ++i) records[i] = (struct quest_camera_mcu_setting_record){
+                UINT32_C(1) << ((i + seq) % 32), (uint8_t)(setting == 0x31 ? seq & 1 : seq + i),
+                (uint8_t)(setting == 0xa5 ? 255 - i : 0)};
+            size_t written = 999, size = 4 + count * width;
+            memset(output, 0xa5, sizeof(output));
+            assert(quest_camera_mcu_setting_encode(setting, records, count, seq, output + 1, size, &written));
+            assert(written == size && output[0] == 0xa5 && output[size + 1] == 0xa5);
+            assert(output[1] == 3 && output[2] == seq && output[3] == size - 3 && output[4] == setting);
+            for (unsigned i = 0; i < count; ++i) {
+                uint32_t mask; memcpy(&mask, output + 5 + i * width, 4);
+                assert(mask == records[i].camera_mask && output[9 + i * width] == records[i].value);
+                if (width == 6) assert(output[10 + i * width] == records[i].second);
+            }
+            ++cases;
+        }
+    }
+    for (unsigned trial = 0; trial < 18; ++trial) {
+        unsigned setting = 0xa5, seq = 1; size_t count = 2, cap = sizeof(output), written = 999;
+        records[0] = (struct quest_camera_mcu_setting_record){1, 0, 0};
+        records[1] = (struct quest_camera_mcu_setting_record){2, 0, 0};
+        switch (trial) {
+        case 0: count = 0; break;
+        case 1: count = 16; break;
+        case 2: count = SIZE_MAX; break;
+        case 3: setting = 0x2c; break;
+        case 4: seq = 0; break;
+        case 5: seq = 255; break;
+        case 6: records[0].camera_mask = 0; break;
+        case 7: records[1].camera_mask = 3; break;
+        case 8: setting = 0x66; break;
+        case 9: setting = 0xdd; break;
+        case 10: setting = 0x31; break;
+        case 11: setting = 0x31; count = 1; records[0].value = 2; break;
+        case 12: setting = 0xa7; records[1].second = 1; break;
+        case 13: cap = 15; break;
+        case 14: cap = 0; break;
+        default: break;
+        }
+        memset(output, 0xa5, sizeof(output));
+        assert(!quest_camera_mcu_setting_encode(setting, trial == 15 ? NULL : records, count,
+            seq, trial == 16 ? NULL : output, cap, trial == 17 ? NULL : &written));
+        assert(written == 999);
+        for (size_t i = 0; i < sizeof(output); ++i) assert(output[i] == 0xa5);
+        ++cases;
+    }
+    size_t page = (size_t)sysconf(_SC_PAGESIZE);
+    uint8_t *guard = mmap(NULL, page * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(guard != MAP_FAILED && !mprotect(guard + page, page, PROT_NONE));
+    for (unsigned count = 1; count <= 15; ++count) {
+        for (unsigned i = 0; i < count; ++i)
+            records[i] = (struct quest_camera_mcu_setting_record){UINT32_C(1) << i, 255, 255};
+        size_t length = 4 + count * 6;
+        for (size_t capacity = 0; capacity <= length; ++capacity) {
+            size_t written = 999; uint8_t *end = guard + page - capacity;
+            memset(end, 0xa5, capacity);
+            assert(quest_camera_mcu_setting_encode(0xa5, records, count, 254, end, capacity, &written) == (capacity == length));
+            assert(written == (capacity == length ? length : 999));
+            if (capacity < length) for (size_t i = 0; i < capacity; ++i) assert(end[i] == 0xa5);
+            ++cases;
+        }
+    }
+    assert(!munmap(guard, page * 2));
+    return cases;
+}
+
 int main(void)
 {
-    unsigned cases=0;
+    unsigned cases=settings();
     for (unsigned op = 0x2c; op <= 0x2f; ++op)
     for (unsigned seq = 1; seq <= 254; ++seq)
     for (unsigned bit = 0; bit < 32; ++bit) {
