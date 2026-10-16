@@ -7,8 +7,9 @@ No physical-device command or firmware installation was performed.
 
 The complete native tracking driver remains required. The public source inspected
 provides an IMU packet identifier and transport interfaces. The October 11
-firmware analysis below adds a tested raw sample decoder, but factory calibration
-and native Quest 3 Monado integration remain unverified. The existing
+firmware analysis below adds a tested raw sample decoder, but active factory calibration and physical native Quest 3 tracking remain unverified.
+The native runtime and calibrated Monado adapter now have the offline verification
+described below. The existing
 [`syncboss-replay.py`](../tools/syncboss-replay.py) correctly leaves sensor payloads
 opaque; decoding the FIFO wrapper does not produce calibrated motion.
 
@@ -741,7 +742,7 @@ Temperature tables and the VIT library/configuration must outlive the owner;
 stop capture callbacks and release HMD references before destruction.
 
 The native Monado bundle installs this owner as `libquest_tracking.so`. Its
-seven exported functions provide lifecycle, input and locked pose queries; the
+exported functions provide lifecycle, input and locked pose queries; the
 shared session internals remain private to the library. It links no Pico tracking
 or SSC library and registers no automatic hardware probe. Package verification
 checks ARM64 architecture, exports, dependencies and invalid-input refusal on load.
@@ -893,3 +894,30 @@ The native vendor-header test checks 266 buffer ioctls, all 1-30 buffer counts,
 zero-wait and separate return payloads, malformed responses, partial failure
 output, and invalid handles/offsets under ASan/UBSan. Kernel timestamp ownership,
 ISP resources and real capture remain unverified by these transport tests.
+
+
+The Quest device transport now supplies explicit sensor probe/acquire, PHY
+acquire, split ISP device acquire, packet configure, start/stop and release.
+Probe uses Quest opcode `0x10e`; PHY acquisition represents the Quest CPHY flag
+separately from same-type combo mode and excludes mixed/remote modes. These calls
+can power hardware and are not inventory operations. They preserve positive
+handles even after errors and never retry. ISP hardware-resource acquisition,
+verified sensor mode packets and an exclusive capture owner are still required.
+
+`quest-camera-memory.c` uses Quest's CRM allocation/import/release opcodes
+`0x116`–`0x118`. It requests cached nonsecure memory: this kernel uses DMA heaps
+and its allocation implementation rejects uncached requests unless platform
+policy forces caching. Packet buffers have kernel and user access; command
+buffers may additionally map into explicit query-derived MMUs. Pixel import
+requires a fresh caller-owned cached DMA-BUF and checks the returned mapped size
+against its verified allocation. Failed allocation/import retains any returned
+handle or descriptor. Failed release must not be retried because kernel state
+may already have changed. Mapping, cache synchronization and DMA quiescence
+remain the enclosing owner's responsibility.
+
+Native ARM64 ASan/UBSan tests against the pinned vendor headers pass 318 device
+and 6,558 memory ioctls, including all 1–16 MMU counts, descriptor boundaries,
+partial copy-back, malformed handles and mapped extents, interrupted calls and
+positive ioctl returns. The preceding query, CRM and buffer tests also pass.
+These tests perform no device I/O and do not establish physical acquisition or
+memory coherency.

@@ -134,3 +134,57 @@ int quest_camera_requests_flush(int fd, int32_t session, int32_t link)
     _Static_assert(sizeof(data) == 24, "Quest CRM flush ABI");
     return submit(fd, 0x114, &data, sizeof(data));
 }
+
+int quest_camera_device_configure(int fd, int32_t session, int32_t device,
+                                 int32_t packet, uint64_t offset, uint64_t allocation_size)
+{
+    if (session <= 0 || device <= 0 || packet <= 0 || offset % 8 || allocation_size < 64 || allocation_size > INT32_MAX ||
+        offset > allocation_size - 64) return -EINVAL;
+    struct { int32_t session, device; uint64_t offset, packet; } data = {session, device, offset, (uint32_t)packet};
+    _Static_assert(sizeof(data) == 24, "camera configure ABI");
+    return submit(fd, 0x105, &data, sizeof(data));
+}
+int quest_camera_device_stream(int fd, int32_t session, int32_t device, bool start)
+{
+    if (session <= 0 || device <= 0) return -EINVAL;
+    int32_t data[2] = {session, device};
+    return submit(fd, start ? 0x103 : 0x104, data, sizeof(data));
+}
+int quest_camera_device_release(int fd, int32_t session, int32_t *device)
+{
+    if (session <= 0 || !device || *device <= 0) return -EINVAL;
+    int32_t data[2] = {session, *device};
+    int result = submit(fd, 0x106, data, sizeof(data));
+    if (!result) *device = 0;
+    return result;
+}
+int quest_camera_sensor_probe_submit(int fd, int32_t packet)
+{
+    if (fd < 0 || packet <= 0) return -EINVAL;
+    struct { uint32_t opcode, size, type, reserved; uint64_t pointer; } command = {0x10e, 8, 2, 0, (uint32_t)packet};
+    int result = ioctl(fd, 0xc01856c0UL, &command);
+    return result < 0 ? -errno : result ? -EPROTO : 0;
+}
+static int acquire_device(int fd, int32_t session, uint32_t count, void *info, int32_t *device)
+{
+    if (session <= 0 || !device || *device) return -EINVAL;
+    struct { int32_t session, device; uint32_t type, count; uint64_t pointer; } data = {
+        session, 0, 1, count, (uintptr_t)info};
+    _Static_assert(sizeof(data) == 24, "camera acquire ABI");
+    int result = submit(fd, 0x102, &data, sizeof(data));
+    if (data.device > 0) *device = data.device;
+    return result ? result : data.device > 0 ? 0 : -EPROTO;
+}
+int quest_camera_sensor_acquire(int fd, int32_t session, int32_t *device)
+{
+    return acquire_device(fd, session, 0, NULL, device);
+}
+int quest_camera_phy_acquire(int fd, int32_t session, bool combo, bool cphy, int32_t *device)
+{
+    struct { uint32_t combo; uint16_t mixed; uint8_t cphy, reserved; } info = {combo, 0, cphy, 0};
+    return acquire_device(fd, session, 0, &info, device);
+}
+int quest_camera_isp_device_acquire(int fd, int32_t session, int32_t *device)
+{
+    return acquire_device(fd, session, 0xfefefefe, NULL, device);
+}

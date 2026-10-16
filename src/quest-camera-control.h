@@ -40,4 +40,19 @@ int quest_camera_request_schedule(int fd, int32_t session, int32_t link, uint64_
                                   bool synchronized, bool bubble_recovery);
 int quest_camera_requests_flush(int fd, int32_t session, int32_t link);
 
+/* Acquisition can power hardware. Handle output starts at zero and preserves
+ * positive handles even after failure. Probe requires a prepared kernel-mapped
+ * packet at offset zero. PHY supports DPHY or CPHY with optional same-type
+ * combo mode; mixed/remote PHY modes are excluded. ISP uses split acquisition:
+ * a separate verified hardware-resource command is required before config.
+ * No call retries, opens a node or establishes DMA quiescence. */
+int quest_camera_sensor_probe_submit(int fd, int32_t packet);
+int quest_camera_sensor_acquire(int fd, int32_t session, int32_t *device);
+int quest_camera_phy_acquire(int fd, int32_t session, bool combo, bool cphy, int32_t *device);
+int quest_camera_isp_device_acquire(int fd, int32_t session, int32_t *device);
+int quest_camera_device_configure(int fd, int32_t session, int32_t device,
+                                   int32_t packet, uint64_t offset, uint64_t allocation_size);
+int quest_camera_device_stream(int fd, int32_t session, int32_t device, bool start);
+int quest_camera_device_release(int fd, int32_t session, int32_t *device);
+
 #endif
